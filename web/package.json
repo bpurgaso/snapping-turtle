@@ -1,0 +1,24 @@
+{
+  "name": "@snapping-turtle/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Vite bundles served by server/: capture page + editor, auth pages, account, admin",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:parity": "playwright test"
+  },
+  "dependencies": {
+    "@snapping-turtle/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  }
+}
