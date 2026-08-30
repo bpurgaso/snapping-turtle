@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "snapping-turtle",
+  "description": "Capture the current tab and share it at a private link on your own snapping-turtle server.",
+  "action": {
+    "default_title": "snapping-turtle",
+    "default_popup": "popup/index.html"
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "optional_host_permissions": ["https://*/*"]
+}

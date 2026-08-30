@@ -1,0 +1,39 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  font-size: 14px;
+}
+body {
+  margin: 0;
+  min-width: 220px;
+}
+main {
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+h1 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+button {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.note {
+  margin: 0;
+  opacity: 0.7;
+  font-size: 12px;
+}
