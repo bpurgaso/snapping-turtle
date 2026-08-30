@@ -1,0 +1,8 @@
+# Override for local / LAN runs with any hostname and no ACME:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml up -d --build
+# Swaps in Caddyfile.local (tls internal). Not needed when PUBLIC_HOST=localhost —
+# Caddy already uses its internal CA for localhost.
+services:
+  caddy:
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro

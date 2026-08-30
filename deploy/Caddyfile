@@ -1,0 +1,41 @@
+# Site block per PLAN.md §14: automatic HTTPS for PUBLIC_HOST.
+# When PUBLIC_HOST is `localhost`, Caddy issues from its internal CA instead of
+# Let's Encrypt — no ACME needed for local runs. For any other non-public
+# hostname use docker-compose.local.yml, which swaps in Caddyfile.local.
+{
+	servers {
+		# Cap slow-loris style connections before they reach the app.
+		timeouts {
+			read_header 10s
+			read_body 60s
+			idle 2m
+		}
+	}
+}
+
+# Snippets must be defined before the site block that imports them.
+(site) {
+	encode zstd gzip
+
+	# Upload body cap, mirrored by the app's bodyLimit (shared MAX_UPLOAD_MB).
+	request_body {
+		max_size {$MAX_UPLOAD_MB}MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# /healthz is for the compose healthcheck only (PLAN.md §8: internal only).
+	@internal path /healthz
+	respond @internal 404
+
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+{$PUBLIC_HOST} {
+	import site
+}

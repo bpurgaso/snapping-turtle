@@ -1,0 +1,32 @@
+# Local/LAN variant: identical to Caddyfile but forces Caddy's internal CA so
+# any hostname works without ACME. Mounted by docker-compose.local.yml.
+{
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 60s
+			idle 2m
+		}
+	}
+}
+
+(site) {
+	encode zstd gzip
+	request_body {
+		max_size {$MAX_UPLOAD_MB}MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	@internal path /healthz
+	respond @internal 404
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+{$PUBLIC_HOST} {
+	tls internal
+	import site
+}

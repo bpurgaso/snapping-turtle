@@ -177,16 +177,18 @@ Defense-in-depth, outermost first:
 
 `docker-compose.yml` with three services — `caddy` (ports 80/443; volumes for ACME state), `app`, `postgres` — plus named volumes for images and DB data, healthchecks, and `restart: unless-stopped`. Caddy's site block is literally `{$PUBLIC_HOST} { reverse_proxy app:3000 }`, which gives automatic Let's Encrypt issuance and renewal (port 80 stays open for HTTP-01 and redirects).
 
-Key configuration (single `.env`):
+Key configuration (single `deploy/.env`, read by both compose and local `pnpm dev`; template in `deploy/.env.example`). Caddy's site address takes a bare hostname, so the file holds `PUBLIC_HOST` and everything else derives from it — that keeps domain migration a one-variable change (§15). When `PUBLIC_HOST` is `localhost` Caddy uses its internal CA automatically; `deploy/docker-compose.local.yml` forces `tls internal` for any other non-public name (M0 decision, see `deploy/README.md`):
 
 | Variable | Default | Used by |
 |---|---|---|
-| `PUBLIC_ORIGIN` | `https://shots.example.com` | Caddy vhost/cert, app absolute URLs, extension build default |
+| `PUBLIC_HOST` | `shots.example.com` | The single domain knob: Caddy vhost/cert directly; compose derives `PUBLIC_ORIGIN=https://$PUBLIC_HOST` for the app, and the extension build reads `PUBLIC_ORIGIN` or falls back to `https://$PUBLIC_HOST` |
+| `PUBLIC_ORIGIN` | derived | App absolute URLs, extension build default. Set explicitly only for local `pnpm dev` (e.g. `http://localhost:3000`) |
 | `RETENTION_DEFAULT_DAYS` / `RETENTION_MAX_DAYS_USER` | 30 / 365 | app |
 | `MAX_UPLOAD_MB` | 30 | Caddy + app |
 | `RATE_*` knobs (windows, budgets, breaker threshold) | sane defaults | guard |
 | `DATABASE_URL`, `SESSION_SECRET` | generated at install | app |
-| `ADMIN_BOOTSTRAP_USER` / `..._PASSWORD` | — | one-time seed command |
+| `ADMIN_BOOTSTRAP_USER` / `..._PASSWORD` | — | one-time seed command (`pnpm --filter server db:seed`, or `docker compose run --rm app node dist/db/seed.js`) |
+| `TRUST_PROXY`, `LOG_LEVEL`, `HOST` / `PORT` | compose sets `TRUST_PROXY=true`; `info`; `0.0.0.0:3000` | app |
 
 ## 15. Extension design (Chrome + Firefox)
 
