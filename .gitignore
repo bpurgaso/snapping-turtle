@@ -1,0 +1,23 @@
+# dependencies / build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# secrets — never commit; keep deploy/.env.example current instead (CLAUDE.md rule 12)
+.env
+.env.*
+!.env.example
+deploy/.env
+
+# test artifacts
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

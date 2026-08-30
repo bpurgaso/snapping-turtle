@@ -1,0 +1,12 @@
+# Keep host build state out of the image: the container installs and builds itself.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.github
+deploy/.env
+deploy/caddy-local-root.crt
+**/playwright-report
+**/test-results
+**/coverage
+.DS_Store

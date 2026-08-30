@@ -1,0 +1,12 @@
+packages:
+  - shared
+  - server
+  - web
+  - extension
+
+# pnpm 10 skips lifecycle scripts of dependencies unless allow-listed.
+# argon2 ships prebuilt binaries; its install script only falls back to node-gyp when none matches.
+# esbuild's postinstall verifies the platform binary that vite/vitest/tsx rely on.
+onlyBuiltDependencies:
+  - argon2
+  - esbuild

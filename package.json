@@ -1,0 +1,33 @@
+{
+  "name": "snapping-turtle",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Self-hosted screenshot capture and sharing: browser extensions + Fastify server",
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=22 <23",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @snapping-turtle/shared build && pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "test": "pnpm --filter @snapping-turtle/shared build && vitest run",
+    "test:integration": "pnpm --filter @snapping-turtle/shared build && pnpm --filter @snapping-turtle/server test:integration",
+    "test:parity": "pnpm --filter @snapping-turtle/shared --filter @snapping-turtle/web build && pnpm --filter @snapping-turtle/web test:parity",
+    "lint": "eslint .",
+    "typecheck": "pnpm --filter @snapping-turtle/shared build && pnpm -r typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.1",
+    "eslint": "10.9.1",
+    "globals": "17.11.0",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0",
+    "vitest": "4.1.11"
+  }
+}
