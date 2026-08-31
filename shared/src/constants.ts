@@ -30,6 +30,10 @@ export const MAX_SOURCE_URL_LENGTH = 2048;
 /** `page_title` is truncated to this many characters on ingest (§12). */
 export const MAX_PAGE_TITLE_LENGTH = 512;
 
+/** Byte cap for a serialized annotation document PUT (500 text shapes of
+ *  2,000 chars can legitimately reach several MB once JSON-escaped). */
+export const MAX_ANNOTATION_DOC_BYTES = 8 * 1024 * 1024;
+
 // ---- Capture mechanics (§15) ------------------------------------------------
 
 /** Chrome throttles captureVisibleTab to ~2 calls/sec; scroll-and-stitch tiles

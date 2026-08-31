@@ -1,4 +1,5 @@
 import { Type, type Static } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
 import { ANNOTATION_SCHEMA_VERSION } from './constants.js';
 
 /**
@@ -89,4 +90,108 @@ export type AnnotationDocument = Static<typeof AnnotationDocument>;
 /** An empty document at revision 0 — what a fresh capture starts with. */
 export function emptyAnnotationDocument(): AnnotationDocument {
   return { version: ANNOTATION_SCHEMA_VERSION, rev: 0, shapes: [] };
+}
+
+// ---- Shared drawing style (S9, S10) -----------------------------------------
+
+/**
+ * The red-with-white-outline double-stroke style, defined once so the Fabric
+ * editor (web/) and the M4 SVG renderer (server/) cannot drift. The white
+ * pass is drawn first at `strokeWidth + 2 * outline`, then red at
+ * `strokeWidth` on top - leaving `outline` px of white visible on each side.
+ * Text draws a white stroke under a red fill (`paintFirst: 'stroke'` /
+ * SVG `paint-order: stroke`).
+ */
+export const ANNOTATION_STYLE = {
+  red: '#e03131',
+  white: '#ffffff',
+  /** Red stroke width for rect and arrow shafts, in image pixels. */
+  strokeWidth: 4,
+  /** Visible white rim on each side of a red stroke. */
+  outline: 2,
+  /** Arrowhead: filled triangle, tip at (x2, y2). */
+  arrowHeadLength: 22,
+  arrowHeadWidth: 18,
+  /** White stroke under the red text fill. */
+  textStrokeWidth: 4,
+  defaultFontSize: 28,
+  /** M4's Docker image pins Inter for librsvg so both renderers agree. */
+  fontFamily: 'Inter, system-ui, sans-serif',
+} as const;
+
+// ---- Server-side validation on top of the schema (S9) -----------------------
+
+/** Coordinates may overhang the image by this many pixels on every side. */
+export const ANNOTATION_BOUNDS_MARGIN_PX = 100;
+
+/**
+ * Strip control characters from annotation text (S9): CR/LF normalised to
+ * LF, tab and newline kept (multiline text is legitimate), every other
+ * C0/C1 control removed. Applied server-side before persisting and mirrored
+ * client-side so the editor never even sends them.
+ */
+export function stripAnnotationControlChars(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    // eslint-disable-next-line no-control-regex -- stripping control chars is the point
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '');
+}
+
+const inRange = (v: number, min: number, max: number): boolean => v >= min && v <= max;
+
+/**
+ * Bounds check for one shape against the image dimensions +/- margin.
+ * Returns a human-readable reason (safe to echo: ids are pattern-limited),
+ * or null when the shape fits.
+ */
+export function annotationBoundsError(
+  shape: Shape,
+  image: { width: number; height: number },
+): string | null {
+  const m = ANNOTATION_BOUNDS_MARGIN_PX;
+  const okX = (v: number) => inRange(v, -m, image.width + m);
+  const okY = (v: number) => inRange(v, -m, image.height + m);
+  switch (shape.type) {
+    case 'rect':
+      if (okX(shape.x) && okY(shape.y) && okX(shape.x + shape.w) && okY(shape.y + shape.h)) {
+        return null;
+      }
+      break;
+    case 'arrow':
+      if (okX(shape.x1) && okY(shape.y1) && okX(shape.x2) && okY(shape.y2)) return null;
+      break;
+    case 'text':
+      if (okX(shape.x) && okY(shape.y)) return null;
+      break;
+  }
+  return `shape ${shape.id} is outside the image bounds`;
+}
+
+export type AnnotationValidation =
+  | { ok: true; doc: AnnotationDocument }
+  | { ok: false; reason: string };
+
+/**
+ * Full server-side validation of an untrusted annotation document (S9):
+ * schema (shape count, text length, finite coordinates, unknown keys),
+ * then control-character stripping, then image-bounds checks. The returned
+ * document is a sanitised copy - persist that, never the input.
+ */
+export function validateAnnotationDocument(
+  input: unknown,
+  image: { width: number; height: number },
+): AnnotationValidation {
+  if (!Value.Check(AnnotationDocument, input)) {
+    const first = Value.Errors(AnnotationDocument, input).First();
+    const where = first?.path ? ` at ${first.path}` : '';
+    return { ok: false, reason: `invalid annotation document${where}` };
+  }
+  const shapes = input.shapes.map((s) =>
+    s.type === 'text' ? { ...s, text: stripAnnotationControlChars(s.text) } : { ...s },
+  );
+  for (const shape of shapes) {
+    const err = annotationBoundsError(shape, image);
+    if (err) return { ok: false, reason: err };
+  }
+  return { ok: true, doc: { version: input.version, rev: input.rev, shapes } };
 }

@@ -35,6 +35,7 @@ export const ApiErrorCodes = [
   'throttled',
   'registration_closed',
   'username_taken',
+  'conflict',
   'not_found',
   'payload_too_large',
   'unsupported_media_type',
@@ -156,3 +157,52 @@ export const CreateCaptureResponse = Type.Object(
   { additionalProperties: false, $id: 'CreateCaptureResponse' },
 );
 export type CreateCaptureResponse = Static<typeof CreateCaptureResponse>;
+
+// ---- Annotations (§8, §9) ---------------------------------------------------
+
+/** Successful PUT/beacon save: the new server revision. */
+export const PutAnnotationsResponse = Type.Object(
+  { rev: Type.Integer({ minimum: 0 }) },
+  { additionalProperties: false, $id: 'PutAnnotationsResponse' },
+);
+export type PutAnnotationsResponse = Static<typeof PutAnnotationsResponse>;
+
+/**
+ * Body of the `sendBeacon` save path (POST …/annotations). A beacon cannot
+ * set headers, so the CSRF token travels in the body instead of `x-csrf-token`
+ * and the payload goes over `text/plain` (the only content type a beacon can
+ * always send). `document` is validated exactly like the PUT body.
+ */
+export const BeaconAnnotationsRequest = Type.Object(
+  {
+    csrfToken: Type.String({ minLength: 1 }),
+    document: Type.Unknown(),
+  },
+  { additionalProperties: false, $id: 'BeaconAnnotationsRequest' },
+);
+export type BeaconAnnotationsRequest = Static<typeof BeaconAnnotationsRequest>;
+
+// ---- Capture management (§7, §8, §13) ---------------------------------------
+
+/** Retention choices offered by the capture page; filtered to the server max. */
+export const RETENTION_CHOICES_DAYS = [30, 90, 180, 365] as const;
+
+/**
+ * Body of PATCH /api/v1/captures/:viewId — exactly one of the two actions.
+ * `retentionDays` re-anchors expiry at `created_at + days`; the server
+ * rejects values beyond RETENTION_MAX_DAYS_USER with 400.
+ */
+export const PatchCaptureRequest = Type.Object(
+  {
+    retentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 3650 })),
+    delete: Type.Optional(Type.Literal(true)),
+  },
+  { additionalProperties: false, $id: 'PatchCaptureRequest' },
+);
+export type PatchCaptureRequest = Static<typeof PatchCaptureRequest>;
+
+export const PatchCaptureResponse = Type.Object(
+  { retentionUntil: Type.String({ format: 'date-time' }) },
+  { additionalProperties: false, $id: 'PatchCaptureResponse' },
+);
+export type PatchCaptureResponse = Static<typeof PatchCaptureResponse>;
