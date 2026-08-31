@@ -1,9 +1,10 @@
+import { USERNAME_PATTERN as USERNAME_PATTERN_SOURCE } from '@snapping-turtle/shared';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from '../password.js';
 import type { Db } from './client.js';
 import { settings, users } from './schema.js';
 
-export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_.-]{1,31}$/;
+export const USERNAME_PATTERN = new RegExp(USERNAME_PATTERN_SOURCE);
 
 export interface SeedInput {
   username: string;

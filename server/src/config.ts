@@ -2,11 +2,12 @@ import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import {
   GUARD_DEFAULTS,
+  LOGIN_THROTTLE_DEFAULTS,
   MAX_UPLOAD_MB,
   RETENTION_DEFAULT_DAYS,
   RETENTION_MAX_DAYS_USER,
 } from '@snapping-turtle/shared';
-import { defaultWebDist } from './paths.js';
+import { defaultImagesDir, defaultWebDist } from './paths.js';
 
 /**
  * Typed runtime configuration parsed from the environment (PLAN.md §14).
@@ -31,17 +32,29 @@ export const ConfigSchema = Type.Object({
   trustProxy: Type.Boolean(),
   publicOrigin: Type.String({ pattern: '^https?://[^/\\s]+$' }),
   databaseUrl: Type.String({ pattern: '^postgres(ql)?://' }),
-  /** Used by session cookies from M1 on; required now so deployments never start without one. */
+  /** Signs session cookies and derives CSRF tokens; rotating it logs everyone out. */
   sessionSecret: Type.String({ minLength: 32 }),
+  sessionTtlDays: Type.Integer({ minimum: 1, maximum: 3650 }),
   webDistDir: Type.String({ minLength: 1 }),
+  /** Re-encoded originals live here as {shard}/{id}.png (§12). The server chooses every path. */
+  imagesDir: Type.String({ minLength: 1 }),
   maxUploadMb: Type.Integer({ minimum: 1, maximum: 1024 }),
   retentionDefaultDays: Type.Integer({ minimum: 1 }),
   retentionMaxDaysUser: Type.Integer({ minimum: 1 }),
+  /** Per-account login backoff (§11). */
+  loginThrottle: Type.Object({
+    freeAttempts: Type.Integer({ minimum: 0 }),
+    baseSeconds: Type.Integer({ minimum: 1 }),
+    maxSeconds: Type.Integer({ minimum: 1 }),
+  }),
   rate: Type.Object({
     generalPerMinute: Type.Integer({ minimum: 1 }),
     invalidLookupBudget: Type.Integer({ minimum: 1 }),
     invalidLookupWindowMinutes: Type.Integer({ minimum: 1 }),
     breakerInvalidPerMinute: Type.Integer({ minimum: 1 }),
+    /** Latency jitter on uniform /s/* not-found responses (§6). */
+    notFoundJitterMinMs: Type.Integer({ minimum: 0 }),
+    notFoundJitterMaxMs: Type.Integer({ minimum: 0 }),
   }),
 });
 export type Config = Static<typeof ConfigSchema>;
@@ -84,10 +97,17 @@ export function loadConfig(env: Env = process.env): Config {
     publicOrigin: (env['PUBLIC_ORIGIN'] ?? 'http://localhost:3000').replace(/\/+$/, ''),
     databaseUrl: env['DATABASE_URL'] ?? '',
     sessionSecret: env['SESSION_SECRET'] ?? '',
+    sessionTtlDays: int(env, 'SESSION_TTL_DAYS', 30),
     webDistDir: env['WEB_DIST_DIR'] ?? defaultWebDist,
+    imagesDir: env['IMAGES_DIR'] ?? defaultImagesDir,
     maxUploadMb: int(env, 'MAX_UPLOAD_MB', MAX_UPLOAD_MB),
     retentionDefaultDays: int(env, 'RETENTION_DEFAULT_DAYS', RETENTION_DEFAULT_DAYS),
     retentionMaxDaysUser: int(env, 'RETENTION_MAX_DAYS_USER', RETENTION_MAX_DAYS_USER),
+    loginThrottle: {
+      freeAttempts: int(env, 'LOGIN_THROTTLE_FREE_ATTEMPTS', LOGIN_THROTTLE_DEFAULTS.freeAttempts),
+      baseSeconds: int(env, 'LOGIN_THROTTLE_BASE_SECONDS', LOGIN_THROTTLE_DEFAULTS.baseSeconds),
+      maxSeconds: int(env, 'LOGIN_THROTTLE_MAX_SECONDS', LOGIN_THROTTLE_DEFAULTS.maxSeconds),
+    },
     rate: {
       generalPerMinute: int(env, 'RATE_GENERAL_PER_MIN', GUARD_DEFAULTS.generalPerMinute),
       invalidLookupBudget: int(
@@ -105,6 +125,16 @@ export function loadConfig(env: Env = process.env): Config {
         'RATE_BREAKER_INVALID_PER_MIN',
         GUARD_DEFAULTS.breakerInvalidPerMinute,
       ),
+      notFoundJitterMinMs: int(
+        env,
+        'RATE_NOT_FOUND_JITTER_MIN_MS',
+        GUARD_DEFAULTS.notFoundJitterMs.min,
+      ),
+      notFoundJitterMaxMs: int(
+        env,
+        'RATE_NOT_FOUND_JITTER_MAX_MS',
+        GUARD_DEFAULTS.notFoundJitterMs.max,
+      ),
     },
   };
 
@@ -113,6 +143,12 @@ export function loadConfig(env: Env = process.env): Config {
   );
   if (candidate.retentionDefaultDays > candidate.retentionMaxDaysUser) {
     errors.push('RETENTION_DEFAULT_DAYS must not exceed RETENTION_MAX_DAYS_USER');
+  }
+  if (candidate.rate.notFoundJitterMinMs > candidate.rate.notFoundJitterMaxMs) {
+    errors.push('RATE_NOT_FOUND_JITTER_MIN_MS must not exceed RATE_NOT_FOUND_JITTER_MAX_MS');
+  }
+  if (candidate.loginThrottle.baseSeconds > candidate.loginThrottle.maxSeconds) {
+    errors.push('LOGIN_THROTTLE_BASE_SECONDS must not exceed LOGIN_THROTTLE_MAX_SECONDS');
   }
   if (errors.length > 0) {
     throw new ConfigError(`Invalid configuration:\n  - ${errors.join('\n  - ')}`);

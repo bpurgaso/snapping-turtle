@@ -1,3 +1,4 @@
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@snapping-turtle/shared';
 import argon2 from 'argon2';
 
 /**
@@ -11,8 +12,8 @@ const ARGON2_OPTIONS = {
   parallelism: 1,
 } as const;
 
-export const MIN_PASSWORD_LENGTH = 12;
-export const MAX_PASSWORD_LENGTH = 512; // bounded to keep hashing cost predictable
+export const MIN_PASSWORD_LENGTH = PASSWORD_MIN_LENGTH;
+export const MAX_PASSWORD_LENGTH = PASSWORD_MAX_LENGTH;
 
 export async function hashPassword(password: string): Promise<string> {
   if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {

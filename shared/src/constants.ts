@@ -25,6 +25,11 @@ export const MAX_IMAGE_PIXELS = 150_000_000;
 export const MAX_UPLOAD_MB = 30;
 export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
+/** `source_url` must parse as http(s) and fit this many characters (§12). */
+export const MAX_SOURCE_URL_LENGTH = 2048;
+/** `page_title` is truncated to this many characters on ingest (§12). */
+export const MAX_PAGE_TITLE_LENGTH = 512;
+
 // ---- Capture mechanics (§15) ------------------------------------------------
 
 /** Chrome throttles captureVisibleTab to ~2 calls/sec; scroll-and-stitch tiles
@@ -41,6 +46,29 @@ export const VIEW_ID_LENGTH = 27;
 export const SECRET_TOKEN_BYTES = 20;
 /** Secrets appear in logs and error messages only as this many leading chars. */
 export const SECRET_LOG_PREFIX_CHARS = 8;
+/** Personal API tokens are prefixed so leaked ones are recognisable to secret scanners. */
+export const API_TOKEN_PREFIX = 'st_';
+/** Human label an owner gives an API token on the account page. */
+export const MAX_TOKEN_NAME_LENGTH = 64;
+
+// ---- Accounts (§11) ---------------------------------------------------------
+
+/** Lowercase letters, digits, "_", "." or "-"; 2–32 chars; must start alphanumeric. */
+export const USERNAME_PATTERN = '^[a-z0-9][a-z0-9_.-]{1,31}$';
+export const USERNAME_MIN_LENGTH = 2;
+export const USERNAME_MAX_LENGTH = 32;
+export const PASSWORD_MIN_LENGTH = 12;
+/** Bounded so argon2 cost stays predictable. */
+export const PASSWORD_MAX_LENGTH = 512;
+
+/** Per-account login throttling with exponential backoff (§11). After
+ *  `freeAttempts` consecutive failures the account is locked for
+ *  `baseSeconds × 2^(n − freeAttempts − 1)`, capped at `maxSeconds`. */
+export const LOGIN_THROTTLE_DEFAULTS = {
+  freeAttempts: 5,
+  baseSeconds: 5,
+  maxSeconds: 3600,
+} as const;
 
 // ---- Retention (§13) --------------------------------------------------------
 
@@ -64,4 +92,7 @@ export const GUARD_DEFAULTS = {
   breakerInvalidPerMinute: 100,
   /** Escalating ban durations per strike, in minutes: 15 min → 1 h → 24 h. */
   banLadderMinutes: [15, 60, 24 * 60],
+  /** Uniform not-found responses on /s/* sleep a random duration in this
+   *  range so response timing never distinguishes a miss from an expired row (§6). */
+  notFoundJitterMs: { min: 30, max: 150 },
 } as const;

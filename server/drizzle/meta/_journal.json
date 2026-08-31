@@ -8,6 +8,13 @@
       "when": 1788130767953,
       "tag": "0000_init_users_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788133078460,
+      "tag": "0001_m1_tokens_captures_sessions",
+      "breakpoints": true
     }
   ]
 }
