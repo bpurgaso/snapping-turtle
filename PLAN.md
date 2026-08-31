@@ -108,6 +108,7 @@ One flag worth deciding early: captures of internal tools will embed internal UR
 | `POST /api/v1/auth/login`, `/logout`; `GET /api/v1/auth/me` | — / session | Session cookie `st_session`: HttpOnly, Secure (when the origin is https), SameSite=Lax, signed; `/me` returns username, role and the CSRF token |
 | `GET /reset/:token` → `POST /api/v1/auth/set-password` | valid single-use token | Set-password page for admin-issued setup/reset links (§11) |
 | `GET/POST /api/v1/tokens`, `DELETE /api/v1/tokens/:id` | session | Manage extension API tokens (revoke = set `revoked_at`; rows are kept for attribution) |
+| `GET /api/v1/ping` | Bearer token | 204 with no body; the extension's "Test connection" target (M2). Bumps the token's `last_used_at`; invalid/revoked tokens and disabled users get the same 401 as upload |
 | `GET/POST /api/v1/admin/*` | session (admin) | Settings toggle, user create/disable, set-password link issuance, capture search by user, audit log view — every mutation audit-logged |
 | `GET /healthz` | internal only | Compose healthcheck |
 

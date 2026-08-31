@@ -16,6 +16,7 @@ import type { PageAssets } from './html.js';
 import { ImageStore } from './images/storage.js';
 import { authRoutes } from './routes/auth.js';
 import { captureRoutes } from './routes/captures.js';
+import { pingRoutes } from './routes/ping.js';
 import { secretRoutes } from './routes/secret.js';
 import { tokenRoutes } from './routes/tokens.js';
 import type { App, Clock } from './types.js';
@@ -111,6 +112,7 @@ export async function buildApp(opts: AppOptions): Promise<App> {
 
   await app.register(authRoutes, { db, sessions, throttle, auth });
   await app.register(tokenRoutes, { db, auth, now });
+  await app.register(pingRoutes, { auth });
   await app.register(captureRoutes, { db, config, store, auth, now });
 
   const captureAssets = assetLoader(config, 'src/capture.ts');

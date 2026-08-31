@@ -448,6 +448,59 @@ describe('API tokens (§11)', () => {
   });
 });
 
+// ---- ping -------------------------------------------------------------------
+
+describe('GET /api/v1/ping (§8, extension "Test connection")', () => {
+  let alice: Session;
+  beforeAll(async () => {
+    alice = await login(ALICE);
+  });
+
+  const ping = (headers: Record<string, string> = {}) =>
+    app.inject({ method: 'GET', url: '/api/v1/ping', headers });
+
+  it('answers 204 with no body for a live token and records its use', async () => {
+    const created = await createToken(alice, 'options-page');
+    advance(60_000);
+    const res = await ping({ authorization: `Bearer ${created.token}` });
+    expect(res.statusCode).toBe(204);
+    expect(res.body).toBe('');
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    const [row] = await handle.db.select().from(apiTokens).where(eq(apiTokens.id, created.id));
+    expect(row!.lastUsedAt?.toISOString()).toBe(clock.toISOString());
+  });
+
+  it('authn matrix: missing / malformed / unknown / cookie-only / revoked → 401', async () => {
+    const none = await ping();
+    expect(none.statusCode).toBe(401);
+    expect(none.headers['www-authenticate']).toMatch(/^Bearer/);
+    expect(none.json()).toEqual({ error: 'a valid API token is required', code: 'unauthorized' });
+    expect((await ping({ authorization: 'Basic abc' })).statusCode).toBe(401);
+    expect((await ping({ authorization: 'Bearer not-a-token' })).statusCode).toBe(401);
+    expect(
+      (
+        await ping({
+          authorization: `Bearer ${API_TOKEN_PREFIX}${randomBytes(20).toString('base64url')}`,
+        })
+      ).statusCode,
+    ).toBe(401);
+    // CLAUDE.md rule 8: a session cookie is never authentication on a bearer route.
+    expect((await ping({ cookie: alice.cookie, [CSRF_HEADER]: alice.csrf })).statusCode).toBe(401);
+
+    const created = await createToken(alice, 'to-revoke');
+    expect((await ping({ authorization: `Bearer ${created.token}` })).statusCode).toBe(204);
+    const revoke = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/tokens/${created.id}`,
+      headers: { cookie: alice.cookie, [CSRF_HEADER]: alice.csrf },
+    });
+    expect(revoke.statusCode).toBe(204);
+    const after = await ping({ authorization: `Bearer ${created.token}` });
+    expect(after.statusCode).toBe(401);
+    expect(after.json()).toEqual({ error: 'a valid API token is required', code: 'unauthorized' });
+  });
+});
+
 // ---- upload -----------------------------------------------------------------
 
 describe('POST /api/v1/captures (§8, §12)', () => {
