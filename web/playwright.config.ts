@@ -24,7 +24,10 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
   webServer: {
-    command: 'pnpm --filter @snapping-turtle/server exec tsx src/main.ts',
+    // Seeds an e2e owner account when DATABASE_URL is real (M3 editor smoke);
+    // without one it behaves like `tsx src/main.ts` and only the DB-free
+    // specs run — the editor spec skips itself.
+    command: 'pnpm --filter @snapping-turtle/server exec tsx test/helpers/e2e-server.ts',
     cwd: repoRoot,
     url: `http://127.0.0.1:${port}/`,
     reuseExistingServer: false,
@@ -34,6 +37,8 @@ export default defineConfig({
       HOST: '127.0.0.1',
       PORT: String(port),
       LOG_LEVEL: 'warn',
+      PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
+      E2E_SEED: process.env['DATABASE_URL'] ? '1' : '',
       DATABASE_URL: process.env['DATABASE_URL'] ?? 'postgres://unused:unused@127.0.0.1:1/unused',
       SESSION_SECRET: 'playwright-session-secret-not-real-0123456789',
     },

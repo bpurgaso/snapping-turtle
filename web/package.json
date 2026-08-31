@@ -12,7 +12,8 @@
     "test:parity": "playwright test"
   },
   "dependencies": {
-    "@snapping-turtle/shared": "workspace:*"
+    "@snapping-turtle/shared": "workspace:*",
+    "fabric": "6.9.1"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

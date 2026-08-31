@@ -1,0 +1,73 @@
+/* Owner's editor variant of the capture page (§9). */
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.editor-toolbar button {
+  font: inherit;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}
+.editor-toolbar button:hover {
+  border-color: var(--muted);
+}
+.editor-toolbar button.tool[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg, #fff);
+}
+.editor-toolbar button.danger {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.editor-toolbar .sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+  margin: 0 0.3rem;
+}
+.editor-toolbar .spacer {
+  flex: 1;
+}
+.editor-toolbar .retention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.editor-toolbar .retention select {
+  font: inherit;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+}
+.save-state {
+  font-size: 0.85rem;
+  color: var(--muted);
+  min-width: 9rem;
+  text-align: center;
+}
+.save-state.error {
+  color: var(--accent);
+}
+#editor-root .canvas-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+  overflow: auto;
+}
+#editor-root .canvas-container {
+  box-shadow: 0 1px 8px rgb(0 0 0 / 0.18);
+}

@@ -58,16 +58,30 @@ describe('build layout the server relies on', () => {
     expect(assets.some((f) => /\.css$/.test(f))).toBe(true);
   });
 
-  it('writes a manifest with the capture-page entry (script + stylesheet)', () => {
+  it('writes a manifest resolving capture and editor entries to script + css', () => {
     const manifestPath = join(outDir, '.vite', 'manifest.json');
     expect(existsSync(manifestPath)).toBe(true);
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<
       string,
-      { file: string; css?: string[] }
+      { file: string; css?: string[]; imports?: string[] }
     >;
+    // Mirror of server/src/web-assets.ts: css can live on shared chunks.
+    const cssOf = (entry: string, seen = new Set<string>()): string[] => {
+      if (seen.has(entry)) return [];
+      seen.add(entry);
+      const chunk = manifest[entry];
+      if (!chunk) return [];
+      return [...(chunk.imports ?? []).flatMap((i) => cssOf(i, seen)), ...(chunk.css ?? [])];
+    };
     const capture = manifest['src/capture.ts'];
     expect(capture?.file).toMatch(/^assets\/capture-[\w-]+\.js$/);
-    expect(capture?.css?.[0]).toMatch(/^assets\/capture-[\w-]+\.css$/);
     expect(existsSync(join(outDir, capture!.file))).toBe(true);
+    expect(cssOf('src/capture.ts').some((f) => f.endsWith('.css'))).toBe(true);
+    const editor = manifest['src/editor.ts'];
+    expect(editor?.file).toMatch(/^assets\/editor-[\w-]+\.js$/);
+    expect(existsSync(join(outDir, editor!.file))).toBe(true);
+    const editorCss = cssOf('src/editor.ts');
+    expect(editorCss.some((f) => f.endsWith('.css'))).toBe(true);
+    for (const f of editorCss) expect(existsSync(join(outDir, f))).toBe(true);
   });
 });

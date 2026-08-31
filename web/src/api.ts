@@ -4,9 +4,13 @@ import type {
   CreateTokenRequest,
   CreateTokenResponse,
   CredentialsRequest,
+  PatchCaptureRequest,
+  PatchCaptureResponse,
+  PutAnnotationsResponse,
   SessionInfo,
   TokenListResponse,
 } from '@snapping-turtle/shared/api';
+import type { AnnotationDocument } from '@snapping-turtle/shared/annotations';
 
 /**
  * Thin JSON client for the browser pages. Cookies ride along same-origin;
@@ -77,6 +81,17 @@ export const tokens = {
   revoke: (id: number, csrf: string) =>
     request<void>('DELETE', `/api/v1/tokens/${id}`, undefined, csrf),
 };
+
+export const annotations = {
+  get: (viewId: string) =>
+    request<AnnotationDocument>('GET', `/api/v1/captures/${viewId}/annotations`),
+  put: (viewId: string, doc: AnnotationDocument, csrf: string) =>
+    request<PutAnnotationsResponse>('PUT', `/api/v1/captures/${viewId}/annotations`, doc, csrf),
+};
+
+/** Owner capture management (§7): retention changes and delete. */
+export const patchCapture = (viewId: string, body: PatchCaptureRequest, csrf: string) =>
+  request<PatchCaptureResponse | undefined>('PATCH', `/api/v1/captures/${viewId}`, body, csrf);
 
 /** Human-readable message for an API failure. */
 export function describeError(err: unknown): string {
