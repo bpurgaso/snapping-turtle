@@ -20,10 +20,15 @@
     "./api": {
       "types": "./dist/api.d.ts",
       "default": "./dist/api.js"
+    },
+    "./parity-fixtures": {
+      "types": "./dist/parity-fixtures.d.ts",
+      "default": "./dist/parity-fixtures.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "fonts"
   ],
   "scripts": {
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",

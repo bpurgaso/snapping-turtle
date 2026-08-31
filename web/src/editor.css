@@ -1,4 +1,15 @@
 /* Owner's editor variant of the capture page (§9). */
+
+/* The pinned annotation font (§10): the same file the server's fontconfig
+   registers for librsvg, so canvas text and flat renders share glyphs.
+   The editor awaits document.fonts before mounting so Fabric measures with it. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('../../shared/fonts/Inter-Regular.ttf') format('truetype');
+}
 .editor-toolbar {
   display: flex;
   flex-wrap: wrap;

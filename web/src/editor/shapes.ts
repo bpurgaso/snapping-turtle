@@ -1,6 +1,7 @@
 import {
   ANNOTATION_LIMITS,
   ANNOTATION_STYLE as S,
+  ANNOTATION_TEXT_LAYOUT,
   stripAnnotationControlChars,
   type Shape,
 } from '@snapping-turtle/shared/annotations';
@@ -203,9 +204,17 @@ export function makeText(
     stroke: S.white,
     strokeWidth: S.textStrokeWidth,
     paintFirst: 'stroke',
+    lineHeight: ANNOTATION_TEXT_LAYOUT.lineHeight,
     lockRotation: true,
     lockScalingFlip: true,
   });
+  // Pin Fabric's private text metrics to the shared values the SVG renderer is
+  // built against, so a Fabric upgrade cannot silently move glyph baselines.
+  Object.assign(t as unknown as Record<string, number>, {
+    _fontSizeMult: ANNOTATION_TEXT_LAYOUT.fontSizeMult,
+    _fontSizeFraction: ANNOTATION_TEXT_LAYOUT.fontSizeFraction,
+  });
+  t.initDimensions();
   t.setControlsVisibility({ mtr: false, ml: false, mr: false, mt: false, mb: false });
   return t;
 }

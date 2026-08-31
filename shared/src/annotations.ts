@@ -115,8 +115,30 @@ export const ANNOTATION_STYLE = {
   /** White stroke under the red text fill. */
   textStrokeWidth: 4,
   defaultFontSize: 28,
-  /** M4's Docker image pins Inter for librsvg so both renderers agree. */
+  /**
+   * Both renderers resolve this to the single pinned font file vendored at
+   * `shared/fonts/Inter-Regular.ttf` (v4.1, SIL OFL): the editor via
+   * @font-face, the server via the fontconfig config in `server/fontconfig/`.
+   */
   fontFamily: 'Inter, system-ui, sans-serif',
+} as const;
+
+/**
+ * Fabric.js text-layout constants, pinned here so the M4 SVG renderer can
+ * reproduce the editor's text geometry exactly (§10). `lineHeight` is public
+ * Fabric API; `fontSizeMult`/`fontSizeFraction` mirror Fabric 6.9.1's private
+ * `_fontSizeMult`/`_fontSizeFraction`, which the editor re-asserts on every
+ * text object so a Fabric upgrade cannot silently move glyphs. Derived facts
+ * (Fabric `_renderTextCommon`/`_renderChars`, dimensions include strokeWidth):
+ *
+ *   line box height  = fontSize · fontSizeMult · lineHeight   (last line: no lineHeight)
+ *   first baseline y = shape.y + strokeWidth/2 + fontSize · fontSizeMult · (1 − fontSizeFraction)
+ *   first glyph x    = shape.x + strokeWidth/2
+ */
+export const ANNOTATION_TEXT_LAYOUT = {
+  lineHeight: 1.16,
+  fontSizeMult: 1.13,
+  fontSizeFraction: 0.222,
 } as const;
 
 // ---- Server-side validation on top of the schema (S9) -----------------------
