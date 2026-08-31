@@ -1,5 +1,15 @@
+/* Shared styles for the static pages: home, login, signup, account. */
 :root {
   color-scheme: light dark;
+  --bg: #f6f6f4;
+  --fg: #1c1c1c;
+  --muted: #6b6b66;
+  --line: #d9d9d4;
+  --panel: #ffffff;
+  --accent: #b42318;
+  --accent-fg: #ffffff;
+  --danger: #b42318;
+  --ok: #1f7a3a;
   font-family:
     system-ui,
     -apple-system,
@@ -7,29 +17,229 @@
     sans-serif;
   line-height: 1.5;
 }
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413;
+    --fg: #ecebe7;
+    --muted: #a3a29c;
+    --line: #2e2e2b;
+    --panel: #1d1d1b;
+    --accent: #e5484d;
+    --danger: #e5484d;
+    --ok: #4cc38a;
+  }
+}
 body {
   margin: 0;
   min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background: #f6f6f4;
-  color: #1c1c1c;
+  background: var(--bg);
+  color: var(--fg);
 }
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #141413;
-    color: #ecebe7;
-  }
-}
-main {
-  padding: 2rem;
-  text-align: center;
+a {
+  color: inherit;
 }
 h1 {
   font-weight: 600;
   letter-spacing: -0.01em;
+  margin: 0 0 0.75rem;
 }
-.meta {
-  opacity: 0.7;
+h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 1.5rem 0 0.5rem;
+}
+h3 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+.meta,
+.hint,
+.empty {
+  color: var(--muted);
   font-size: 0.9rem;
+}
+
+/* ---- home ------------------------------------------------------------- */
+body.home {
+  display: grid;
+  place-items: center;
+}
+body.home main {
+  padding: 2rem;
+  text-align: center;
+}
+.nav {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+/* ---- centred card pages (login / signup / account) --------------------- */
+body.page {
+  display: flex;
+  justify-content: center;
+  padding: 3rem 1rem;
+  box-sizing: border-box;
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 26rem;
+  box-sizing: border-box;
+  align-self: flex-start;
+}
+.card.wide {
+  max-width: 48rem;
+}
+
+/* ---- forms -------------------------------------------------------------- */
+label {
+  display: block;
+  font-size: 0.9rem;
+  margin: 0.75rem 0 0.25rem;
+}
+input[type='text'],
+input[type='password'],
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+textarea.curl,
+input.secret {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+button {
+  font: inherit;
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  margin-top: 0.75rem;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--line);
+}
+button.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+  padding: 0.25rem 0.6rem;
+  margin: 0;
+  font-size: 0.85rem;
+}
+.status {
+  min-height: 1.5em;
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--ok);
+}
+.status.error {
+  color: var(--danger);
+}
+.alternate {
+  margin-top: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* ---- account ------------------------------------------------------------ */
+.account-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 1rem;
+  align-items: center;
+}
+.account-header h1 {
+  grid-column: 1;
+  margin: 0;
+}
+.account-header .whoami {
+  grid-column: 1;
+  margin: 0;
+  color: var(--muted);
+}
+.account-header button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  margin: 0;
+}
+.create-token {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 0.5rem;
+  align-items: end;
+}
+.create-token label {
+  grid-column: 1 / -1;
+}
+.create-token button {
+  margin: 0;
+}
+.reveal {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+.reveal .warning {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+.secret-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.secret-row input {
+  flex: 1;
+}
+.secret-row button {
+  margin: 0;
+  white-space: nowrap;
+}
+.reveal textarea {
+  margin-top: 0.75rem;
+  resize: vertical;
+}
+.tokens {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+th {
+  color: var(--muted);
+  font-weight: 500;
+}
+tr.revoked td {
+  color: var(--muted);
 }

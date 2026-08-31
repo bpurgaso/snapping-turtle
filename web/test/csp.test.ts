@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,8 +11,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * silently blocked by browsers, so this test fails the build first.
  */
 const webRoot = fileURLToPath(new URL('..', import.meta.url));
+const PAGES = ['index.html', 'login.html', 'signup.html', 'account.html'];
 let outDir: string;
-let html: string;
+const html: Record<string, string> = {};
 
 beforeAll(async () => {
   outDir = mkdtempSync(join(tmpdir(), 'st-csp-'));
@@ -22,12 +23,12 @@ beforeAll(async () => {
     logLevel: 'silent',
     build: { outDir, emptyOutDir: true },
   });
-  html = readFileSync(join(outDir, 'index.html'), 'utf8');
+  for (const page of PAGES) html[page] = readFileSync(join(outDir, page), 'utf8');
 });
 
-describe('built index.html is CSP-clean', () => {
+describe.each(PAGES)('built %s is CSP-clean', (page) => {
   it('has no inline scripts', () => {
-    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    const scripts = [...html[page]!.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
     expect(scripts.length).toBeGreaterThan(0);
     for (const [, attrs, body] of scripts) {
       expect(attrs).toMatch(/\bsrc=/);
@@ -36,22 +37,37 @@ describe('built index.html is CSP-clean', () => {
   });
 
   it('has no inline styles or inline event handlers', () => {
-    expect(html).not.toMatch(/<style\b/i);
-    expect(html).not.toMatch(/\sstyle=/i);
-    expect(html).not.toMatch(/\son[a-z]+=/i);
-    expect(html).not.toMatch(/javascript:/i);
+    expect(html[page]).not.toMatch(/<style\b/i);
+    expect(html[page]).not.toMatch(/\sstyle=/i);
+    expect(html[page]).not.toMatch(/\son[a-z]+=/i);
+    expect(html[page]).not.toMatch(/javascript:/i);
   });
 
-  it('references only same-origin assets', () => {
-    const urls = [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)].map((m) => m[1] as string);
+  it('references only same-origin assets and links a stylesheet', () => {
+    const urls = [...html[page]!.matchAll(/\b(?:src|href)="([^"]+)"/g)].map((m) => m[1] as string);
     expect(urls.length).toBeGreaterThan(0);
     for (const url of urls) expect(url.startsWith('/')).toBe(true);
+    expect(html[page]).toMatch(/<link rel="stylesheet"[^>]+href="\/assets\/[\w-]+\.css"/);
   });
+});
 
-  it('emits hashed assets and a stylesheet link (not injected styles)', () => {
+describe('build layout the server relies on', () => {
+  it('emits hashed assets', () => {
     const assets = readdirSync(join(outDir, 'assets'));
     expect(assets.some((f) => /^index-[\w-]+\.js$/.test(f))).toBe(true);
-    expect(assets.some((f) => /^index-[\w-]+\.css$/.test(f))).toBe(true);
-    expect(html).toMatch(/<link rel="stylesheet"[^>]+href="\/assets\/index-[\w-]+\.css"/);
+    expect(assets.some((f) => /\.css$/.test(f))).toBe(true);
+  });
+
+  it('writes a manifest with the capture-page entry (script + stylesheet)', () => {
+    const manifestPath = join(outDir, '.vite', 'manifest.json');
+    expect(existsSync(manifestPath)).toBe(true);
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<
+      string,
+      { file: string; css?: string[] }
+    >;
+    const capture = manifest['src/capture.ts'];
+    expect(capture?.file).toMatch(/^assets\/capture-[\w-]+\.js$/);
+    expect(capture?.css?.[0]).toMatch(/^assets\/capture-[\w-]+\.css$/);
+    expect(existsSync(join(outDir, capture!.file))).toBe(true);
   });
 });
