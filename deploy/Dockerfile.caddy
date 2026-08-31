@@ -1,0 +1,14 @@
+# Caddy with the per-IP rate-limit plugin (PLAN.md §12). Default Caddy builds
+# carry no request-rate module, so the coarse outer cap needs xcaddy and
+# github.com/mholt/caddy-ratelimit — pinned, never @latest: the proxy
+# terminates TLS and an unpinned third-party module there is supply-chain
+# surface. The app guard remains the enforcement layer; this only sheds
+# dumb floods before they reach Node.
+
+ARG CADDY_VERSION=2.11
+FROM caddy:${CADDY_VERSION}-builder AS builder
+RUN xcaddy build \
+    --with github.com/mholt/caddy-ratelimit@5625512f24f6f59d6f64fb3aafe5eecff0b286db
+
+FROM caddy:${CADDY_VERSION}-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

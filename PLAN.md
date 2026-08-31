@@ -1,8 +1,8 @@
-# snapping-turtle — Implementation Plan (v0.7)
+# snapping-turtle — Implementation Plan (v0.8)
 
 A self-hosted screenshot capture and sharing system: browser extensions (Chrome + Firefox) capture the current tab, upload it to a central server, and open an editor page at an unguessable URL. The owner can annotate with red/white arrows, rectangles, and text; anyone with the link can view the page, copy a flat rendered image link, and follow a link back to the original site. The server is designed defensively from day one: capability URLs with high entropy, aggressive anti-enumeration controls, attribution of every upload, admin audit logging, automated TLS, and a 30-day default retention policy.
 
-This document is a working plan. Section 2 records the confirmed decisions; the only items still open are minor UX questions flagged at the end of that section. v0.4 records the M1 implementation notes (a `sessions` table, the exact auth/token routes, throttle keying, and what `image.png` serves before M4); v0.5 records the M2 extension notes (the `notifications` permission, Firefox 128 minimum, runtime host grants, the ping route, and why capture itself is manually tested); v0.6 records the M3 editor notes at the end of §9 (beacon CSRF-in-body, validation constants, owner-only PATCH until M5, fit-width scaling, and the tall-canvas spike results); v0.7 records the M4 renderer notes at the end of §10 (the vendored font + fontconfig contract, the forced pango backend, ETag/304 semantics, and the parity tolerances).
+This document is a working plan. Section 2 records the confirmed decisions; the only items still open are minor UX questions flagged at the end of that section. v0.4 records the M1 implementation notes (a `sessions` table, the exact auth/token routes, throttle keying, and what `image.png` serves before M4); v0.5 records the M2 extension notes (the `notifications` permission, Firefox 128 minimum, runtime host grants, the ping route, and why capture itself is manually tested); v0.6 records the M3 editor notes at the end of §9 (beacon CSRF-in-body, validation constants, owner-only PATCH until M5, fit-width scaling, and the tall-canvas spike results); v0.7 records the M4 renderer notes at the end of §10 (the vendored font + fontconfig contract, the forced pango backend, ETag/304 semantics, and the parity tolerances); v0.8 records the M5 guard notes at the end of §12 and the M5 admin/lifecycle notes at the end of §11 (the `st_app` role split that makes the audit log append-only at the grant level, the one-time-link mechanics, and the admin unban).
 
 ---
 
@@ -159,13 +159,21 @@ Username + password (argon2id), session cookies, per-account login throttling wi
 
 Because registration will usually stay disabled in a friends-only deployment, the admin panel covers the whole account lifecycle with one mechanism: **single-use links**. *Create user* takes a username and returns a one-time set-password URL the admin hands over any channel; *Reset password* on a user row issues the same kind of link for an existing account. Link tokens are 160-bit CSPRNG values stored hashed, expire after 24 hours, and are consumed on first use; completing a reset revokes the user's other sessions, and both issuance and completion land in the audit log. The admin never sees or chooses anyone's password, and `/reset/*` lookups count against the guard's invalid-lookup budget so the token space adds no enumeration surface. (Until the panel exists in M5, the bootstrap CLI creates accounts the same way.)
 
-Admin panel capabilities, all writing to `audit_log`: registration toggle, list/disable/enable users, search captures by user, delete any capture, set per-capture indefinite retention, browse the audit log, and view current bans/breaker state. The audit table is append-only at the database-grant level, not just by convention.
+Admin panel capabilities, all writing to `audit_log`: registration toggle, list/disable/enable users, search captures by user, delete any capture, set per-capture indefinite retention, browse the audit log, and view current bans/breaker state with an audit-logged **unban** action — an operational necessity (admins will ban themselves while testing links). The audit table is append-only at the database-grant level, not just by convention.
+
+*M5 implementation notes (v0.8):*
+
+- **Append-only is enforced by Postgres, not habit.** Migration 0002 creates a dedicated runtime role `st_app` with INSERT+SELECT but no UPDATE/DELETE on `audit_log`; compose connects the app as `st_app` and runs migrations over `MIGRATE_DATABASE_URL` (the schema-owning role). `st_app`'s password comes from `APP_DB_PASSWORD` and is re-synced at boot by the entrypoint, because a static migration file cannot carry a secret. An integration test attempts UPDATE/DELETE through an `st_app` connection and asserts `42501`.
+- **Every admin mutation and its audit row share one transaction** (`writeAudit` takes the mutation's `tx`): a mid-way failure rolls both back, tested via a forced constraint violation. Audit detail carries internal row ids and 8-char secret prefixes only; the admin capture list is the one place capability URLs appear, because admins are trusted with them.
+- **One-time links:** `POST /api/v1/admin/users` creates the account with an unusable random placeholder hash and returns the setup link exactly once; `POST /api/v1/admin/users/:id/reset-link` does the same for existing accounts. Consumption (`POST /api/v1/auth/set-password`) is a conditional UPDATE (first-use-wins under concurrency) that sets the argon2id hash, deletes the user's other session rows (M1's sessions are store-backed, so revocation is deletion), writes the audit row and signs the requester in — one transaction. A disabled user's link is refused *and rolled back unconsumed*, so re-enabling restores it. Multiple outstanding links per user are allowed; the 24 h TTL bounds the exposure.
+- Admins cannot disable their own account (a lockout guard); disabling deletes the user's sessions in the same transaction and their API tokens die via the existing `disabled_at` join. Unchecking "Keep indefinitely" restores the default retention window anchored at `created_at` (§13). The admin unban deletes the `ip_bans` row, deliberately forgiving its strike history.
+- The "Keep indefinitely" checkbox lives in the admin panel's capture list rather than on the capture page itself (§7 described the latter): admins reach any capture through search, and the capture page stays a single non-owner render. Cheap to revisit if browsing admins want it inline.
 
 ## 12. Abuse resistance
 
 Defense-in-depth, outermost first:
 
-**Caddy layer:** request body limit (default 30 MB, matching `MAX_UPLOAD_MB` — sized for full-page retina captures), header/timeout limits, HSTS, TLS ≥ 1.2, and a coarse per-IP request rate cap to shed dumb floods before they reach Node.
+**Caddy layer:** request body limit (default 30 MB, matching `MAX_UPLOAD_MB` — sized for full-page retina captures), header/timeout limits, HSTS, TLS ≥ 1.2, and a coarse per-IP request rate cap to shed dumb floods before they reach Node. *(M5 note: the rate cap is not in default Caddy builds — `deploy/Dockerfile.caddy` builds it in via xcaddy with `mholt/caddy-ratelimit` pinned to a commit, never `@latest`, since the TLS-terminating proxy is supply-chain surface. The cap is deliberately generous — `CADDY_RATE_PER_IP_PER_MIN`, default 300/min keyed on `{remote_host}` — because the app guard above is the real enforcement layer; if the plugin ever becomes a maintenance burden, dropping it and reverting to the stock image loses nothing the spec requires.)*
 
 **Application guard (the spec's rate limiter + circuit breaker):**
 
@@ -207,12 +215,13 @@ Key configuration (single `deploy/.env`, read by both compose and local `pnpm de
 | `PUBLIC_ORIGIN` | derived | App absolute URLs, extension build default. Set explicitly only for local `pnpm dev` (e.g. `http://localhost:3000`) |
 | `RETENTION_DEFAULT_DAYS` / `RETENTION_MAX_DAYS_USER` | 30 / 365 | app |
 | `MAX_UPLOAD_MB` | 30 | Caddy + app |
-| `RATE_*` knobs (windows, budgets, breaker threshold, not-found jitter) | sane defaults | guard |
+| `RATE_*` knobs (windows, budgets, breaker threshold + cooldown, ban ladder, not-found jitter) | sane defaults | guard |
+| `APP_DB_PASSWORD`, `MIGRATE_DATABASE_URL` | generated at install / derived by compose | runtime `st_app` role vs. privileged migrations (§11, M5) |
 | `SESSION_TTL_DAYS`, `LOGIN_THROTTLE_*` | 30; 5 free / 5 s base / 1 h cap | app (§11) |
 | `IMAGES_DIR` | `<repo>/data/images`; compose sets `/data/images` | app image store (§12) |
 | `DATABASE_URL`, `SESSION_SECRET` | generated at install | app |
 | `ADMIN_BOOTSTRAP_USER` / `..._PASSWORD` | — | one-time seed command (`pnpm --filter server db:seed`, or `docker compose run --rm app node dist/db/seed.js`) |
-| `TRUST_PROXY`, `LOG_LEVEL`, `HOST` / `PORT` | compose sets `TRUST_PROXY=true`; `info`; `0.0.0.0:3000` | app |
+| `TRUST_PROXY`, `LOG_LEVEL`, `HOST` / `PORT` | compose pins `TRUST_PROXY` to the web-network CIDR (§12, M5); `info`; `0.0.0.0:3000` | app |
 
 ## 15. Extension design (Chrome + Firefox)
 

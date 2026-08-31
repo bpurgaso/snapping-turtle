@@ -11,6 +11,9 @@
 			idle 2m
 		}
 	}
+	# rate_limit comes from the xcaddy build (deploy/Dockerfile.caddy) and has
+	# no default position in the directive order.
+	order rate_limit before basic_auth
 }
 
 # Snippets must be defined before the site block that imports them.
@@ -20,6 +23,16 @@
 	# Upload body cap, mirrored by the app's bodyLimit (shared MAX_UPLOAD_MB).
 	request_body {
 		max_size {$MAX_UPLOAD_MB}MB
+	}
+
+	# Coarse per-IP flood shedding (PLAN.md §12) — deliberately generous; the
+	# app guard is the real enforcement layer. Needs the custom Caddy build.
+	rate_limit {
+		zone per_ip {
+			key {remote_host}
+			events {$CADDY_RATE_PER_IP_PER_MIN:300}
+			window 1m
+		}
 	}
 
 	header {

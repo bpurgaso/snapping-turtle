@@ -6,7 +6,10 @@ name: snapping-turtle
 
 services:
   caddy:
-    image: caddy:2.11-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    image: snapping-turtle/caddy:local
     restart: unless-stopped
     ports:
       - '80:80'
@@ -15,6 +18,7 @@ services:
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in deploy/.env}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-30}
+      CADDY_RATE_PER_IP_PER_MIN: ${CADDY_RATE_PER_IP_PER_MIN:-300}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

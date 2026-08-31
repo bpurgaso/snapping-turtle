@@ -8,12 +8,20 @@
 			idle 2m
 		}
 	}
+	order rate_limit before basic_auth
 }
 
 (site) {
 	encode zstd gzip
 	request_body {
 		max_size {$MAX_UPLOAD_MB}MB
+	}
+	rate_limit {
+		zone per_ip {
+			key {remote_host}
+			events {$CADDY_RATE_PER_IP_PER_MIN:300}
+			window 1m
+		}
 	}
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
