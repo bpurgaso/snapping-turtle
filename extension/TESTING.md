@@ -9,7 +9,9 @@ needs the `activeTab` grant — the toolbar click or keyboard shortcut — becau
 Chrome's `captureVisibleTab` accepts only `activeTab` or `<all_urls>`, not a
 specific host permission, and no synthetic input produces that gesture.
 
-Status column: what the 2026-08-30 session ran. **unverified** = nobody has
+Status column: what the 2026-08-30 session ran, plus the human walk-through
+the same day (both extensions connected via Test connection; a visible capture
+uploaded and its page opened at the returned URL). **unverified** = nobody has
 run it yet; do not treat it as passing.
 
 ## 0. Build and load
@@ -24,7 +26,7 @@ PUBLIC_ORIGIN=http://localhost:3000 pnpm --filter extension build   # both targe
 
 | #   | Check                                                                                                   | Chrome                                 | Firefox                           |
 | --- | ------------------------------------------------------------------------------------------------------- | -------------------------------------- | --------------------------------- |
-| 0.1 | Loads with no manifest errors/warnings (Chrome "Errors" button absent; Firefox console clean)           | verified (Playwright load, 2026-08-30) | unverified                        |
+| 0.1 | Loads with no manifest errors/warnings (Chrome "Errors" button absent; Firefox console clean)           | verified (Playwright load, 2026-08-30) | verified (human, 2026-08-30)      |
 | 0.2 | Toolbar icon shows the green turtle placeholder at 16/32 px                                             | unverified                             | unverified                        |
 | 0.3 | The zip in `extension/dist/` is identical in content to the unpacked dir (built from the template only) | verified (build output inspected)      | verified (build output inspected) |
 
@@ -39,9 +41,9 @@ from `<server>/account`.
 | 1.2  | `http://shots.example.com` → rejected "must use https"; `shots.example.com` → "Not a valid URL"; `https://host/path` → "bare origin"; empty → prompt. Nothing saved (reload shows old values)                                                | verified (Playwright)                    | unverified                            |
 | 1.3  | `http://localhost:3000` / `http://127.0.0.1:3000` accepted                                                                                                                                                                                   | verified (unit + e2e)                    | unverified                            |
 | 1.3a | Firefox only: `dist/firefox/manifest.json` has `host_permissions: ["http://localhost/*"]` — no port. Firefox ignores ports in match patterns; with the port the grant silently matches nothing and every request fails as "Could not reach…" | n/a                                      | verified (found and fixed 2026-08-30) |
-| 1.4  | Save with a valid token → "Saved. Captures will upload to …". Token survives reload; `about:debugging`/DevTools shows it under `storage.local` only, `storage.sync` empty                                                                    | verified (Playwright, storage inspected) | unverified                            |
-| 1.5  | Firefox only: first Save/Test for the **default** origin prompts for host permission once (MV3 host permissions are optional in Firefox); Chrome does not prompt for the default                                                             | n/a (verified no prompt)                 | unverified                            |
-| 1.6  | Test connection with a live token → "Connected: the server accepted this token." and `last_used_at` moves on `/account`                                                                                                                      | verified (real server e2e)               | unverified                            |
+| 1.4  | Save with a valid token → "Saved. Captures will upload to …". Token survives reload; `about:debugging`/DevTools shows it under `storage.local` only, `storage.sync` empty                                                                    | verified (Playwright, storage inspected) | verified (human, 2026-08-30)          |
+| 1.5  | Firefox only: first Save/Test for the **default** origin prompts for host permission once (MV3 host permissions are optional in Firefox); Chrome does not prompt for the default                                                             | n/a (verified no prompt)                 | verified (human, 2026-08-30)          |
+| 1.6  | Test connection with a live token → "Connected: the server accepted this token." and `last_used_at` moves on `/account`                                                                                                                      | verified (real server e2e + human)       | verified (human, 2026-08-30)          |
 | 1.7  | Test connection with a revoked/garbled token → "The server rejected this token…"                                                                                                                                                             | verified (real server e2e)               | unverified                            |
 | 1.8  | Test connection with the server stopped → "Could not reach …" (no token in the message)                                                                                                                                                      | unverified                               | unverified                            |
 | 1.9  | "Show token" toggles the field between password and text                                                                                                                                                                                     | unverified                               | unverified                            |
@@ -50,14 +52,14 @@ from `<server>/account`.
 
 Open any normal https page (e.g. the server's own `/login`).
 
-| #   | Check                                                                                                                                                                                                          | Chrome                                     | Firefox    |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ---------- |
-| 2.1 | Popup shows Visible / Region / Full page; Region and Full page disabled with "coming in M6"; Visible enabled                                                                                                   | verified (Playwright)                      | unverified |
-| 2.2 | Click **Visible** → popup says "Capturing…" → a new tab opens next to the current one at `<server>/s/<27 chars>` showing the screenshot, the page title, and "Open original page" pointing at the captured URL | unverified                                 | unverified |
-| 2.3 | The stored image matches the visible viewport (scrolled position, devicePixelRatio)                                                                                                                            | unverified                                 | unverified |
-| 2.4 | Keyboard shortcut (default `Alt+Shift+S`; `chrome://extensions/shortcuts` / Firefox add-on manager → Manage Extension Shortcuts) does the same without the popup                                               | unverified                                 | unverified |
-| 2.5 | Reopen the popup: **Visible** carries the "last used" outline (`aria-current`)                                                                                                                                 | unverified (storage write verified in e2e) | unverified |
-| 2.6 | Owner attribution: on `/account` the token's last-used time updated; server log line `capture stored` carries `tokenId`, never the token                                                                       | unverified                                 | unverified |
+| #   | Check                                                                                                                                                                                                          | Chrome                                     | Firefox                      |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------- |
+| 2.1 | Popup shows Visible / Region / Full page; Region and Full page disabled with "coming in M6"; Visible enabled                                                                                                   | verified (Playwright)                      | unverified                   |
+| 2.2 | Click **Visible** → popup says "Capturing…" → a new tab opens next to the current one at `<server>/s/<27 chars>` showing the screenshot, the page title, and "Open original page" pointing at the captured URL | verified (human, 2026-08-30)               | verified (human, 2026-08-30) |
+| 2.3 | The stored image matches the visible viewport (scrolled position, devicePixelRatio)                                                                                                                            | unverified                                 | unverified                   |
+| 2.4 | Keyboard shortcut (default `Alt+Shift+S`; `chrome://extensions/shortcuts` / Firefox add-on manager → Manage Extension Shortcuts) does the same without the popup                                               | unverified                                 | unverified                   |
+| 2.5 | Reopen the popup: **Visible** carries the "last used" outline (`aria-current`)                                                                                                                                 | unverified (storage write verified in e2e) | unverified                   |
+| 2.6 | Owner attribution: on `/account` the token's last-used time updated; server log line `capture stored` carries `tokenId`, never the token                                                                       | unverified                                 | unverified                   |
 
 ## 3. Error paths
 
