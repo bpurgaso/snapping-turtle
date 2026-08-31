@@ -1,8 +1,8 @@
-# snapping-turtle — Implementation Plan (v0.3)
+# snapping-turtle — Implementation Plan (v0.4)
 
 A self-hosted screenshot capture and sharing system: browser extensions (Chrome + Firefox) capture the current tab, upload it to a central server, and open an editor page at an unguessable URL. The owner can annotate with red/white arrows, rectangles, and text; anyone with the link can view the page, copy a flat rendered image link, and follow a link back to the original site. The server is designed defensively from day one: capability URLs with high entropy, aggressive anti-enumeration controls, attribution of every upload, admin audit logging, automated TLS, and a 30-day default retention policy.
 
-This document is a working plan. Section 2 records the confirmed decisions; the only items still open are minor UX questions flagged at the end of that section.
+This document is a working plan. Section 2 records the confirmed decisions; the only items still open are minor UX questions flagged at the end of that section. v0.4 records the M1 implementation notes (a `sessions` table, the exact auth/token routes, throttle keying, and what `image.png` serves before M4).
 
 ---
 
@@ -71,6 +71,7 @@ The extension, editor, and server share one package for the annotation schema an
 | `users` | id, username, password_hash, role (`user`/`admin`), disabled_at, created_at | First admin bootstrapped by a seed command reading env vars |
 | `api_tokens` | id, user_id, name, token_hash (sha256), created_at, last_used_at, revoked_at | Plaintext shown once at creation; scoped to upload only |
 | `captures` | id, view_id (unique, secret), owner_id, source_url, page_title, width, height, bytes, sha256, upload_ip, upload_token_id, created_at, retention_until (nullable = indefinite), deleted_at, annotations (jsonb), annotations_rev, flat_rev | `view_id` is the only public identifier; sha256 supports dedup checks and abuse tracking |
+| `sessions` | token_hash (sha256, PK), user_id, created_at, expires_at, last_seen_at | Server-side browser sessions (added in M1): revocable on disable/reset; the cookie carries the random token, only its hash is stored |
 | `settings` | key, value | e.g. `registration_enabled` — runtime-togglable by admin |
 | `audit_log` | id, at, actor_user_id, action, target_type, target_id, detail (jsonb), ip | Append-only; the app role has no UPDATE/DELETE grant on it |
 | `ip_bans` | ip_prefix, strikes, banned_until, reason, updated_at | Persisted so restarts don't amnesty an attacker |
@@ -86,7 +87,7 @@ Deleting a capture removes the image files immediately but leaves a tombstone ro
 - **No referrer leakage.** Secret pages set `Referrer-Policy: no-referrer`, and the "open original page" link carries `rel="noopener noreferrer"` — otherwise clicking through to the source site would hand that site the secret URL.
 - **No cache leakage.** Secret pages are `Cache-Control: private, no-store`; flat images are cacheable but only under their own secret path.
 
-Routes: `GET /s/{viewId}` (page) and `GET /s/{viewId}/image.png` (flat render). Both derive from the one secret; a future enhancement is a separately rotatable image-only token if owners want to share the picture without the page.
+Routes: `GET /s/{viewId}` (page) and `GET /s/{viewId}/image.png` (flat render). Both derive from the one secret; a future enhancement is a separately rotatable image-only token if owners want to share the picture without the page. The image URL is part of the link contract from M1: until the renderer lands in M4 it serves the re-encoded original, and M4 changes only what the same URL returns. The uniform-404 rule applies to *every* path under `/s/` — malformed ids and unknown sub-paths included — with a random delay (`RATE_NOT_FOUND_JITTER_*`, default 30–150 ms).
 
 ## 7. The capture page
 
@@ -104,13 +105,13 @@ One flag worth deciding early: captures of internal tools will embed internal UR
 | `GET/PUT /api/v1/captures/:viewId/annotations` | session (owner) | Load/save annotation doc; PUT requires matching `rev` |
 | `PATCH /api/v1/captures/:viewId` | session (owner/admin) | Retention changes, delete |
 | `POST /api/v1/auth/signup` | none (if enabled) | Gated by `registration_enabled` |
-| `POST /api/v1/auth/login`, `/logout` | — | Session cookie: HttpOnly, Secure, SameSite=Lax |
+| `POST /api/v1/auth/login`, `/logout`; `GET /api/v1/auth/me` | — / session | Session cookie `st_session`: HttpOnly, Secure (when the origin is https), SameSite=Lax, signed; `/me` returns username, role and the CSRF token |
 | `GET /reset/:token` → `POST /api/v1/auth/set-password` | valid single-use token | Set-password page for admin-issued setup/reset links (§11) |
-| `GET/POST/DELETE /api/v1/tokens` | session | Manage extension API tokens |
+| `GET/POST /api/v1/tokens`, `DELETE /api/v1/tokens/:id` | session | Manage extension API tokens (revoke = set `revoked_at`; rows are kept for attribution) |
 | `GET/POST /api/v1/admin/*` | session (admin) | Settings toggle, user create/disable, set-password link issuance, capture search by user, audit log view — every mutation audit-logged |
 | `GET /healthz` | internal only | Compose healthcheck |
 
-All state-changing browser routes require a CSRF token (double-submit) on top of SameSite; token-authenticated upload is exempt (no cookie ambient authority).
+All state-changing browser routes require a CSRF token (double-submit) on top of SameSite: the token is an HMAC of the session, delivered in a readable `st_csrf` cookie and by `/me`, and must be echoed in `x-csrf-token`. Token-authenticated upload is exempt (no cookie ambient authority) and, conversely, never accepts a cookie as authentication. Upload is `multipart/form-data` with fields `image`, `sourceUrl`, `title` (names in `shared/` `CAPTURE_UPLOAD_FIELDS`).
 
 ## 9. Annotation editor
 
@@ -142,7 +143,7 @@ Full-page captures make the canvas tall. A single Fabric canvas up to the ~32,00
 
 ## 11. Accounts, ownership, admin
 
-Username + password (argon2id), session cookies, per-account login throttling with exponential backoff on failures. Signup page exists at `/signup` but returns "registration is closed" unless the admin has enabled it — the toggle lives in `settings`, changeable at runtime from the admin panel, and both states of the toggle are audit-logged. Users generate extension tokens on an account page; tokens are stored hashed, revocable, and record last-use. Every capture stores owner, token used, and upload IP, satisfying full attribution.
+Username + password (argon2id), session cookies, per-account login throttling with exponential backoff on failures (in-process, keyed by the *attempted* username whether or not it exists, so the throttle reveals nothing about which accounts are real; `LOGIN_THROTTLE_*` knobs, defaults in `shared/`). Signup page exists at `/signup` but returns "registration is closed" unless the admin has enabled it — the toggle lives in `settings`, changeable at runtime from the admin panel, and both states of the toggle are audit-logged. Users generate extension tokens on an account page; tokens are stored hashed, revocable, and record last-use. Every capture stores owner, token used, and upload IP, satisfying full attribution.
 
 Because registration will usually stay disabled in a friends-only deployment, the admin panel covers the whole account lifecycle with one mechanism: **single-use links**. *Create user* takes a username and returns a one-time set-password URL the admin hands over any channel; *Reset password* on a user row issues the same kind of link for an existing account. Link tokens are 160-bit CSPRNG values stored hashed, expire after 24 hours, and are consumed on first use; completing a reset revokes the user's other sessions, and both issuance and completion land in the audit log. The admin never sees or chooses anyone's password, and `/reset/*` lookups count against the guard's invalid-lookup budget so the token space adds no enumeration surface. (Until the panel exists in M5, the bootstrap CLI creates accounts the same way.)
 
@@ -185,7 +186,9 @@ Key configuration (single `deploy/.env`, read by both compose and local `pnpm de
 | `PUBLIC_ORIGIN` | derived | App absolute URLs, extension build default. Set explicitly only for local `pnpm dev` (e.g. `http://localhost:3000`) |
 | `RETENTION_DEFAULT_DAYS` / `RETENTION_MAX_DAYS_USER` | 30 / 365 | app |
 | `MAX_UPLOAD_MB` | 30 | Caddy + app |
-| `RATE_*` knobs (windows, budgets, breaker threshold) | sane defaults | guard |
+| `RATE_*` knobs (windows, budgets, breaker threshold, not-found jitter) | sane defaults | guard |
+| `SESSION_TTL_DAYS`, `LOGIN_THROTTLE_*` | 30; 5 free / 5 s base / 1 h cap | app (§11) |
+| `IMAGES_DIR` | `<repo>/data/images`; compose sets `/data/images` | app image store (§12) |
 | `DATABASE_URL`, `SESSION_SECRET` | generated at install | app |
 | `ADMIN_BOOTSTRAP_USER` / `..._PASSWORD` | — | one-time seed command (`pnpm --filter server db:seed`, or `docker compose run --rm app node dist/db/seed.js`) |
 | `TRUST_PROXY`, `LOG_LEVEL`, `HOST` / `PORT` | compose sets `TRUST_PROXY=true`; `info`; `0.0.0.0:3000` | app |

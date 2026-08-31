@@ -5,8 +5,10 @@ capture a tab and upload it to your own server; each capture gets an unguessable
 URL where the owner annotates and anyone with the link sees the result.
 
 Design: [PLAN.md](PLAN.md). Working rules: [CLAUDE.md](CLAUDE.md).
-**Status:** M0 — scaffold. The server boots with its security headers, the
-placeholder page renders, both extension zips build; capture/auth/editor land in M1+.
+**Status:** M1 — server core. Accounts (sign in / sign up behind the admin
+toggle), personal API tokens, the hardened upload endpoint, and the view-only
+capture page with its uniform 404 are live. The extension (M2), editor (M3),
+flat renderer (M4) and admin panel/guard (M5) come next.
 
 ## Prerequisites
 
@@ -30,6 +32,36 @@ pnpm dev                                # server on http://localhost:3000 + web/
 ```
 
 `GET /healthz` reports database connectivity; `/` serves the Vite bundle.
+Uploaded images land in `data/images/` (git-ignored; override with `IMAGES_DIR`).
+
+## Smoke test: upload with curl
+
+Until the extension exists (M2), exercise the whole path from a terminal:
+
+1. Sign in at `http://localhost:3000/login` with the seeded admin (or enable
+   signups first: `update settings set value = 'true' where key = 'registration_enabled';`
+   — the admin toggle UI arrives in M5).
+2. On `/account`, create an API token. It is shown **once**; the page also
+   prints a ready-to-paste `curl` line for it.
+3. Upload any PNG or JPEG:
+
+   ```sh
+   curl -sS -X POST http://localhost:3000/api/v1/captures \
+     -H "Authorization: Bearer st_XXXXXXXXXXXXXXXXXXXXXXXXXXX" \
+     -F "image=@screenshot.png" \
+     -F "sourceUrl=https://example.com/page" \
+     -F "title=Example page"
+   # → {"pageUrl":"http://localhost:3000/s/<27-char id>","imageUrl":".../image.png"}
+   ```
+
+4. Open `pageUrl` in a browser: the image, an **Open original page** link, and
+   copy buttons for the page and image links. `imageUrl` serves the re-encoded
+   PNG (the flat render with annotations from M4 on, at the same URL).
+
+Only the bearer token authenticates uploads — a browser session cookie is
+deliberately not accepted there. Uploads are sniffed by magic bytes (PNG/JPEG
+only), decoded under pixel and dimension caps, and re-encoded, so stored files
+never contain the uploaded bytes or their metadata.
 
 ## Quickstart B — full stack (Caddy + app + Postgres)
 

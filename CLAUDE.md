@@ -10,7 +10,7 @@ snapping-turtle: a self-hosted screenshot capture and sharing system. Browser ex
 
 ## Status
 
-Pre-M0: nothing is scaffolded yet. Milestones live in PLAN.md §16. The commands below are the contract — M0 must make each of them real, and CI keeps them green from then on.
+M0 (scaffold) and M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404) are done. Next is M2 (extension walking skeleton). Milestones live in PLAN.md §16. The commands below are the contract and CI keeps them green.
 
 ## Layout (pnpm workspaces)
 
@@ -20,6 +20,7 @@ server/     Fastify app: API, page serving, sharp flat renderer, guard (rate lim
 web/        Vite bundles served by server/: capture page + Fabric.js editor, auth pages, account, admin panel.
 extension/  One MV3 codebase → Chrome (service worker) and Firefox (event page) builds via manifest templates.
 deploy/     docker-compose.yml, Caddyfile, .env.example.
+data/       Local image store (git-ignored; IMAGES_DIR, compose mounts a volume at /data/images).
 PLAN.md     Full design document.
 ```
 
