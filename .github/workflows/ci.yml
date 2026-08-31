@@ -46,6 +46,8 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @snapping-turtle/web exec playwright install --with-deps chromium
       - run: pnpm test:parity
+      - name: Extension smoke tests (built Chrome extension)
+        run: pnpm --filter @snapping-turtle/extension test:smoke
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4
