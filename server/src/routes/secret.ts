@@ -1,11 +1,12 @@
 import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { randomInt } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { SessionService } from '../auth/session.js';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
 import { captures } from '../db/schema.js';
+import type { Guard } from '../guard.js';
 import { NOT_FOUND_HTML, renderCapturePage, type PageAssets } from '../html.js';
 import { VIEW_ID_PATTERN } from '../ids.js';
 import type { FlatRenderer } from '../images/flat.js';
@@ -20,6 +21,8 @@ export interface SecretRouteDeps {
   /** Flat composite pipeline for image.png (§10). */
   flat: FlatRenderer;
   sessions: SessionService;
+  /** Misses under /s/* count against the invalid-lookup budget (§12). */
+  guard: Guard;
   now: Clock;
   /** Resolved per request so dev watch builds show up; cached in production by the caller. */
   captureAssets: () => PageAssets;
@@ -31,12 +34,17 @@ const NOT_FOUND_BYTES = Buffer.from(NOT_FOUND_HTML, 'utf8');
 
 /**
  * Uniform not-found (§6, CLAUDE.md rule 2): one status, one header set, one
- * body, for every kind of miss under /s/*, after a random delay so timing
- * carries no signal either. M5's guard counts these; nothing else changes.
+ * body, for every kind of miss under /s/* and /reset/*, after a random delay
+ * so timing carries no signal either. `onMiss` lets the guard count the miss
+ * (M5) — it runs before the jitter and must not vary the response.
  */
-export function uniformNotFound(config: Config): (reply: FastifyReply) => Promise<FastifyReply> {
+export function uniformNotFound(
+  config: Config,
+  onMiss?: (req: FastifyRequest) => Promise<void>,
+): (req: FastifyRequest, reply: FastifyReply) => Promise<FastifyReply> {
   const { notFoundJitterMinMs: min, notFoundJitterMaxMs: max } = config.rate;
-  return async (reply) => {
+  return async (req, reply) => {
+    if (onMiss) await onMiss(req);
     const delay = max > min ? randomInt(min, max + 1) : min;
     if (delay > 0) await sleep(delay);
     return reply
@@ -61,8 +69,13 @@ export function ifNoneMatchHits(header: string | undefined, etag: string): boole
 
 /** GET /s/:viewId and GET /s/:viewId/image.png (§6–§8). View-only for everyone in M1. */
 export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<void> {
-  const { db, config, store, flat, sessions, now, captureAssets, editorAssets } = deps;
-  const notFound = uniformNotFound(config);
+  const { db, config, store, flat, sessions, guard, now, captureAssets, editorAssets } = deps;
+  const notFound = uniformNotFound(config, (req) =>
+    guard.recordInvalidLookup(guard.keyFor(req.ip)),
+  );
+  // Server-side faults (a live row whose file vanished) are not enumeration
+  // attempts: same uniform response, but they never count against a budget.
+  const notFoundFault = uniformNotFound(config);
 
   /** Live capture by view_id: not deleted, not expired. Malformed ids skip the query. */
   async function findLive(viewId: string) {
@@ -98,11 +111,11 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
   await app.register(
     async (s) => {
       // Anything under /s/ that is not one of the two routes below is the same 404.
-      s.setNotFoundHandler((_req, reply) => notFound(reply));
+      s.setNotFoundHandler((req, reply) => notFound(req, reply));
 
       s.get<{ Params: { viewId: string } }>('/:viewId', async (req, reply) => {
         const row = await findLive(req.params.viewId);
-        if (!row) return notFound(reply);
+        if (!row) return notFound(req, reply);
         // Owner gating (§7): the signed-in owner gets the editor bundle;
         // everyone else — admins included — keeps the M1 view-only page.
         // PUT enforces ownership server-side regardless of what is rendered.
@@ -139,7 +152,7 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
       // serve the re-encoded original untouched — exactly what M1 served.
       s.get<{ Params: { viewId: string } }>('/:viewId/image.png', async (req, reply) => {
         const row = await findLive(req.params.viewId);
-        if (!row) return notFound(reply);
+        if (!row) return notFound(req, reply);
 
         const cacheHeaders = (rev: number) =>
           reply
@@ -185,7 +198,7 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
         }
         if (!sent) {
           req.log.error({ captureId: row.id }, 'image file missing for live capture');
-          return notFound(reply);
+          return notFoundFault(req, reply);
         }
         return reply;
       });

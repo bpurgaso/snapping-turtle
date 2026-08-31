@@ -11,7 +11,8 @@ import { SessionService } from './auth/session.js';
 import { LoginThrottle } from './auth/throttle.js';
 import type { Config } from './config.js';
 import type { Db } from './db/client.js';
-import { registerErrorHandler } from './errors.js';
+import { registerErrorHandler, HttpError } from './errors.js';
+import { Guard, sendGuardBlocked } from './guard.js';
 import type { PageAssets } from './html.js';
 import { FlatRenderer } from './images/flat.js';
 import { ImageStore } from './images/storage.js';
@@ -34,6 +35,14 @@ export interface AppOptions {
   now?: Clock;
   /** Injectable flat renderer (§10) so tests can observe the render gate. */
   flat?: FlatRenderer;
+  /**
+   * Injectable guard (§12) so DB-free unit suites can supply one whose ban
+   * state was never hydrated. When omitted (production, integration), the
+   * app builds its own from config and hydrates it from ip_bans. The guard
+   * itself always runs — determinism comes from config and the clock, never
+   * from a bypass (CLAUDE.md rule 9).
+   */
+  guard?: Guard;
 }
 
 /** JSON bodies are small; uploads are multipart with their own cap (routes/captures). */
@@ -95,6 +104,57 @@ export async function buildApp(opts: AppOptions): Promise<App> {
   const auth = createAuthHooks(db, sessions, now);
   const store = new ImageStore(config.imagesDir);
 
+  // The guard (§12) sits in front of everything. Ban state is rebuilt from
+  // ip_bans here so a restart never amnesties anyone; all thresholds come
+  // from RATE_* config and the injected clock (CLAUDE.md rule 9 — no
+  // bypasses, no special cases).
+  const guard =
+    opts.guard ??
+    new Guard({
+      db,
+      rate: config.rate,
+      now,
+      onEvent: (event) => app.log.warn({ securityEvent: event }, 'guard event'),
+    });
+  if (!opts.guard) await guard.init();
+
+  app.addHook('onRequest', async (req, reply) => {
+    const path = req.url.split('?', 2)[0]!;
+    const secretPath =
+      path === '/s' || path.startsWith('/s/') || path === '/reset' || path.startsWith('/reset/');
+    const ipKey = guard.keyFor(req.ip);
+
+    if (secretPath) {
+      // A ban closes the oracle, not just the door: the check is in-memory,
+      // before any ID lookup, so valid and invalid links get byte-identical
+      // 429s with an identical timing profile (§12).
+      const banSeconds = guard.banRemainingSeconds(ipKey);
+      if (banSeconds !== null) return sendGuardBlocked(reply, banSeconds);
+
+      const gate = guard.breakerGate();
+      if (!gate.allowed) {
+        // Breaker open: authenticated sessions keep working (§12).
+        const token = sessions.tokenFromRequest(req);
+        const session = token ? await sessions.resolve(token) : null;
+        if (!session) return sendGuardBlocked(reply, gate.retryAfterSeconds);
+      }
+    }
+
+    // General unauthenticated cap. "Anonymous" means no validly signed
+    // session cookie and no bearer header — the cookie signature check is
+    // cheap and unforgeable, and both credential kinds are verified for real
+    // by the routes that require them.
+    const anonymous =
+      sessions.tokenFromRequest(req) === undefined && req.headers.authorization === undefined;
+    if (anonymous) {
+      const decision = guard.checkGeneral(ipKey);
+      if (!decision.allowed) {
+        if (secretPath) return sendGuardBlocked(reply, decision.retryAfterSeconds);
+        throw new HttpError(429, 'throttled', 'too many requests', decision.retryAfterSeconds);
+      }
+    }
+  });
+
   app.get(
     '/healthz',
     { schema: { response: { 200: HealthzResponse, 503: HealthzResponse } } },
@@ -129,6 +189,7 @@ export async function buildApp(opts: AppOptions): Promise<App> {
     store,
     flat,
     sessions,
+    guard,
     now,
     captureAssets,
     editorAssets,

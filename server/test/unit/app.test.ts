@@ -18,6 +18,10 @@ const config = loadConfig({
   DATABASE_URL: 'postgres://app:pw@localhost:5432/app',
   SESSION_SECRET: 'unit-test-session-secret-not-real-0123456789',
   WEB_DIST_DIR: webDist,
+  // Headroom so this DB-free suite's anonymous requests never reach a guard
+  // action that would need the database (config-driven, not a bypass).
+  RATE_GENERAL_PER_MIN: '100000',
+  RATE_INVALID_LOOKUP_BUDGET: '1000',
 });
 // postgres.js connects lazily; none of the routes exercised here touch the database.
 const { db } = createDb('postgres://unused:unused@127.0.0.1:1/unused', { max: 1 });
@@ -25,9 +29,11 @@ const { db } = createDb('postgres://unused:unused@127.0.0.1:1/unused', { max: 1 
 let app: FastifyInstance;
 let dbUp = true;
 beforeAll(async () => {
+  const { Guard } = await import('../../src/guard.js');
   app = await buildApp({
     config,
     db,
+    guard: new Guard({ db, rate: config.rate, now: () => new Date() }),
     checks: {
       database: async () => {
         if (!dbUp) throw new Error('connection refused');

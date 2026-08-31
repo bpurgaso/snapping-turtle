@@ -53,6 +53,10 @@ const config = loadConfig({
   WEB_DIST_DIR: webDist,
   RATE_NOT_FOUND_JITTER_MIN_MS: '0',
   RATE_NOT_FOUND_JITTER_MAX_MS: '1',
+  // Anonymous image fetches in this suite must never hit the general cap;
+  // the M5 guard suite exercises the real thresholds.
+  RATE_GENERAL_PER_MIN: '100000',
+  RATE_INVALID_LOOKUP_BUDGET: '100000',
 });
 
 const OWNER = { username: 'flat-owner', password: 'flat-owner-password-not-real-1' };

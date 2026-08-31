@@ -15,6 +15,10 @@ import { hashPassword } from '../../src/password.js';
  */
 export const E2E_OWNER = { username: 'e2e-owner', password: 'e2e-owner-password-not-real-1' };
 
+// Playwright loads pages and assets anonymously in parallel workers; give the
+// M5 general cap headroom (config, not a bypass) unless the run overrides it.
+process.env['RATE_GENERAL_PER_MIN'] ??= '1000';
+
 const config = loadConfig();
 const handle = createDb(config.databaseUrl, { max: 4 });
 

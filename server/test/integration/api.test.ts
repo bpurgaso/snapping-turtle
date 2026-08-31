@@ -64,6 +64,12 @@ const config = loadConfig({
   LOGIN_THROTTLE_BASE_SECONDS: '30',
   RATE_NOT_FOUND_JITTER_MIN_MS: '0',
   RATE_NOT_FOUND_JITTER_MAX_MS: '1',
+  // This suite runs on a frozen clock, so its windows never slide: raise the
+  // guard budgets (config, not bypasses) so unrelated M1–M4 behavior stays
+  // observable. The M5 guard suite exercises the real thresholds.
+  RATE_GENERAL_PER_MIN: '100000',
+  RATE_INVALID_LOOKUP_BUDGET: '100000',
+  RATE_BREAKER_INVALID_PER_MIN: '1000000',
 });
 
 let handle: DbHandle;

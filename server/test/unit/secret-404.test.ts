@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
 import { createDb } from '../../src/db/client.js';
+import { Guard } from '../../src/guard.js';
 import { NOT_FOUND_HTML } from '../../src/html.js';
 
 /**
  * Uniform 404 without a database: malformed ids and unknown sub-paths never
  * query, so this runs in the unit suite. The integration suite adds
- * never-existed / expired / deleted well-formed ids.
+ * never-existed / expired / deleted well-formed ids. The guard budget is
+ * raised via config (not bypassed) so counting misses never reaches the DB
+ * write a ban trip would need.
  */
 const { db } = createDb('postgres://unused:unused@127.0.0.1:1/unused', { max: 1 });
 
@@ -19,8 +22,10 @@ async function appWithJitter(min: number, max: number) {
     WEB_DIST_DIR: '/nonexistent',
     RATE_NOT_FOUND_JITTER_MIN_MS: String(min),
     RATE_NOT_FOUND_JITTER_MAX_MS: String(max),
+    RATE_INVALID_LOOKUP_BUDGET: '1000',
   });
-  return buildApp({ config, db });
+  const guard = new Guard({ db, rate: config.rate, now: () => new Date() });
+  return buildApp({ config, db, guard });
 }
 
 function comparable(headers: Record<string, unknown>) {
