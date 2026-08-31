@@ -39,10 +39,17 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: '3000'
-      TRUST_PROXY: 'true'
+      # §12: trust X-Forwarded-For only from the compose `web` network, where
+      # Caddy lives — a spoofed header from anywhere else must not be able to
+      # aim guard bans at other people's IPs.
+      TRUST_PROXY: ${TRUST_PROXY:-172.28.101.0/24}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PUBLIC_ORIGIN: https://${PUBLIC_HOST:?set PUBLIC_HOST in deploy/.env}
-      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:-snapping_turtle}
+      # Runtime role (rule 7): st_app has no UPDATE/DELETE grant on audit_log.
+      DATABASE_URL: postgres://st_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:-snapping_turtle}
+      # Privileged role: owns the schema; used only for migrations at boot and
+      # to sync st_app's password (start.ts). Also used by db:seed.
+      MIGRATE_DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:-snapping_turtle}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in deploy/.env}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-30}
       RETENTION_DEFAULT_DAYS: ${RETENTION_DEFAULT_DAYS:-30}
@@ -51,6 +58,8 @@ services:
       RATE_INVALID_LOOKUP_BUDGET: ${RATE_INVALID_LOOKUP_BUDGET:-5}
       RATE_INVALID_LOOKUP_WINDOW_MIN: ${RATE_INVALID_LOOKUP_WINDOW_MIN:-10}
       RATE_BREAKER_INVALID_PER_MIN: ${RATE_BREAKER_INVALID_PER_MIN:-100}
+      RATE_BREAKER_COOLDOWN_SECONDS: ${RATE_BREAKER_COOLDOWN_SECONDS:-300}
+      RATE_BAN_LADDER_MINUTES: ${RATE_BAN_LADDER_MINUTES:-15,60,1440}
       RATE_NOT_FOUND_JITTER_MIN_MS: ${RATE_NOT_FOUND_JITTER_MIN_MS:-30}
       RATE_NOT_FOUND_JITTER_MAX_MS: ${RATE_NOT_FOUND_JITTER_MAX_MS:-150}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
@@ -100,7 +109,12 @@ services:
           memory: 512M
 
 networks:
+  # Fixed subnet so the app's TRUST_PROXY can name exactly the network Caddy
+  # connects from (§12). Change both together if this range clashes locally.
   web:
+    ipam:
+      config:
+        - subnet: 172.28.101.0/24
   internal:
     internal: true
 

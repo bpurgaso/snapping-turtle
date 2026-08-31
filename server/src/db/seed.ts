@@ -10,7 +10,9 @@ import { seedAdmin } from './seed-admin.js';
  */
 loadEnvFile();
 
-const databaseUrl = process.env['DATABASE_URL'];
+// Seeding runs migrations first, so it needs the privileged role when the
+// runtime role is split off (see start.ts).
+const databaseUrl = process.env['MIGRATE_DATABASE_URL'] ?? process.env['DATABASE_URL'];
 const username = process.env['ADMIN_BOOTSTRAP_USER'];
 const password = process.env['ADMIN_BOOTSTRAP_PASSWORD'];
 

@@ -2,13 +2,14 @@ import { emptyAnnotationDocument, type AnnotationDocument } from '@snapping-turt
 import { index, integer, jsonb, pgEnum, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
 /**
- * Data model (PLAN.md §5). M0 landed `users` and `settings`; M1 adds
- * `api_tokens`, `captures` and `sessions`. `audit_log` and `ip_bans` arrive
- * with the admin panel and guard in M5. All schema changes go through
- * `pnpm --filter server db:generate`.
+ * Data model (PLAN.md §5). M0 landed `users` and `settings`; M1 added
+ * `api_tokens`, `captures` and `sessions`; M5 adds `audit_log`, `ip_bans`
+ * and `account_links` (admin panel, guard, one-time links). All schema
+ * changes go through `pnpm --filter server db:generate`.
  */
 
 export const userRole = pgEnum('user_role', ['user', 'admin']);
+export const accountLinkPurpose = pgEnum('account_link_purpose', ['setup', 'reset']);
 
 export const users = pgTable('users', {
   id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
@@ -104,6 +105,74 @@ export const captures = pgTable(
   ],
 );
 
+/**
+ * Admin audit trail (§5, §11; CLAUDE.md rule 7). Append-only at the
+ * database-grant level: the runtime role (`st_app`, migration 0002) has
+ * INSERT and SELECT here but no UPDATE or DELETE. Every admin mutation
+ * writes a row in the same transaction as the mutation itself. `detail`
+ * never carries full secrets — 8-char prefixes only (rule 3) — and targets
+ * are internal row ids, never `view_id`s.
+ */
+export const auditLog = pgTable('audit_log', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  actorUserId: integer('actor_user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'restrict' }),
+  /** Dotted verb, e.g. `user.create`, `settings.registration`, `guard.unban`. */
+  action: text('action').notNull(),
+  targetType: text('target_type').notNull(),
+  /** Internal row id of the target; null when the target has none (settings). */
+  targetId: integer('target_id'),
+  detail: jsonb('detail')
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .$defaultFn(() => ({})),
+  ip: text('ip').notNull(),
+});
+
+/**
+ * Guard bans (§12): one row per IPv4 address / IPv6 /64 prefix, persisted so
+ * a restart never amnesties an attacker. `strikes` outlives `banned_until`
+ * so escalation (15 min → 1 h → 24 h) carries across bans.
+ */
+export const ipBans = pgTable(
+  'ip_bans',
+  {
+    ipPrefix: text('ip_prefix').primaryKey(),
+    strikes: integer('strikes').notNull(),
+    bannedUntil: timestamp('banned_until', { withTimezone: true }).notNull(),
+    reason: text('reason').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('ip_bans_banned_until_idx').on(t.bannedUntil)],
+);
+
+/**
+ * One-time set-password links (§11): admin-issued for account setup and
+ * password reset. The URL carries the raw 20-byte token; only its sha256 is
+ * stored, it expires after ACCOUNT_LINK_TTL_HOURS and is consumed on first
+ * use. Invalid lookups on /reset/* count against the guard budget (§12).
+ */
+export const accountLinks = pgTable(
+  'account_links',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    purpose: accountLinkPurpose('purpose').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('account_links_user_id_idx').on(t.userId)],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Setting = typeof settings.$inferSelect;
@@ -111,3 +180,6 @@ export type Session = typeof sessions.$inferSelect;
 export type ApiToken = typeof apiTokens.$inferSelect;
 export type Capture = typeof captures.$inferSelect;
 export type NewCapture = typeof captures.$inferInsert;
+export type AuditLogEntry = typeof auditLog.$inferSelect;
+export type IpBan = typeof ipBans.$inferSelect;
+export type AccountLink = typeof accountLinks.$inferSelect;

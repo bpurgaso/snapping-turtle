@@ -28,8 +28,13 @@ export const ConfigSchema = Type.Object({
   logLevel: Type.Union(
     ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'].map((l) => Type.Literal(l)),
   ),
-  /** Behind Caddy the client IP arrives in X-Forwarded-For; only trust it when told to. */
-  trustProxy: Type.Boolean(),
+  /**
+   * Behind Caddy the client IP arrives in X-Forwarded-For. `true`/`false`, or
+   * a list of CIDRs so only connections that actually came from the proxy may
+   * assert a client IP — a spoofed header would otherwise let an attacker aim
+   * guard bans at other people (§12). Compose pins this to its own subnet.
+   */
+  trustProxy: Type.Union([Type.Boolean(), Type.Array(Type.String({ minLength: 1 }))]),
   publicOrigin: Type.String({ pattern: '^https?://[^/\\s]+$' }),
   databaseUrl: Type.String({ pattern: '^postgres(ql)?://' }),
   /** Signs session cookies and derives CSRF tokens; rotating it logs everyone out. */
@@ -52,6 +57,10 @@ export const ConfigSchema = Type.Object({
     invalidLookupBudget: Type.Integer({ minimum: 1 }),
     invalidLookupWindowMinutes: Type.Integer({ minimum: 1 }),
     breakerInvalidPerMinute: Type.Integer({ minimum: 1 }),
+    /** Seconds the breaker stays open before half-open probes (§12). */
+    breakerCooldownSeconds: Type.Integer({ minimum: 1 }),
+    /** Escalating ban durations per strike, in minutes; the last rung repeats. */
+    banLadderMinutes: Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1 }),
     /** Latency jitter on uniform /s/* not-found responses (§6). */
     notFoundJitterMinMs: Type.Integer({ minimum: 0 }),
     notFoundJitterMaxMs: Type.Integer({ minimum: 0 }),
@@ -73,12 +82,29 @@ function int(env: Env, key: string, fallback: number): number {
   return n;
 }
 
-function bool(env: Env, key: string, fallback: boolean): boolean {
-  const raw = env[key];
+/** TRUST_PROXY: boolean-ish, or a comma-separated CIDR/address list. */
+function trustProxyOf(env: Env, fallback: boolean): boolean | string[] {
+  const raw = env['TRUST_PROXY'];
   if (raw === undefined || raw === '') return fallback;
   if (['1', 'true', 'yes'].includes(raw.toLowerCase())) return true;
   if (['0', 'false', 'no'].includes(raw.toLowerCase())) return false;
-  throw new ConfigError(`${key} must be a boolean, got "${raw}"`);
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** Comma-separated integer list, e.g. RATE_BAN_LADDER_MINUTES=15,60,1440. */
+function intList(env: Env, key: string, fallback: readonly number[]): number[] {
+  const raw = env[key];
+  if (raw === undefined || raw === '') return [...fallback];
+  return raw.split(',').map((part) => {
+    const n = Number(part.trim());
+    if (!Number.isInteger(n)) {
+      throw new ConfigError(`${key} must be a comma-separated list of integers, got "${raw}"`);
+    }
+    return n;
+  });
 }
 
 /**
@@ -93,7 +119,7 @@ export function loadConfig(env: Env = process.env): Config {
     host: env['HOST'] ?? '0.0.0.0',
     port: int(env, 'PORT', 3000),
     logLevel: env['LOG_LEVEL'] ?? (nodeEnv === 'production' ? 'info' : 'debug'),
-    trustProxy: bool(env, 'TRUST_PROXY', nodeEnv === 'production'),
+    trustProxy: trustProxyOf(env, nodeEnv === 'production'),
     publicOrigin: (env['PUBLIC_ORIGIN'] ?? 'http://localhost:3000').replace(/\/+$/, ''),
     databaseUrl: env['DATABASE_URL'] ?? '',
     sessionSecret: env['SESSION_SECRET'] ?? '',
@@ -125,6 +151,12 @@ export function loadConfig(env: Env = process.env): Config {
         'RATE_BREAKER_INVALID_PER_MIN',
         GUARD_DEFAULTS.breakerInvalidPerMinute,
       ),
+      breakerCooldownSeconds: int(
+        env,
+        'RATE_BREAKER_COOLDOWN_SECONDS',
+        GUARD_DEFAULTS.breakerCooldownSeconds,
+      ),
+      banLadderMinutes: intList(env, 'RATE_BAN_LADDER_MINUTES', GUARD_DEFAULTS.banLadderMinutes),
       notFoundJitterMinMs: int(
         env,
         'RATE_NOT_FOUND_JITTER_MIN_MS',

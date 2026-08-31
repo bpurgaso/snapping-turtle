@@ -74,7 +74,8 @@ The extension, editor, and server share one package for the annotation schema an
 | `sessions` | token_hash (sha256, PK), user_id, created_at, expires_at, last_seen_at | Server-side browser sessions (added in M1): revocable on disable/reset; the cookie carries the random token, only its hash is stored |
 | `settings` | key, value | e.g. `registration_enabled` — runtime-togglable by admin |
 | `audit_log` | id, at, actor_user_id, action, target_type, target_id, detail (jsonb), ip | Append-only; the app role has no UPDATE/DELETE grant on it |
-| `ip_bans` | ip_prefix, strikes, banned_until, reason, updated_at | Persisted so restarts don't amnesty an attacker |
+| `ip_bans` | ip_prefix, strikes, banned_until, reason, updated_at | Persisted so restarts don't amnesty an attacker; `strikes` outlives `banned_until` so escalation carries across bans |
+| `account_links` | id, user_id, purpose (`setup`/`reset`), token_hash (sha256), expires_at, consumed_at, created_by, created_at | Admin-issued one-time set-password links (§11): 24 h expiry, consumed on first use, raw token shown to the admin exactly once (M5) |
 
 Deleting a capture removes the image files immediately but leaves a tombstone row (owner, source_url, sha256, timestamps) for 90 days to support trust-and-safety follow-up; the purge job hard-deletes tombstones after that.
 

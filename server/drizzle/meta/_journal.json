@@ -15,6 +15,13 @@
       "when": 1788133078460,
       "tag": "0001_m1_tokens_captures_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788213500195,
+      "tag": "0002_m5_audit_bans_links",
+      "breakpoints": true
     }
   ]
 }

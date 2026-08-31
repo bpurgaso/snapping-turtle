@@ -2,9 +2,10 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
+import { writeAudit } from '../../src/db/audit.js';
 import { createDb, type DbHandle } from '../../src/db/client.js';
-import { runMigrations } from '../../src/db/migrate.js';
-import { settings, users } from '../../src/db/schema.js';
+import { runMigrations, syncAppRolePassword } from '../../src/db/migrate.js';
+import { auditLog, settings, users } from '../../src/db/schema.js';
 import { seedAdmin } from '../../src/db/seed-admin.js';
 import { verifyPassword } from '../../src/password.js';
 
@@ -32,8 +33,11 @@ describe('migrations', () => {
       select table_name from information_schema.tables
       where table_schema = 'public' order by table_name`;
     expect(tables.map((t) => t.table_name)).toEqual([
+      'account_links',
       'api_tokens',
+      'audit_log',
       'captures',
+      'ip_bans',
       'sessions',
       'settings',
       'users',
@@ -109,6 +113,89 @@ describe('seedAdmin', () => {
     // Drizzle wraps driver errors; the Postgres error (23505 unique_violation) is the cause.
     const cause = (err as Error & { cause?: { code?: string } }).cause;
     expect(cause?.code).toBe('23505');
+  });
+});
+
+describe('audit_log append-only enforcement (CLAUDE.md rule 7)', () => {
+  /** DATABASE_URL with the credentials swapped for the runtime role. */
+  const stAppUrl = (): string => {
+    const url = new URL(databaseUrl);
+    url.username = 'st_app';
+    url.password = 'st-app-integration-password-1';
+    return url.href;
+  };
+  const pgCode = (err: unknown): string | undefined =>
+    (err as Error & { cause?: { code?: string } }).cause?.code;
+
+  let adminId: number;
+  let stApp: DbHandle;
+
+  beforeAll(async () => {
+    // The privileged connection sets the runtime role's password exactly the
+    // way the container entrypoint does at boot.
+    await syncAppRolePassword(handle, stAppUrl());
+    const [admin] = await handle.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, 'bootstrap-admin'));
+    adminId = admin!.id;
+    stApp = createDb(stAppUrl(), { max: 1 });
+  });
+  afterAll(() => stApp.close());
+
+  it('st_app can INSERT and SELECT audit rows', async () => {
+    await writeAudit(stApp.db, new Date(), {
+      actorUserId: adminId,
+      action: 'test.append_only',
+      targetType: 'settings',
+      detail: { probe: true },
+      ip: '127.0.0.1',
+    });
+    const rows = await stApp.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'test.append_only'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.detail).toEqual({ probe: true });
+  });
+
+  it('st_app is denied UPDATE and DELETE by the database, not convention', async () => {
+    const update: unknown = await stApp.db
+      .update(auditLog)
+      .set({ action: 'tampered' })
+      .then(() => undefined, (e: unknown) => e);
+    expect(update).toBeInstanceOf(Error);
+    expect(pgCode(update)).toBe('42501'); // insufficient_privilege
+
+    const del: unknown = await stApp.db.delete(auditLog).then(() => undefined, (e: unknown) => e);
+    expect(del).toBeInstanceOf(Error);
+    expect(pgCode(del)).toBe('42501');
+
+    // The row written above is still there, untouched.
+    const rows = await handle.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'test.append_only'));
+    expect(rows).toHaveLength(1);
+  });
+
+  it('a mutation that fails mid-way writes no audit row (same-transaction rule)', async () => {
+    const attempt = handle.db.transaction(async (tx) => {
+      await writeAudit(tx, new Date(), {
+        actorUserId: adminId,
+        action: 'test.rollback',
+        targetType: 'user',
+        ip: '127.0.0.1',
+      });
+      // The mutation half fails: duplicate username violates the unique index.
+      await tx.insert(users).values({ username: 'bootstrap-admin', passwordHash: 'x' });
+    });
+    await expect(attempt).rejects.toThrow();
+    const rows = await handle.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'test.rollback'));
+    expect(rows).toHaveLength(0);
   });
 });
 

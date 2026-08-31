@@ -74,6 +74,9 @@ export const LOGIN_THROTTLE_DEFAULTS = {
   maxSeconds: 3600,
 } as const;
 
+/** Admin-issued one-time set-password links expire after this long (§11). */
+export const ACCOUNT_LINK_TTL_HOURS = 24;
+
 // ---- Retention (§13) --------------------------------------------------------
 
 export const RETENTION_DEFAULT_DAYS = 30;
@@ -94,8 +97,11 @@ export const GUARD_DEFAULTS = {
   invalidLookupWindowMinutes: 10,
   /** Aggregate invalid lookups per minute (all IPs) that open the breaker. */
   breakerInvalidPerMinute: 100,
-  /** Escalating ban durations per strike, in minutes: 15 min → 1 h → 24 h. */
+  /** Escalating ban durations per strike, in minutes: 15 min → 1 h → 24 h.
+   *  Further strikes stay at the last rung. */
   banLadderMinutes: [15, 60, 24 * 60],
+  /** How long the breaker stays open before half-open probes are admitted. */
+  breakerCooldownSeconds: 300,
   /** Uniform not-found responses on /s/* sleep a random duration in this
    *  range so response timing never distinguishes a miss from an expired row (§6). */
   notFoundJitterMs: { min: 30, max: 150 },
