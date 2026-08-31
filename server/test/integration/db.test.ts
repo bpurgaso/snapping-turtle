@@ -31,7 +31,13 @@ describe('migrations', () => {
     const tables = await handle.sql<{ table_name: string }[]>`
       select table_name from information_schema.tables
       where table_schema = 'public' order by table_name`;
-    expect(tables.map((t) => t.table_name)).toEqual(['settings', 'users']);
+    expect(tables.map((t) => t.table_name)).toEqual([
+      'api_tokens',
+      'captures',
+      'sessions',
+      'settings',
+      'users',
+    ]);
   });
 
   it('enforce the users constraints from PLAN.md §5', async () => {
@@ -113,7 +119,11 @@ describe('GET /healthz against the real database', () => {
       DATABASE_URL: databaseUrl,
       SESSION_SECRET: 'integration-session-secret-not-real-0123456789',
     });
-    const app = await buildApp({ config, checks: { database: () => handle.ping() } });
+    const app = await buildApp({
+      config,
+      db: handle.db,
+      checks: { database: () => handle.ping() },
+    });
     try {
       const res = await app.inject({ method: 'GET', url: '/healthz' });
       expect(res.statusCode).toBe(200);

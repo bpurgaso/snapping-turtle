@@ -15,6 +15,7 @@ export async function startServer(existing?: DbHandle): Promise<RunningServer> {
   const handle = existing ?? createDb(config.databaseUrl);
   const app = await buildApp({
     config,
+    db: handle.db,
     logger: loggerOptions(config),
     checks: { database: () => handle.ping() },
   });

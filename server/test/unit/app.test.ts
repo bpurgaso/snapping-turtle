@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
+import { createDb } from '../../src/db/client.js';
 import type { FastifyInstance } from 'fastify';
 
 // A stand-in web bundle so the app exercises its real serving path.
@@ -18,12 +19,15 @@ const config = loadConfig({
   SESSION_SECRET: 'unit-test-session-secret-not-real-0123456789',
   WEB_DIST_DIR: webDist,
 });
+// postgres.js connects lazily; none of the routes exercised here touch the database.
+const { db } = createDb('postgres://unused:unused@127.0.0.1:1/unused', { max: 1 });
 
 let app: FastifyInstance;
 let dbUp = true;
 beforeAll(async () => {
   app = await buildApp({
     config,
+    db,
     checks: {
       database: async () => {
         if (!dbUp) throw new Error('connection refused');
