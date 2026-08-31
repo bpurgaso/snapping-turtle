@@ -95,6 +95,21 @@ export type SessionInfo = Static<typeof SessionInfo>;
 /** Header carrying the double-submit CSRF token. */
 export const CSRF_HEADER = 'x-csrf-token';
 
+/**
+ * Body of POST /api/v1/auth/set-password (§11): consumes an admin-issued
+ * one-time link token and sets the account password. The token itself is the
+ * authentication — no cookie, so no CSRF. Invalid tokens get the generic 404
+ * and count against the guard's invalid-lookup budget (§12).
+ */
+export const SetPasswordRequest = Type.Object(
+  {
+    token: Type.String({ minLength: 1, maxLength: 128 }),
+    password: Password,
+  },
+  { additionalProperties: false, $id: 'SetPasswordRequest' },
+);
+export type SetPasswordRequest = Static<typeof SetPasswordRequest>;
+
 // ---- API tokens (§11) -------------------------------------------------------
 
 const IsoTimestamp = Type.String({ format: 'date-time' });

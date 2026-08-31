@@ -8,6 +8,7 @@ import type {
   PatchCaptureResponse,
   PutAnnotationsResponse,
   SessionInfo,
+  SetPasswordRequest,
   TokenListResponse,
 } from '@snapping-turtle/shared/api';
 import type { AnnotationDocument } from '@snapping-turtle/shared/annotations';
@@ -72,6 +73,9 @@ export const auth = {
   login: (creds: CredentialsRequest) => request<SessionInfo>('POST', '/api/v1/auth/login', creds),
   signup: (creds: CredentialsRequest) => request<SessionInfo>('POST', '/api/v1/auth/signup', creds),
   logout: (csrf: string) => request<void>('POST', '/api/v1/auth/logout', undefined, csrf),
+  /** Consume a one-time link (§11); the token authenticates, no CSRF needed. */
+  setPassword: (body: SetPasswordRequest) =>
+    request<SessionInfo>('POST', '/api/v1/auth/set-password', body),
 };
 
 export const tokens = {

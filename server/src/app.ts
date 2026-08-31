@@ -20,6 +20,7 @@ import { authRoutes } from './routes/auth.js';
 import { captureRoutes } from './routes/captures.js';
 import { ownerRoutes } from './routes/owner.js';
 import { pingRoutes } from './routes/ping.js';
+import { resetRoutes } from './routes/reset.js';
 import { secretRoutes } from './routes/secret.js';
 import { tokenRoutes } from './routes/tokens.js';
 import type { App, Clock } from './types.js';
@@ -174,7 +175,7 @@ export async function buildApp(opts: AppOptions): Promise<App> {
     },
   );
 
-  await app.register(authRoutes, { db, sessions, throttle, auth });
+  await app.register(authRoutes, { db, sessions, throttle, auth, guard, now });
   await app.register(tokenRoutes, { db, auth, now });
   await app.register(pingRoutes, { auth });
   await app.register(captureRoutes, { db, config, store, auth, now });
@@ -195,8 +196,25 @@ export async function buildApp(opts: AppOptions): Promise<App> {
     editorAssets,
   });
 
+  await app.register(resetRoutes, {
+    db,
+    config,
+    guard,
+    now,
+    resetPage: pageLoader(config, 'reset.html'),
+  });
+
   await registerWeb(app, config);
   return app;
+}
+
+/** Raw HTML page loader: cached in production, re-read per request in dev. */
+function pageLoader(config: Config, file: string): () => string | undefined {
+  const path = join(config.webDistDir, file);
+  const read = () => (existsSync(path) ? readFileSync(path, 'utf8') : undefined);
+  if (config.nodeEnv !== 'production') return read;
+  const cached = read();
+  return () => cached;
 }
 
 /** Cached once in production; re-read per request in dev so watch builds show up. */

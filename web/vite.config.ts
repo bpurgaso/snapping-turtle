@@ -28,6 +28,7 @@ export default defineConfig({
         login: here('login.html'),
         signup: here('signup.html'),
         account: here('account.html'),
+        reset: here('reset.html'),
         capture: here('src/capture.ts'),
         editor: here('src/editor.ts'),
       },

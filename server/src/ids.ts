@@ -24,6 +24,14 @@ export function newApiToken(): string {
   return API_TOKEN_PREFIX + randomBytes(SECRET_TOKEN_BYTES).toString('base64url');
 }
 
+/** One-time set-password link tokens (§11): same entropy budget as view_ids. */
+export function newLinkToken(): string {
+  return randomBytes(SECRET_TOKEN_BYTES).toString('base64url');
+}
+
+/** Shape check only — 20 base64url-encoded bytes, like VIEW_ID_PATTERN. */
+export const LINK_TOKEN_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${VIEW_ID_LENGTH}}$`);
+
 /** Session tokens get a larger budget: they are long-lived and cheap to carry. */
 export function newSessionToken(): string {
   return randomBytes(32).toString('base64url');
