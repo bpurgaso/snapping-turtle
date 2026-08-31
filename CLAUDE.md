@@ -10,7 +10,7 @@ snapping-turtle: a self-hosted screenshot capture and sharing system. Browser ex
 
 ## Status
 
-M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404), M2 (extension walking skeleton: popup, visible-viewport capture, options page, `GET /api/v1/ping`, Chrome + Firefox builds) and M3 (annotation editor: Fabric.js rect/arrow/text, autosave with revisions, owner gating, retention selector + delete, tall-canvas perf spike in `docs/perf-tall-canvas.md`) are done. Next is M4 (flat renderer). Milestones live in PLAN.md §16. The commands below are the contract and CI keeps them green. Capture needs a real browser gesture, so `extension/TESTING.md` holds the manual checklist for what automation cannot reach.
+M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404), M2 (extension walking skeleton: popup, visible-viewport capture, options page, `GET /api/v1/ping`, Chrome + Firefox builds), M3 (annotation editor: Fabric.js rect/arrow/text, autosave with revisions, owner gating, retention selector + delete, tall-canvas perf spike in `docs/perf-tall-canvas.md`) and M4 (flat renderer: SVG overlay + sharp composite behind `/s/:viewId/image.png` with per-capture cache, ETag/304, render gate, vendored Inter + fontconfig, `pnpm test:parity` pixel harness and server goldens) are done. Next is M5 (guard layer + admin panel). Milestones live in PLAN.md §16. The commands below are the contract and CI keeps them green. Capture needs a real browser gesture, so `extension/TESTING.md` holds the manual checklist for what automation cannot reach.
 
 ## Layout (pnpm workspaces)
 
@@ -70,7 +70,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 - Chrome throttles `captureVisibleTab` to ~2 calls/sec — the full-page tile pacing (~600 ms) is a shared constant; don't "optimize" it away (§15).
 - Full-page capture is intentionally two code paths: Firefox `tabs.captureTab({ rect })` natively, Chrome scroll-and-stitch (§15).
 - Extension manifests are generated from templates in `extension/`; never hand-edit build output.
-- The server Docker image bundles fontconfig + a pinned font for librsvg text in sharp composites — removing them silently breaks text in flat renders (§10).
+- Flat-render text resolves through fontconfig to the one font vendored at `shared/fonts/Inter-Regular.ttf` (`server/fontconfig/fonts.conf`, `FONTCONFIG_PATH`, and `PANGOCAIRO_BACKEND=fontconfig` — sharp's macOS pango otherwise uses CoreText and ignores fontconfig entirely). Removing any of these silently changes or breaks text in flat renders (§10).
 - The 32,000 px height cap is shared between extension capture, server ingest validation, and the editor; changing it means revisiting browser canvas limits (§9, §15).
 
 ## Maintaining this file

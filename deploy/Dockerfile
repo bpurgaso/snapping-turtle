@@ -3,8 +3,12 @@
 #
 # Stage 1 builds shared + web + server; stage 2 is a slim runtime with only
 # production dependencies, running as the unprivileged `node` user.
-# Debian slim (not Alpine) because argon2 today and sharp + fontconfig in M4
-# want glibc; the M4 change adds `apt-get install fontconfig fonts-inter` here.
+# Debian slim (not Alpine) because argon2 and sharp want glibc. The flat
+# renderer's text (M4, §10) resolves fonts through fontconfig: the runtime
+# installs the fontconfig package and pins FONTCONFIG_PATH at the repo config
+# (server/fontconfig), which registers exactly one font — the vendored
+# shared/fonts/Inter-Regular.ttf — so librsvg draws the same glyphs the
+# editor does. Removing these silently breaks text in flat renders.
 
 ARG NODE_IMAGE=node:22-bookworm-slim
 
@@ -41,13 +45,24 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 
 # ---- runtime ----------------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    # Deterministic font resolution for the flat renderer (§10); the cache
+    # lands under XDG_CACHE_HOME because the container filesystem is
+    # read-only apart from the /tmp tmpfs.
+    FONTCONFIG_PATH=/app/server/fontconfig \
+    PANGOCAIRO_BACKEND=fontconfig \
+    XDG_CACHE_HOME=/tmp
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends fontconfig \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=prod-deps --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=prod-deps --chown=node:node /app/shared/node_modules ./shared/node_modules
 COPY --from=build --chown=node:node /app/shared/package.json ./shared/package.json
 COPY --from=build --chown=node:node /app/shared/dist ./shared/dist
+COPY --from=build --chown=node:node /app/shared/fonts ./shared/fonts
+COPY --from=build --chown=node:node /app/server/fontconfig ./server/fontconfig
 COPY --from=build --chown=node:node /app/server/package.json ./server/package.json
 COPY --from=build --chown=node:node /app/server/dist ./server/dist
 COPY --from=build --chown=node:node /app/server/drizzle ./server/drizzle
