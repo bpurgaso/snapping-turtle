@@ -14,6 +14,7 @@ import { accountLinks, auditLog, ipBans, sessions, users } from '../../src/db/sc
 import { seedAdmin } from '../../src/db/seed-admin.js';
 import { NOT_FOUND_HTML } from '../../src/html.js';
 import { sha256Hex } from '../../src/ids.js';
+import { loggerOptions } from '../../src/log.js';
 import { hashPassword } from '../../src/password.js';
 import type { App } from '../../src/types.js';
 
@@ -118,6 +119,7 @@ describe('GET /reset/:token (§11)', () => {
     expect(res.headers['cache-control']).toBe('private, no-store');
     expect(res.headers['referrer-policy']).toBe('no-referrer');
     expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
+    expect(String(res.headers['content-security-policy'])).toContain("default-src 'self'");
     // The page never embeds the token; the client script reads the URL.
     expect(res.body).not.toContain(link.token);
     expect(link.expiresAt.getTime() - clock.getTime()).toBe(ACCOUNT_LINK_TTL_HOURS * 3_600_000);
@@ -297,5 +299,54 @@ describe('POST /api/v1/auth/set-password (§11)', () => {
     // Re-enabling restores the link — nothing was burned.
     await handle.db.update(users).set({ disabledAt: null }).where(eq(users.id, userId));
     expect((await setPassword(link.token, 'a-long-enough-password-1')).statusCode).toBe(200);
+  });
+});
+
+describe('log sweep: no full secrets in log output (CLAUDE.md rule 3)', () => {
+  it('secret paths log as 8-char prefixes; credential headers are redacted', async () => {
+    const lines: string[] = [];
+    const stream = { write: (line: string) => void lines.push(line) };
+    const base = loggerOptions(config) as object;
+    const logged = await buildApp({
+      config,
+      db: handle.db,
+      now,
+      logger: { ...base, stream } as never,
+    });
+    try {
+      const { link } = await userWithLink('log-sweep-user');
+      // A valid page load, a miss, and the consuming POST — all secret-bearing.
+      expect(
+        (await logged.inject({ method: 'GET', url: `/reset/${link.token}` })).statusCode,
+      ).toBe(200);
+      await logged.inject({
+        method: 'GET',
+        url: `/reset/${randomBytes(20).toString('base64url')}`,
+        remoteAddress: '198.18.9.9',
+      });
+      const done = await logged.inject({
+        method: 'POST',
+        url: '/api/v1/auth/set-password',
+        payload: { token: link.token, password: 'log-sweep-password-123' },
+      });
+      expect(done.statusCode).toBe(200);
+      const sessionCookie = (Array.isArray(done.headers['set-cookie'])
+        ? done.headers['set-cookie']
+        : [done.headers['set-cookie']]
+      )
+        .map((c) => String(c).split(';')[0]!.split('=')[1]!)
+        .join('');
+
+      const blob = lines.join('');
+      // The requests were logged — the sweep below is meaningful…
+      expect(blob).toContain('"method":"GET"');
+      expect(blob).toContain(`/reset/${link.token.slice(0, 8)}…`);
+      // …and no full secret ever reached the stream.
+      expect(blob).not.toContain(link.token);
+      expect(blob).not.toContain(decodeURIComponent(sessionCookie).slice(0, 32));
+      expect(blob).not.toContain('log-sweep-password-123');
+    } finally {
+      await logged.close();
+    }
   });
 });

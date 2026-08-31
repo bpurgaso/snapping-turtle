@@ -193,6 +193,11 @@ describe('invalid-lookup budget → escalating persisted ban (§12)', () => {
       expect(res.statusCode).toBe(429);
       expect(res.body).toBe(GUARD_BLOCKED_HTML);
       expect(res.headers['retry-after']).toBe(String(15 * 60));
+      // Rules 6 & 10 hold on guard responses too — helmet runs first.
+      expect(String(res.headers['content-security-policy'])).toContain("default-src 'self'");
+      expect(res.headers['referrer-policy']).toBe('no-referrer');
+      expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
+      expect(res.headers['cache-control']).toBe('private, no-store');
     }
     expect(invalid.rawPayload.equals(valid.rawPayload)).toBe(true);
     expect(stripDate(invalid.headers)).toEqual(stripDate(valid.headers));

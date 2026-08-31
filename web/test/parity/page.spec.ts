@@ -55,4 +55,18 @@ test.describe('static pages under production CSP', () => {
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
     expect(violations).toEqual([]);
   });
+
+  test('signed-out admin page carries the same headers and redirects to login', async ({
+    page,
+  }) => {
+    const { violations } = watch(page);
+    const response = await page.goto('/admin');
+    expect(response?.status()).toBe(200);
+    expect(response?.headers()['content-security-policy']).toContain("default-src 'self'");
+    expect(response?.headers()['referrer-policy']).toBe('no-referrer');
+    expect(response?.headers()['x-robots-tag']).toBe('noindex, nofollow');
+    expect(response?.headers()['cache-control']).toBe('private, no-store');
+    await page.waitForURL('**/login');
+    expect(violations).toEqual([]);
+  });
 });
