@@ -1,7 +1,9 @@
+import { parseServerOrigin } from './lib/origin.js';
+
 /**
  * Manifest generation (PLAN.md §15). One template, two targets; the only
  * per-browser differences are the background entry (Chrome service worker
- * vs Firefox event page) and Firefox's gecko id. Build output is generated —
+ * vs Firefox event page) and Firefox's gecko block. Build output is generated —
  * never hand-edit the generated manifest.json under dist/.
  */
 
@@ -12,13 +14,18 @@ export function isTarget(value: string): value is Target {
   return (TARGETS as readonly string[]).includes(value);
 }
 
+type IconSet = Record<string, string>;
+
 export interface ManifestTemplate {
   manifest_version: 3;
   name: string;
   description: string;
-  action: { default_title: string; default_popup: string };
+  icons: IconSet;
+  action: { default_title: string; default_popup: string; default_icon: IconSet };
+  options_ui: { page: string; open_in_tab: boolean };
   permissions: string[];
   optional_host_permissions: string[];
+  commands: Record<string, { suggested_key: { default: string }; description: string }>;
 }
 
 export interface BuildManifestOptions {
@@ -40,11 +47,19 @@ export type Manifest = ManifestTemplate & {
 
 const VERSION_PATTERN = /^\d+(\.\d+){0,3}$/;
 
+/** Chrome 116+: MV3 service workers with reliable `runtime.onMessage` promises. */
+export const MIN_CHROME = '116';
+/** Firefox 128+: first release with `optional_host_permissions` (MDN compat data). */
+export const MIN_FIREFOX = '128.0';
+
 export function buildManifest(target: Target, opts: BuildManifestOptions): Manifest {
   if (!VERSION_PATTERN.test(opts.version)) {
     throw new Error(`extension version must be 1–4 dot-separated integers, got "${opts.version}"`);
   }
-  const origin = parseOrigin(opts.publicOrigin);
+  const parsed = parseServerOrigin(opts.publicOrigin);
+  if (!parsed.ok)
+    throw new Error(`PUBLIC_ORIGIN "${opts.publicOrigin}" rejected: ${parsed.reason}`);
+  const origin = new URL(parsed.origin);
 
   const base = {
     ...structuredClone(opts.template),
@@ -57,7 +72,7 @@ export function buildManifest(target: Target, opts: BuildManifestOptions): Manif
       return {
         ...base,
         background: { service_worker: 'background.js' },
-        minimum_chrome_version: '116',
+        minimum_chrome_version: MIN_CHROME,
       };
     case 'firefox':
       return {
@@ -66,30 +81,9 @@ export function buildManifest(target: Target, opts: BuildManifestOptions): Manif
         browser_specific_settings: {
           gecko: {
             id: opts.geckoId ?? `snapping-turtle@${origin.hostname}`,
-            strict_min_version: '121.0',
+            strict_min_version: MIN_FIREFOX,
           },
         },
       };
   }
-}
-
-function parseOrigin(value: string): URL {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(`PUBLIC_ORIGIN is not a valid URL: "${value}"`);
-  }
-  if (
-    !['https:', 'http:'].includes(url.protocol) ||
-    url.pathname !== '/' ||
-    url.search ||
-    url.hash
-  ) {
-    throw new Error(`PUBLIC_ORIGIN must be a bare http(s) origin, got "${value}"`);
-  }
-  if (url.protocol === 'http:' && !['localhost', '127.0.0.1'].includes(url.hostname)) {
-    throw new Error('PUBLIC_ORIGIN must use https except for localhost');
-  }
-  return url;
 }

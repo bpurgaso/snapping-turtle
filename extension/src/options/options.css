@@ -1,0 +1,84 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  font-size: 14px;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+h1 {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+.field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+label {
+  font-weight: 600;
+}
+input {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: transparent;
+  color: inherit;
+}
+.hint {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+button {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+button[type='submit'] {
+  background: #2f7d4a;
+  border-color: #2f7d4a;
+  color: #fff;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+button.link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  font-size: 12px;
+  justify-self: start;
+}
+.status {
+  min-height: 1.4em;
+  margin: 0;
+}
+.status.ok {
+  color: #067647;
+}
+.status.error {
+  color: #b42318;
+}

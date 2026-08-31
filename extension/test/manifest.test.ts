@@ -38,12 +38,28 @@ describe('buildManifest', () => {
 
   it('requests only the minimal permission set from PLAN.md §15', () => {
     const m = buildManifest('chrome', opts);
-    expect(m.permissions.sort()).toEqual(['activeTab', 'scripting', 'storage']);
+    expect([...m.permissions].sort()).toEqual([
+      'activeTab',
+      'notifications',
+      'scripting',
+      'storage',
+    ]);
     expect(m.host_permissions).toEqual(['https://shots.example.com/*']);
     expect(m.optional_host_permissions).toEqual(['https://*/*']);
     expect(m.permissions).not.toContain('debugger');
     expect(m.permissions).not.toContain('tabs');
     expect(m.host_permissions).not.toContain('<all_urls>');
+  });
+
+  it('declares only the visible-capture command in M2, plus icons and an options page', () => {
+    const m = buildManifest('firefox', opts);
+    expect(Object.keys(m.commands)).toEqual(['capture-visible']);
+    expect(m.commands['capture-visible']?.suggested_key.default).toMatch(/^\w+(\+\w+)+$/);
+    expect(Object.keys(m.icons).sort()).toEqual(['128', '16', '32', '48']);
+    expect(m.action.default_icon).toEqual(m.icons);
+    expect(m.options_ui).toEqual({ page: 'options/index.html', open_in_tab: true });
+    expect(m.action.default_popup).toBe('popup/index.html');
+    expect(m.browser_specific_settings?.gecko.strict_min_version).toBe('128.0');
   });
 
   it('does not mutate the template between builds', () => {

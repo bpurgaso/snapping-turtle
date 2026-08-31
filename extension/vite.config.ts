@@ -2,15 +2,21 @@ import { resolve } from 'node:path';
 import { defineConfig, type InlineConfig } from 'vite';
 import { isTarget, type Target } from './src/manifest.js';
 
-export type Entry = 'popup' | 'background';
+export type Entry = 'pages' | 'background';
+
+export interface BuildOptions {
+  /** Build-time default server, exposed to the bundle as __DEFAULT_SERVER_ORIGIN__. */
+  publicOrigin: string;
+}
 
 /**
- * One self-contained bundle per entry (no shared chunks), so the background
- * script loads as a plain classic script in both Chrome's service worker and
- * Firefox's event page, and the popup as a normal module page. Output names
- * are fixed because the manifest references them. Driven by scripts/build.ts.
+ * Two vite builds per target: the extension pages (popup + options, module
+ * scripts that may share chunks) and a self-contained classic background
+ * script, which loads as-is in both Chrome's service worker and Firefox's
+ * event page. Output names are fixed because the manifest references them.
+ * Driven by scripts/build.ts.
  */
-export function createConfig(target: Target, entry: Entry): InlineConfig {
+export function createConfig(target: Target, entry: Entry, opts: BuildOptions): InlineConfig {
   const pkgRoot = import.meta.dirname;
   const outDir = resolve(pkgRoot, 'dist', target);
   const common: InlineConfig = {
@@ -19,8 +25,9 @@ export function createConfig(target: Target, entry: Entry): InlineConfig {
     base: './',
     publicDir: false,
     logLevel: 'warn',
+    define: { __DEFAULT_SERVER_ORIGIN__: JSON.stringify(opts.publicOrigin) },
   };
-  if (entry === 'popup') {
+  if (entry === 'pages') {
     return {
       ...common,
       build: {
@@ -29,12 +36,14 @@ export function createConfig(target: Target, entry: Entry): InlineConfig {
         target: 'es2022',
         modulePreload: false,
         rollupOptions: {
-          input: resolve(pkgRoot, 'src/popup/index.html'),
+          input: {
+            popup: resolve(pkgRoot, 'src/popup/index.html'),
+            options: resolve(pkgRoot, 'src/options/index.html'),
+          },
           output: {
-            entryFileNames: 'popup.js',
+            entryFileNames: '[name].js',
             chunkFileNames: 'chunks/[name].js',
             assetFileNames: 'assets/[name][extname]',
-            inlineDynamicImports: true,
           },
         },
       },
@@ -57,6 +66,10 @@ export function createConfig(target: Target, entry: Entry): InlineConfig {
 }
 
 const target = process.env['EXTENSION_TARGET'] ?? 'chrome';
-const entry = (process.env['EXTENSION_ENTRY'] ?? 'popup') as Entry;
+const entry = (process.env['EXTENSION_ENTRY'] ?? 'pages') as Entry;
 if (!isTarget(target)) throw new Error(`unknown EXTENSION_TARGET "${target}"`);
-export default defineConfig(createConfig(target, entry));
+export default defineConfig(
+  createConfig(target, entry, {
+    publicOrigin: process.env['PUBLIC_ORIGIN'] ?? 'https://shots.example.com',
+  }),
+);

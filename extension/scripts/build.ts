@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zipSync, type Zippable } from 'fflate';
@@ -8,8 +8,8 @@ import { createConfig } from '../vite.config.js';
 
 /**
  * `tsx scripts/build.ts <chrome|firefox>`:
- *   1. vite build (popup page, then self-contained background) → dist/<target>/
- *   2. write dist/<target>/manifest.json from the template
+ *   1. vite build (popup + options pages, then self-contained background) → dist/<target>/
+ *   2. copy icons/ and write dist/<target>/manifest.json from the template
  *   3. zip dist/<target>/ → dist/snapping-turtle-<target>-<version>.zip
  *
  * PUBLIC_ORIGIN (or https://$PUBLIC_HOST) sets the build-time default server;
@@ -41,8 +41,9 @@ const publicOrigin =
     : 'https://shots.example.com');
 
 const outDir = join(pkgRoot, 'dist', target);
-await build(createConfig(target, 'popup'));
-await build(createConfig(target, 'background'));
+await build(createConfig(target, 'pages', { publicOrigin }));
+await build(createConfig(target, 'background', { publicOrigin }));
+cpSync(join(pkgRoot, 'icons'), join(outDir, 'icons'), { recursive: true });
 
 const manifest = buildManifest(target, {
   template,

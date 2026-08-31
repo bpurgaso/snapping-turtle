@@ -9,13 +9,15 @@
     "build:chrome": "tsx scripts/build.ts chrome",
     "build:firefox": "tsx scripts/build.ts firefox",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:smoke": "playwright test"
   },
   "dependencies": {
     "@snapping-turtle/shared": "workspace:*",
     "webextension-polyfill": "0.12.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@types/node": "22.20.1",
     "@types/webextension-polyfill": "0.12.5",
     "fflate": "0.8.2",
