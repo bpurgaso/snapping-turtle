@@ -5,10 +5,12 @@ capture a tab and upload it to your own server; each capture gets an unguessable
 URL where the owner annotates and anyone with the link sees the result.
 
 Design: [PLAN.md](PLAN.md). Working rules: [CLAUDE.md](CLAUDE.md).
-**Status:** M1 — server core. Accounts (sign in / sign up behind the admin
-toggle), personal API tokens, the hardened upload endpoint, and the view-only
-capture page with its uniform 404 are live. The extension (M2), editor (M3),
-flat renderer (M4) and admin panel/guard (M5) come next.
+**Status:** M2 — extension walking skeleton. Accounts, personal API tokens,
+the hardened upload endpoint and the view-only capture page (M1) are live, and
+the Chrome + Firefox extension captures the visible viewport, uploads it and
+opens the capture page; its options page validates the server origin and
+tests the token against `GET /api/v1/ping`. Region/full-page capture (M6),
+the editor (M3), flat renderer (M4) and admin panel/guard (M5) come next.
 
 ## Prerequisites
 
@@ -36,7 +38,8 @@ Uploaded images land in `data/images/` (git-ignored; override with `IMAGES_DIR`)
 
 ## Smoke test: upload with curl
 
-Until the extension exists (M2), exercise the whole path from a terminal:
+The extension does this for you (see _Loading the extension_); to exercise the
+whole path from a terminal instead:
 
 1. Sign in at `http://localhost:3000/login` with the seeded admin (or enable
    signups first: `update settings set value = 'true' where key = 'registration_enabled';`
@@ -86,6 +89,7 @@ needed. Details, LAN hostnames and CA trust: [deploy/README.md](deploy/README.md
 | `pnpm test:parity`                                       | Playwright: page under production CSP; render parity goldens from M4 |
 | `pnpm lint && pnpm typecheck`                            | must pass before commit                                              |
 | `pnpm --filter extension build:chrome` / `build:firefox` | loadable zips in `extension/dist/`                                   |
+| `pnpm --filter extension test:smoke`                     | Playwright against the built Chrome extension (`build:chrome` first) |
 | `pnpm --filter server db:generate`                       | new migration from `server/src/db/schema.ts`                         |
 | `pnpm --filter server db:migrate` / `db:seed`            | apply migrations / bootstrap admin                                   |
 
@@ -95,7 +99,16 @@ needed. Details, LAN hostnames and CA trust: [deploy/README.md](deploy/README.md
 - **Firefox:** `about:debugging#/runtime/this-firefox` → _Load Temporary Add-on_ → pick `extension/dist/firefox/manifest.json`
 
 The baked-in default server comes from `PUBLIC_ORIGIN` (or `https://$PUBLIC_HOST`)
-in `deploy/.env` at build time.
+in `deploy/.env` at build time; for the local dev server build with
+`PUBLIC_ORIGIN=http://localhost:3000 pnpm --filter extension build` (plain http
+is only accepted for localhost, and only as the build-time default).
+
+Then: toolbar icon → **Settings** → paste a token from `/account` → **Test
+connection** → **Save** (Firefox asks for host permission on the first save;
+Chrome only asks when you enter a server other than the default). Click
+**Visible** (or press `Alt+Shift+S`) on any web page and the capture page opens
+in a new tab. Region and Full page arrive in M6. The manual checklist for both
+browsers is [extension/TESTING.md](extension/TESTING.md).
 
 ## Layout
 

@@ -10,7 +10,7 @@ snapping-turtle: a self-hosted screenshot capture and sharing system. Browser ex
 
 ## Status
 
-M0 (scaffold) and M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404) are done. Next is M2 (extension walking skeleton). Milestones live in PLAN.md §16. The commands below are the contract and CI keeps them green.
+M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404) and M2 (extension walking skeleton: popup, visible-viewport capture, options page, `GET /api/v1/ping`, Chrome + Firefox builds) are done. Next is M3 (editor). Milestones live in PLAN.md §16. The commands below are the contract and CI keeps them green. Capture needs a real browser gesture, so `extension/TESTING.md` holds the manual checklist for what automation cannot reach.
 
 ## Layout (pnpm workspaces)
 
@@ -18,7 +18,7 @@ M0 (scaffold) and M1 (server core: auth, registration toggle, API tokens, harden
 shared/     Annotation schema, API types, cross-cutting constants (size caps, guard defaults). Source of truth.
 server/     Fastify app: API, page serving, sharp flat renderer, guard (rate limits / bans / breaker), jobs (retention purge). Drizzle + Postgres.
 web/        Vite bundles served by server/: capture page + Fabric.js editor, auth pages, account, admin panel.
-extension/  One MV3 codebase → Chrome (service worker) and Firefox (event page) builds via manifest templates.
+extension/  One MV3 codebase → Chrome (service worker) and Firefox (event page) builds via manifest templates; TESTING.md manual checklist.
 deploy/     docker-compose.yml, Caddyfile, .env.example.
 data/       Local image store (git-ignored; IMAGES_DIR, compose mounts a volume at /data/images).
 PLAN.md     Full design document.
@@ -35,6 +35,7 @@ pnpm test:integration                         # API, authz matrix, guard behavio
 pnpm test:parity                              # editor <-> server render golden tests (Playwright)
 pnpm lint && pnpm typecheck                   # must pass before commit
 pnpm --filter extension build:chrome          # extension zip (also build:firefox)
+pnpm --filter extension test:smoke            # Playwright: built Chrome extension (run build:chrome first)
 pnpm --filter server db:migrate               # migrations
 pnpm --filter server db:seed                  # bootstrap admin + accounts via one-time links
 docker compose -f deploy/docker-compose.yml up -d --build
