@@ -25,7 +25,10 @@ export function createConfig(target: Target, entry: Entry, opts: BuildOptions): 
     base: './',
     publicDir: false,
     logLevel: 'warn',
-    define: { __DEFAULT_SERVER_ORIGIN__: JSON.stringify(opts.publicOrigin) },
+    define: {
+      __DEFAULT_SERVER_ORIGIN__: JSON.stringify(opts.publicOrigin),
+      __BROWSER_TARGET__: JSON.stringify(target),
+    },
   };
   if (entry === 'pages') {
     return {

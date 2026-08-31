@@ -1,5 +1,6 @@
 import browser from 'webextension-polyfill';
 import type { CaptureMode } from './messages.js';
+import type { BrowserTarget } from './origin.js';
 
 /**
  * Extension settings live in storage.local only (PLAN.md §15): the API token
@@ -9,6 +10,8 @@ import type { CaptureMode } from './messages.js';
 
 /** Baked in at build time from PUBLIC_ORIGIN (extension/scripts/build.ts). */
 export const DEFAULT_SERVER_ORIGIN: string = __DEFAULT_SERVER_ORIGIN__;
+/** Build target; decides the host-permission pattern shape (lib/origin.ts). */
+export const BROWSER_TARGET: BrowserTarget = __BROWSER_TARGET__;
 
 export interface Settings {
   serverOrigin: string;

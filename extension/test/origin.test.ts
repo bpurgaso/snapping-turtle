@@ -51,5 +51,18 @@ describe('parseServerOrigin (fails closed)', () => {
   it('builds a host pattern covering every path on the origin', () => {
     expect(hostPattern('https://shots.example.com')).toBe('https://shots.example.com/*');
     expect(hostPattern('http://localhost:3000')).toBe('http://localhost:3000/*');
+    expect(hostPattern('https://shots.example.com:8443', 'chrome')).toBe(
+      'https://shots.example.com:8443/*',
+    );
+  });
+
+  it('drops the port for Firefox, whose matcher ignores ports (bug 1468162)', () => {
+    expect(hostPattern('http://localhost:3000', 'firefox')).toBe('http://localhost/*');
+    expect(hostPattern('http://127.0.0.1:3000', 'firefox')).toBe('http://127.0.0.1/*');
+    expect(hostPattern('http://[::1]:3000', 'firefox')).toBe('http://[::1]/*');
+    expect(hostPattern('https://shots.example.com:8443', 'firefox')).toBe(
+      'https://shots.example.com/*',
+    );
+    expect(hostPattern('https://shots.example.com', 'firefox')).toBe('https://shots.example.com/*');
   });
 });

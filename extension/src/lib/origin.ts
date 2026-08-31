@@ -39,7 +39,22 @@ export function parseServerOrigin(input: string): OriginResult {
   return { ok: true, origin: url.origin };
 }
 
-/** Host-permission match pattern covering every path on `origin`. */
-export function hostPattern(origin: string): string {
+export type BrowserTarget = 'chrome' | 'firefox';
+
+/**
+ * Host-permission match pattern covering every path on `origin`.
+ *
+ * Firefox silently accepts a port in a match pattern but its matcher ignores
+ * ports, so `http://localhost:3000/*` matches nothing there (Firefox bugs
+ * 1362809 / 1468162, design-decision-denied) — `permissions.request` still
+ * reports success and every fetch then fails CORS. For Firefox the port is
+ * therefore dropped: `http://localhost/*` matches every port on that host.
+ * Chrome honours the port and keeps the tighter pattern.
+ */
+export function hostPattern(origin: string, target: BrowserTarget = 'chrome'): string {
+  if (target === 'firefox') {
+    const url = new URL(origin);
+    return `${url.protocol}//${url.hostname}/*`;
+  }
   return `${origin}/*`;
 }

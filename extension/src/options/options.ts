@@ -1,7 +1,12 @@
 import browser from 'webextension-polyfill';
 import { pingServer } from '../lib/api.js';
 import { hostPattern, parseServerOrigin } from '../lib/origin.js';
-import { DEFAULT_SERVER_ORIGIN, loadSettings, saveSettings } from '../lib/settings.js';
+import {
+  BROWSER_TARGET,
+  DEFAULT_SERVER_ORIGIN,
+  loadSettings,
+  saveSettings,
+} from '../lib/settings.js';
 
 /**
  * Options page (PLAN.md §15): server origin (pre-filled from the build-time
@@ -115,7 +120,9 @@ async function init(main: HTMLElement): Promise<void> {
   const ensureAccess = async (origin: string): Promise<boolean> => {
     let granted: boolean;
     try {
-      granted = await browser.permissions.request({ origins: [hostPattern(origin)] });
+      granted = await browser.permissions.request({
+        origins: [hostPattern(origin, BROWSER_TARGET)],
+      });
     } catch (err) {
       const why = err instanceof Error ? err.message : String(err);
       const httpHint = origin.startsWith('http:')

@@ -84,4 +84,14 @@ describe('buildManifest', () => {
       buildManifest('chrome', { ...opts, publicOrigin: 'http://localhost:3000' }).host_permissions,
     ).toEqual(['http://localhost:3000/*']);
   });
+
+  it('firefox: host_permissions carry no port, since Firefox ignores ports in patterns', () => {
+    expect(
+      buildManifest('firefox', { ...opts, publicOrigin: 'http://localhost:3000' }).host_permissions,
+    ).toEqual(['http://localhost/*']);
+    expect(
+      buildManifest('firefox', { ...opts, publicOrigin: 'https://shots.example.com:8443' })
+        .host_permissions,
+    ).toEqual(['https://shots.example.com/*']);
+  });
 });

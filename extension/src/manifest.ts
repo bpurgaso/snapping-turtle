@@ -1,4 +1,4 @@
-import { parseServerOrigin } from './lib/origin.js';
+import { hostPattern, parseServerOrigin } from './lib/origin.js';
 
 /**
  * Manifest generation (PLAN.md §15). One template, two targets; the only
@@ -64,7 +64,8 @@ export function buildManifest(target: Target, opts: BuildManifestOptions): Manif
   const base = {
     ...structuredClone(opts.template),
     version: opts.version,
-    host_permissions: [`${origin.origin}/*`],
+    // Firefox: no port in the pattern (see hostPattern); Chrome keeps it.
+    host_permissions: [hostPattern(origin.origin, target)],
   };
 
   switch (target) {
