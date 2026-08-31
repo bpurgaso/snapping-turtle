@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import type { FastifyReply } from 'fastify';
 import { randomInt } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { SessionService } from '../auth/session.js';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
 import { captures } from '../db/schema.js';
@@ -15,9 +16,12 @@ export interface SecretRouteDeps {
   db: Db;
   config: Config;
   store: ImageStore;
+  sessions: SessionService;
   now: Clock;
   /** Resolved per request so dev watch builds show up; cached in production by the caller. */
   captureAssets: () => PageAssets;
+  /** Bundle for the owner's editor variant of the page (§9). */
+  editorAssets: () => PageAssets;
 }
 
 const NOT_FOUND_BYTES = Buffer.from(NOT_FOUND_HTML, 'utf8');
@@ -42,7 +46,7 @@ export function uniformNotFound(config: Config): (reply: FastifyReply) => Promis
 
 /** GET /s/:viewId and GET /s/:viewId/image.png (§6–§8). View-only for everyone in M1. */
 export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<void> {
-  const { db, config, store, now, captureAssets } = deps;
+  const { db, config, store, sessions, now, captureAssets, editorAssets } = deps;
   const notFound = uniformNotFound(config);
 
   /** Live capture by view_id: not deleted, not expired. Malformed ids skip the query. */
@@ -52,11 +56,13 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
       .select({
         id: captures.id,
         viewId: captures.viewId,
+        ownerId: captures.ownerId,
         sourceUrl: captures.sourceUrl,
         pageTitle: captures.pageTitle,
         width: captures.width,
         height: captures.height,
         createdAt: captures.createdAt,
+        retentionUntil: captures.retentionUntil,
       })
       .from(captures)
       .where(
@@ -78,6 +84,12 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
       s.get<{ Params: { viewId: string } }>('/:viewId', async (req, reply) => {
         const row = await findLive(req.params.viewId);
         if (!row) return notFound(reply);
+        // Owner gating (§7): the signed-in owner gets the editor bundle;
+        // everyone else — admins included — keeps the M1 view-only page.
+        // PUT enforces ownership server-side regardless of what is rendered.
+        const token = sessions.tokenFromRequest(req);
+        const session = token ? await sessions.resolve(token) : null;
+        const isOwner = session !== null && session.userId === row.ownerId;
         const urls = captureUrls(config.publicOrigin, row.viewId);
         const page = renderCapturePage({
           title: row.pageTitle,
@@ -87,7 +99,17 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
           width: row.width,
           height: row.height,
           createdAt: row.createdAt,
-          assets: captureAssets(),
+          assets: isOwner ? editorAssets() : captureAssets(),
+          ...(isOwner
+            ? {
+                editor: {
+                  viewId: row.viewId,
+                  createdAt: row.createdAt.toISOString(),
+                  retentionUntil: row.retentionUntil?.toISOString() ?? '',
+                  retentionMaxDays: config.retentionMaxDaysUser,
+                },
+              }
+            : {}),
         });
         return reply.type('text/html; charset=utf-8').send(page);
       });

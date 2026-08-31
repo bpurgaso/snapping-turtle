@@ -1,10 +1,15 @@
 import {
+  ANNOTATION_BOUNDS_MARGIN_PX,
+  ANNOTATION_LIMITS,
   API_TOKEN_PREFIX,
   CSRF_HEADER,
   MAX_IMAGE_WIDTH_PX,
   RETENTION_DEFAULT_DAYS,
   VIEW_ID_LENGTH,
+  type AnnotationDocument,
+  type Shape,
 } from '@snapping-turtle/shared';
+import { existsSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -40,6 +45,7 @@ writeFileSync(
   join(webDist, '.vite', 'manifest.json'),
   JSON.stringify({
     'src/capture.ts': { file: 'assets/capture-h4sh.js', css: ['assets/capture-h4sh.css'] },
+    'src/editor.ts': { file: 'assets/editor-h4sh.js', css: ['assets/editor-h4sh.css'] },
   }),
 );
 
@@ -806,5 +812,323 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
     } finally {
       advance(-(RETENTION_DEFAULT_DAYS + 1) * 86_400_000);
     }
+  });
+});
+
+// ---- M3: annotations, owner gating, capture management ----------------------
+
+describe('annotations API (S8, S9)', () => {
+  let alice: Session;
+  let bob: Session;
+  let admin: Session;
+  let viewId: string;
+  const aUrl = () => `/api/v1/captures/${viewId}/annotations`;
+  const rect: Shape = { id: 'r1', type: 'rect', x: 10, y: 10, w: 100, h: 50 };
+  const arrow: Shape = { id: 'a1', type: 'arrow', x1: 5, y1: 5, x2: 200, y2: 150 };
+  const textShape: Shape = { id: 't1', type: 'text', x: 20, y: 20, text: 'look', fontSize: 28 };
+  const docWith = (rev: number, shapes: Shape[]): AnnotationDocument => ({
+    version: 1,
+    rev,
+    shapes,
+  });
+
+  beforeAll(async () => {
+    alice = await login(ALICE);
+    bob = await login(BOB);
+    admin = await login(ADMIN);
+    const t = await createToken(alice, 'annotations');
+    const res = await upload(t.token, await makePng(300, 200));
+    expect(res.statusCode).toBe(201);
+    viewId = viewIdOf(res.json().pageUrl);
+  });
+
+  const put = (doc: unknown, headers: Record<string, string> = {}) =>
+    app.inject({ method: 'PUT', url: aUrl(), payload: doc as object, headers });
+  const asOwner = () => ({ cookie: alice.cookie, [CSRF_HEADER]: alice.csrf });
+
+  it('GET authz: anonymous 401; non-owner and admin 403; owner gets the empty doc', async () => {
+    expect((await app.inject({ method: 'GET', url: aUrl() })).statusCode).toBe(401);
+    const asBob = await app.inject({ method: 'GET', url: aUrl(), headers: { cookie: bob.cookie } });
+    expect(asBob.statusCode).toBe(403);
+    expect(asBob.json().code).toBe('forbidden');
+    // Original requirement: only owners annotate - not even admins.
+    expect(
+      (await app.inject({ method: 'GET', url: aUrl(), headers: { cookie: admin.cookie } }))
+        .statusCode,
+    ).toBe(403);
+    const mine = await app.inject({ method: 'GET', url: aUrl(), headers: { cookie: alice.cookie } });
+    expect(mine.statusCode).toBe(200);
+    expect(mine.json()).toEqual({ version: 1, rev: 0, shapes: [] });
+  });
+
+  it('PUT authz: anonymous 401; owner without CSRF 403; non-owner/admin 403 with CSRF', async () => {
+    const doc = docWith(0, [rect]);
+    expect((await put(doc)).statusCode).toBe(401);
+    expect((await put(doc, { cookie: alice.cookie })).statusCode).toBe(403);
+    expect((await put(doc, { cookie: bob.cookie, [CSRF_HEADER]: bob.csrf })).statusCode).toBe(403);
+    expect(
+      (await put(doc, { cookie: admin.cookie, [CSRF_HEADER]: admin.csrf })).statusCode,
+    ).toBe(403);
+    const [row] = await handle.db
+      .select({ rev: captures.annotationsRev })
+      .from(captures)
+      .where(eq(captures.viewId, viewId));
+    expect(row!.rev).toBe(0);
+  });
+
+  it('owner PUT persists a sanitised document and bumps the revision', async () => {
+    const dirty = { ...textShape, text: 'look here\u0000\r\nnow' };
+    const res = await put(docWith(0, [rect, arrow, dirty]), asOwner());
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ rev: 1 });
+
+    const got = await app.inject({ method: 'GET', url: aUrl(), headers: { cookie: alice.cookie } });
+    expect(got.json().rev).toBe(1);
+    expect(got.json().shapes).toHaveLength(3);
+    expect(got.json().shapes[2].text).toBe('look here\nnow');
+
+    const [row] = await handle.db
+      .select({ rev: captures.annotationsRev, annotations: captures.annotations })
+      .from(captures)
+      .where(eq(captures.viewId, viewId));
+    expect(row!.rev).toBe(1);
+    expect(row!.annotations.rev).toBe(1);
+  });
+
+  it('a stale revision is answered 409 conflict; the current one succeeds', async () => {
+    const stale = await put(docWith(0, [rect]), asOwner());
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().code).toBe('conflict');
+    const fresh = await put(docWith(1, [rect]), asOwner());
+    expect(fresh.statusCode).toBe(200);
+    expect(fresh.json()).toEqual({ rev: 2 });
+  });
+
+  it('rejects cap violations: shape count, text length, bounds, unknown types', async () => {
+    const currentRev = 2;
+    const tooMany = Array.from({ length: ANNOTATION_LIMITS.maxShapes + 1 }, (_, i) => ({
+      ...rect,
+      id: `r${i}`,
+    }));
+    expect((await put(docWith(currentRev, tooMany), asOwner())).statusCode).toBe(400);
+
+    const longText = { ...textShape, text: 'x'.repeat(ANNOTATION_LIMITS.maxTextLength + 1) };
+    expect((await put(docWith(currentRev, [longText]), asOwner())).statusCode).toBe(400);
+
+    const m = ANNOTATION_BOUNDS_MARGIN_PX;
+    const outRect = { ...rect, x: 300 + m + 1 }; // image is 300x200
+    const outArrow = { ...arrow, y2: 200 + m + 1 };
+    const outText = { ...textShape, x: -m - 1 };
+    for (const bad of [outRect, outArrow, outText]) {
+      const res = await put(docWith(currentRev, [bad as Shape]), asOwner());
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain('outside the image bounds');
+    }
+
+    const unknown = { id: 'z', type: 'ellipse', x: 0, y: 0, w: 5, h: 5 };
+    expect((await put(docWith(currentRev, [unknown as never]), asOwner())).statusCode).toBe(400);
+    const notADoc = await app.inject({
+      method: 'PUT',
+      url: aUrl(),
+      payload: JSON.stringify('garbage'),
+      headers: { ...asOwner(), 'content-type': 'application/json' },
+    });
+    expect(notADoc.statusCode).toBe(400);
+
+    const [row] = await handle.db
+      .select({ rev: captures.annotationsRev })
+      .from(captures)
+      .where(eq(captures.viewId, viewId));
+    expect(row!.rev).toBe(currentRev);
+  });
+
+  it('beacon path: text/plain POST with the CSRF token in the body (S9)', async () => {
+    const body = JSON.stringify({
+      csrfToken: alice.csrf,
+      document: docWith(2, [rect, textShape]),
+    });
+    const ok = await app.inject({
+      method: 'POST',
+      url: aUrl(),
+      payload: body,
+      headers: { cookie: alice.cookie, 'content-type': 'text/plain' },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ rev: 3 });
+
+    const badCsrf = await app.inject({
+      method: 'POST',
+      url: aUrl(),
+      payload: JSON.stringify({ csrfToken: 'wrong', document: docWith(3, [rect]) }),
+      headers: { cookie: alice.cookie, 'content-type': 'text/plain' },
+    });
+    expect(badCsrf.statusCode).toBe(403);
+    expect(badCsrf.json().code).toBe('csrf');
+
+    const anon = await app.inject({
+      method: 'POST',
+      url: aUrl(),
+      payload: body,
+      headers: { 'content-type': 'text/plain' },
+    });
+    expect(anon.statusCode).toBe(401);
+  });
+
+  it('unknown and malformed view ids are 404 for the owner session', async () => {
+    const ghost = randomBytes(20).toString('base64url');
+    for (const path of [`/api/v1/captures/${ghost}/annotations`, '/api/v1/captures/nope/annotations']) {
+      expect(
+        (await app.inject({ method: 'GET', url: path, headers: { cookie: alice.cookie } }))
+          .statusCode,
+      ).toBe(404);
+    }
+  });
+});
+
+describe('owner gating on GET /s/:viewId (S7)', () => {
+  let alice: Session;
+  let bob: Session;
+  let admin: Session;
+  let pagePath: string;
+
+  beforeAll(async () => {
+    alice = await login(ALICE);
+    bob = await login(BOB);
+    admin = await login(ADMIN);
+    const t = await createToken(alice, 'gating');
+    const res = await upload(t.token, await makePng(120, 90));
+    pagePath = new URL(res.json().pageUrl).pathname;
+  });
+
+  it('serves the editor bundle and mount point to the owner only', async () => {
+    const mine = await app.inject({
+      method: 'GET',
+      url: pagePath,
+      headers: { cookie: alice.cookie },
+    });
+    expect(mine.statusCode).toBe(200);
+    expect(mine.body).toContain('id="editor-root"');
+    expect(mine.body).toContain('data-view-id=');
+    expect(mine.body).toContain('data-retention-max-days="365"');
+    expect(mine.body).toContain('/assets/editor-h4sh.js');
+    expect(mine.body).not.toContain('/assets/capture-h4sh.js');
+
+    for (const headers of [
+      {},
+      { cookie: bob.cookie },
+      { cookie: admin.cookie }, // admins view, they do not annotate (M3)
+    ]) {
+      const res = await app.inject({ method: 'GET', url: pagePath, headers });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).not.toContain('editor-root');
+      expect(res.body).toContain('class="shot"');
+      expect(res.body).toContain('/assets/capture-h4sh.js');
+    }
+  });
+});
+
+describe('PATCH /api/v1/captures/:viewId (S7, S13)', () => {
+  let alice: Session;
+  let bob: Session;
+  let admin: Session;
+  let token: { id: number; token: string };
+
+  beforeAll(async () => {
+    alice = await login(ALICE);
+    bob = await login(BOB);
+    admin = await login(ADMIN);
+    token = await createToken(alice, 'patch-tests');
+  });
+
+  const freshCapture = async () => {
+    const res = await upload(token.token, await makePng(64, 48));
+    expect(res.statusCode).toBe(201);
+    return viewIdOf(res.json().pageUrl);
+  };
+  const patch = (id: string, body: unknown, headers: Record<string, string> = {}) =>
+    app.inject({ method: 'PATCH', url: `/api/v1/captures/${id}`, payload: body as object, headers });
+  const asOwner = () => ({ cookie: alice.cookie, [CSRF_HEADER]: alice.csrf });
+
+  it('authz: anonymous 401; owner without CSRF 403; non-owner and admin 403', async () => {
+    const id = await freshCapture();
+    expect((await patch(id, { retentionDays: 90 })).statusCode).toBe(401);
+    expect((await patch(id, { retentionDays: 90 }, { cookie: alice.cookie })).statusCode).toBe(403);
+    expect(
+      (await patch(id, { retentionDays: 90 }, { cookie: bob.cookie, [CSRF_HEADER]: bob.csrf }))
+        .statusCode,
+    ).toBe(403);
+    expect(
+      (await patch(id, { delete: true }, { cookie: admin.cookie, [CSRF_HEADER]: admin.csrf }))
+        .statusCode,
+    ).toBe(403);
+    const [row] = await handle.db
+      .select({ deletedAt: captures.deletedAt })
+      .from(captures)
+      .where(eq(captures.viewId, id));
+    expect(row!.deletedAt).toBeNull();
+  });
+
+  it('retention: anchored at created_at; beyond the max or ambiguous bodies are 400', async () => {
+    const id = await freshCapture();
+    const res = await patch(id, { retentionDays: 90 }, asOwner());
+    expect(res.statusCode).toBe(200);
+    expect(res.json().retentionUntil).toBe(
+      new Date(clock.getTime() + 90 * 86_400_000).toISOString(),
+    );
+    const [row] = await handle.db
+      .select({ retentionUntil: captures.retentionUntil })
+      .from(captures)
+      .where(eq(captures.viewId, id));
+    expect(row!.retentionUntil?.toISOString()).toBe(res.json().retentionUntil);
+
+    expect((await patch(id, { retentionDays: 366 }, asOwner())).statusCode).toBe(400);
+    expect((await patch(id, {}, asOwner())).statusCode).toBe(400);
+    expect((await patch(id, { retentionDays: 90, delete: true }, asOwner())).statusCode).toBe(400);
+    expect((await patch(id, { retentionDays: 0 }, asOwner())).statusCode).toBe(400);
+  });
+
+  it('delete: removes the image immediately and joins the uniform 404', async () => {
+    const id = await freshCapture();
+    const [row] = await handle.db
+      .select({ id: captures.id })
+      .from(captures)
+      .where(eq(captures.viewId, id));
+    const imagePath = store.pathFor(row!.id);
+    expect(existsSync(imagePath)).toBe(true);
+
+    const res = await patch(id, { delete: true }, asOwner());
+    expect(res.statusCode).toBe(204);
+    expect(existsSync(imagePath)).toBe(false);
+
+    const [after] = await handle.db
+      .select({ deletedAt: captures.deletedAt })
+      .from(captures)
+      .where(eq(captures.viewId, id));
+    expect(after!.deletedAt?.toISOString()).toBe(clock.toISOString());
+
+    // CLAUDE.md rule 2: deleted-via-API is byte-identical to never-existed.
+    const never = randomBytes(20).toString('base64url');
+    const strip = (h: Record<string, unknown>) => {
+      const { date: _d, ...rest } = h;
+      return rest;
+    };
+    for (const suffix of ['', '/image.png']) {
+      const deleted = await app.inject({ method: 'GET', url: `/s/${id}${suffix}` });
+      const ghost = await app.inject({ method: 'GET', url: `/s/${never}${suffix}` });
+      expect(deleted.statusCode).toBe(404);
+      expect(deleted.rawPayload.equals(ghost.rawPayload)).toBe(true);
+      expect(strip(deleted.headers)).toEqual(strip(ghost.headers));
+    }
+
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/api/v1/captures/${id}/annotations`,
+          headers: { cookie: alice.cookie },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect((await patch(id, { delete: true }, asOwner())).statusCode).toBe(404);
   });
 });

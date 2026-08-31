@@ -16,6 +16,7 @@ import type { PageAssets } from './html.js';
 import { ImageStore } from './images/storage.js';
 import { authRoutes } from './routes/auth.js';
 import { captureRoutes } from './routes/captures.js';
+import { ownerRoutes } from './routes/owner.js';
 import { pingRoutes } from './routes/ping.js';
 import { secretRoutes } from './routes/secret.js';
 import { tokenRoutes } from './routes/tokens.js';
@@ -114,9 +115,11 @@ export async function buildApp(opts: AppOptions): Promise<App> {
   await app.register(tokenRoutes, { db, auth, now });
   await app.register(pingRoutes, { auth });
   await app.register(captureRoutes, { db, config, store, auth, now });
+  await app.register(ownerRoutes, { db, config, store, auth, sessions, now });
 
   const captureAssets = assetLoader(config, 'src/capture.ts');
-  await app.register(secretRoutes, { db, config, store, now, captureAssets });
+  const editorAssets = assetLoader(config, 'src/editor.ts');
+  await app.register(secretRoutes, { db, config, store, sessions, now, captureAssets, editorAssets });
 
   await registerWeb(app, config);
   return app;

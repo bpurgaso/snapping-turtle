@@ -11,6 +11,7 @@ import type { PageAssets } from './html.js';
 interface ManifestChunk {
   file: string;
   css?: string[];
+  imports?: string[];
   isEntry?: boolean;
 }
 
@@ -20,5 +21,19 @@ export function readEntryAssets(webDistDir: string, entry: string): PageAssets {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, ManifestChunk>;
   const chunk = manifest[entry];
   if (!chunk) return { css: [] };
-  return { js: `/${chunk.file}`, css: (chunk.css ?? []).map((f) => `/${f}`) };
+  // CSS imported through shared chunks (e.g. capture.css used by both the
+  // view and editor entries) is attributed to the shared chunk, not the
+  // entry — collect transitively so no stylesheet is dropped.
+  const css: string[] = [];
+  const seen = new Set<string>();
+  const visit = (key: string): void => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    const c = manifest[key];
+    if (!c) return;
+    for (const imported of c.imports ?? []) visit(imported);
+    for (const f of c.css ?? []) if (!css.includes(f)) css.push(f);
+  };
+  visit(entry);
+  return { js: `/${chunk.file}`, css: css.map((f) => `/${f}`) };
 }

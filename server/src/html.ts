@@ -47,6 +47,15 @@ function assetTags(assets: PageAssets): RawHtml {
   return raw(tags.join('\n    '));
 }
 
+/** Extra data the owner's editor page needs, carried as data attributes (§9). */
+export interface EditorPageModel {
+  viewId: string;
+  createdAt: string;
+  /** ISO timestamp, or '' for indefinite retention. */
+  retentionUntil: string;
+  retentionMaxDays: number;
+}
+
 export interface CapturePageModel {
   title: string;
   sourceUrl: string;
@@ -56,6 +65,34 @@ export interface CapturePageModel {
   height: number;
   createdAt: Date;
   assets: PageAssets;
+  /** Present only for the authenticated owner: mounts the editor (§7). */
+  editor?: EditorPageModel;
+}
+
+/** The screenshot, wrapped for the owner in the editor mount point (§7, §9). */
+function stage(m: CapturePageModel, title: string): RawHtml {
+  const shot = html`<img
+    class="shot"
+    src="${m.imageUrl}"
+    width="${m.width}"
+    height="${m.height}"
+    alt="Screenshot of ${title}"
+    decoding="async"
+  />`;
+  if (!m.editor) return raw(shot);
+  return raw(html`<div
+    id="editor-root"
+    data-view-id="${m.editor.viewId}"
+    data-width="${m.width}"
+    data-height="${m.height}"
+    data-image-url="${m.imageUrl}"
+    data-page-url="${m.pageUrl}"
+    data-created-at="${m.editor.createdAt}"
+    data-retention-until="${m.editor.retentionUntil}"
+    data-retention-max-days="${m.editor.retentionMaxDays}"
+  >
+    ${raw(shot)}
+  </div>`);
 }
 
 /** The view-only capture page (§7). Owner tooling arrives in M3. */
@@ -104,16 +141,7 @@ export function renderCapturePage(m: CapturePageModel): string {
             </label>
           </div>
         </header>
-        <main class="stage">
-          <img
-            class="shot"
-            src="${m.imageUrl}"
-            width="${m.width}"
-            height="${m.height}"
-            alt="Screenshot of ${title}"
-            decoding="async"
-          />
-        </main>
+        <main class="stage">${stage(m, title)}</main>
         <footer class="meta">
           <span>${host}</span> · <time datetime="${m.createdAt.toISOString()}">${day}</time> ·
           ${m.width}×${m.height}
