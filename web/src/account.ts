@@ -74,7 +74,10 @@ class AccountPage {
         el('p', { className: 'whoami' }, [
           'Signed in as ',
           el('strong', { text: this.session.username }),
-          this.session.role === 'admin' ? ' (admin)' : '',
+          this.session.role === 'admin' ? ' (admin) ' : '',
+          ...(this.session.role === 'admin'
+            ? [el('a', { text: 'Admin panel', attrs: { href: '/admin' } })]
+            : []),
         ]),
         el('button', {
           text: 'Sign out',

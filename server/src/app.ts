@@ -232,6 +232,9 @@ const PAGES: ReadonlyArray<[route: string, file: string]> = [
   ['/login', 'login.html'],
   ['/signup', 'signup.html'],
   ['/account', 'account.html'],
+  // The page gates client-side for UX only; the admin API enforces authz
+  // server-side on every route (CLAUDE.md rule 8), like /account.
+  ['/admin', 'admin.html'],
 ];
 
 /** Serve the Vite bundle from web/dist: pages → their HTML, `/assets/*` → hashed files. */

@@ -1,12 +1,19 @@
 import { CSRF_HEADER } from '@snapping-turtle/shared/api';
 import type {
+  AdminCaptureListResponse,
+  AdminCapturePatchResponse,
+  AdminUserListResponse,
   ApiErrorResponse,
+  AuditListResponse,
   CreateTokenRequest,
   CreateTokenResponse,
   CredentialsRequest,
+  GuardStatusResponse,
+  IssuedLinkResponse,
   PatchCaptureRequest,
   PatchCaptureResponse,
   PutAnnotationsResponse,
+  RegistrationSetting,
   SessionInfo,
   SetPasswordRequest,
   TokenListResponse,
@@ -96,6 +103,32 @@ export const annotations = {
 /** Owner capture management (§7): retention changes and delete. */
 export const patchCapture = (viewId: string, body: PatchCaptureRequest, csrf: string) =>
   request<PatchCaptureResponse | undefined>('PATCH', `/api/v1/captures/${viewId}`, body, csrf);
+
+/** Admin panel client (§11). Every mutation sends the CSRF token. */
+export const admin = {
+  settings: () => request<RegistrationSetting>('GET', '/api/v1/admin/settings'),
+  setRegistration: (enabled: boolean, csrf: string) =>
+    request<RegistrationSetting>('PUT', '/api/v1/admin/settings/registration', { enabled }, csrf),
+  users: () => request<AdminUserListResponse>('GET', '/api/v1/admin/users'),
+  createUser: (username: string, csrf: string) =>
+    request<IssuedLinkResponse>('POST', '/api/v1/admin/users', { username }, csrf),
+  disableUser: (id: number, csrf: string) =>
+    request<void>('POST', `/api/v1/admin/users/${id}/disable`, undefined, csrf),
+  enableUser: (id: number, csrf: string) =>
+    request<void>('POST', `/api/v1/admin/users/${id}/enable`, undefined, csrf),
+  resetLink: (id: number, csrf: string) =>
+    request<IssuedLinkResponse>('POST', `/api/v1/admin/users/${id}/reset-link`, undefined, csrf),
+  captures: (userId: number, page: number) =>
+    request<AdminCaptureListResponse>('GET', `/api/v1/admin/captures?userId=${userId}&page=${page}`),
+  setIndefinite: (id: number, indefinite: boolean, csrf: string) =>
+    request<AdminCapturePatchResponse>('PATCH', `/api/v1/admin/captures/${id}`, { indefinite }, csrf),
+  deleteCapture: (id: number, csrf: string) =>
+    request<void>('DELETE', `/api/v1/admin/captures/${id}`, undefined, csrf),
+  audit: (page: number) => request<AuditListResponse>('GET', `/api/v1/admin/audit?page=${page}`),
+  guard: () => request<GuardStatusResponse>('GET', '/api/v1/admin/guard'),
+  unban: (ipPrefix: string, csrf: string) =>
+    request<void>('POST', '/api/v1/admin/guard/unban', { ipPrefix }, csrf),
+};
 
 /** Human-readable message for an API failure. */
 export function describeError(err: unknown): string {
