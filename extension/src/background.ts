@@ -1,6 +1,7 @@
 import browser, { type Runtime, type Tabs } from 'webextension-polyfill';
 import { uploadCapture } from './lib/api.js';
 import { dataUrlToBlob } from './lib/data-url.js';
+import { clearFailureFlag, flagFailure } from './lib/failure-flag.js';
 import {
   ENABLED_MODES,
   isCaptureRequest,
@@ -15,9 +16,11 @@ import { loadSettings, saveSettings } from './lib/settings.js';
  * Background (Chrome service worker / Firefox event page). Owns the capture
  * flow from PLAN.md §15 so it survives the popup closing:
  *   gesture → captureVisibleTab → blob → POST /api/v1/captures → open pageUrl.
- * Failures become a browser notification; a 401 (or no token yet) opens the
- * options page. The API token is read from storage.local for the request and
- * never logged or echoed (CLAUDE.md rule 3).
+ * Failures become a browser notification AND a "!" badge + stored last error
+ * (the OS may swallow notifications; the popup shows the stored error on next
+ * open); a 401 (or no token yet) opens the options page. The API token is read
+ * from storage.local for the request and never logged or echoed (CLAUDE.md
+ * rule 3).
  */
 
 const COMMAND_VISIBLE = 'capture-visible';
@@ -57,8 +60,9 @@ async function captureAndUpload(
 ): Promise<CaptureResponse> {
   const response = await run(mode, tabId, windowId);
   // The popup may already be closed (or the trigger was a shortcut), so every
-  // failure is also surfaced as a notification.
-  if (!response.ok) await notify(response.message);
+  // failure is also surfaced as a notification and as a toolbar badge.
+  if (response.ok) await clearFailureFlag();
+  else await Promise.all([notify(response.message), flagFailure(response.message)]);
   return response;
 }
 

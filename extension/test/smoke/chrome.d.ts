@@ -7,6 +7,7 @@ declare namespace chrome {
   namespace storage {
     interface StorageArea {
       get(keys: null): Promise<Record<string, unknown>>;
+      set(items: Record<string, unknown>): Promise<void>;
     }
     const local: StorageArea;
     const sync: StorageArea;
@@ -21,5 +22,9 @@ declare namespace chrome {
   }
   namespace runtime {
     function sendMessage(message: unknown): Promise<unknown>;
+  }
+  namespace action {
+    function getBadgeText(details: Record<string, never>): Promise<string>;
+    function getTitle(details: Record<string, never>): Promise<string>;
   }
 }

@@ -66,6 +66,11 @@ button.last-used {
   color: #b42318;
   opacity: 1;
 }
+.status.last-error {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #b42318 10%, transparent);
+}
 .status.warn {
   color: #b54708;
   opacity: 1;

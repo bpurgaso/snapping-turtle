@@ -41,6 +41,49 @@ test.describe('built Chrome extension', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a failure sets the "!" badge and a last error the popup shows once, then clears', async ({
+    context,
+    extensionId,
+  }) => {
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${extensionId}/options/index.html`);
+    // Drive the background exactly as the popup would, against a restricted tab
+    // (this options tab). No server or gesture needed: it fails before capture.
+    const response = await options.evaluate(async () => {
+      const tab = await chrome.tabs.getCurrent();
+      return chrome.runtime.sendMessage({
+        type: 'capture',
+        mode: 'visible',
+        tabId: tab!.id,
+        windowId: tab!.windowId,
+      }) as Promise<{ ok: boolean; message?: string }>;
+    });
+    expect(response.ok).toBe(false);
+    await expect.poll(() => options.evaluate(() => chrome.action.getBadgeText({}))).toBe('!');
+    expect(await options.evaluate(() => chrome.action.getTitle({}))).toContain(response.message!);
+    const stored = await options.evaluate(() => chrome.storage.local.get(null));
+    expect(stored['lastError']).toMatchObject({
+      message: response.message,
+      at: expect.any(Number),
+    });
+
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/popup/index.html`);
+    await expect(popup.locator('#last-error')).toBeVisible();
+    await expect(popup.locator('#last-error')).toHaveText(
+      `Last capture failed just now: ${response.message}`,
+    );
+    await expect.poll(() => popup.evaluate(() => chrome.action.getBadgeText({}))).toBe('');
+    expect(await popup.evaluate(() => chrome.action.getTitle({}))).toBe('snapping-turtle');
+    await expect
+      .poll(() => popup.evaluate(async () => (await chrome.storage.local.get(null))['lastError']))
+      .toBeUndefined();
+
+    // Next open: nothing to show.
+    await popup.reload();
+    await expect(popup.locator('#last-error')).toBeHidden();
+  });
+
   test('options: pre-filled default origin, save round-trips through storage.local', async ({
     context,
     extensionId,

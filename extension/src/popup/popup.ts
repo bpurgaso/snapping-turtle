@@ -1,4 +1,6 @@
 import browser from 'webextension-polyfill';
+import { clearFailureFlag, readLastError } from '../lib/failure-flag.js';
+import { describeLastError } from '../lib/last-error.js';
 import {
   CAPTURE_MODES,
   ENABLED_MODES,
@@ -30,6 +32,12 @@ async function init(main: HTMLElement): Promise<void> {
   const heading = document.createElement('h1');
   heading.textContent = 'snapping-turtle';
   main.append(heading);
+
+  const lastErrorLine = document.createElement('p');
+  lastErrorLine.className = 'status error last-error';
+  lastErrorLine.id = 'last-error';
+  lastErrorLine.hidden = true;
+  main.append(lastErrorLine);
 
   const status = document.createElement('p');
   status.className = 'status';
@@ -76,6 +84,15 @@ async function init(main: HTMLElement): Promise<void> {
 
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   const settings = await loadSettings();
+
+  // A failure that happened while no popup was open (shortcut path, or the OS
+  // swallowed the notification): show it once, then clear the badge and store.
+  const lastError = await readLastError();
+  if (lastError) {
+    lastErrorLine.textContent = describeLastError(lastError, Date.now());
+    lastErrorLine.hidden = false;
+    void clearFailureFlag();
+  }
 
   if (settings.lastMode) {
     const last = buttons.get(settings.lastMode);
