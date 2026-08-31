@@ -197,6 +197,164 @@ export const BeaconAnnotationsRequest = Type.Object(
 );
 export type BeaconAnnotationsRequest = Static<typeof BeaconAnnotationsRequest>;
 
+// ---- Admin panel (§11) ------------------------------------------------------
+
+/** GET /api/v1/admin/settings and PUT …/settings/registration. */
+export const RegistrationSetting = Type.Object(
+  { enabled: Type.Boolean() },
+  { additionalProperties: false, $id: 'RegistrationSetting' },
+);
+export type RegistrationSetting = Static<typeof RegistrationSetting>;
+
+export const AdminUserSummary = Type.Object(
+  {
+    id: Type.Integer(),
+    username: Type.String(),
+    role: UserRole,
+    disabledAt: Type.Union([IsoTimestamp, Type.Null()]),
+    createdAt: IsoTimestamp,
+    /** Live (non-deleted) captures owned by this user. */
+    captureCount: Type.Integer(),
+  },
+  { additionalProperties: false, $id: 'AdminUserSummary' },
+);
+export type AdminUserSummary = Static<typeof AdminUserSummary>;
+
+export const AdminUserListResponse = Type.Object(
+  { users: Type.Array(AdminUserSummary) },
+  { additionalProperties: false, $id: 'AdminUserListResponse' },
+);
+export type AdminUserListResponse = Static<typeof AdminUserListResponse>;
+
+export const CreateUserRequest = Type.Object(
+  { username: Username },
+  { additionalProperties: false, $id: 'CreateUserRequest' },
+);
+export type CreateUserRequest = Static<typeof CreateUserRequest>;
+
+/**
+ * An admin-issued one-time link (§11). `resetUrl` carries the raw token and
+ * appears here exactly once — it is never retrievable again.
+ */
+export const IssuedLinkResponse = Type.Object(
+  {
+    userId: Type.Integer(),
+    username: Type.String(),
+    resetUrl: Type.String(),
+    expiresAt: IsoTimestamp,
+  },
+  { additionalProperties: false, $id: 'IssuedLinkResponse' },
+);
+export type IssuedLinkResponse = Static<typeof IssuedLinkResponse>;
+
+export const AdminCaptureSummary = Type.Object(
+  {
+    id: Type.Integer(),
+    /** The capability URL — admins are trusted with it; audit rows are not. */
+    pageUrl: Type.String(),
+    sourceUrl: Type.String(),
+    pageTitle: Type.String(),
+    width: Type.Integer(),
+    height: Type.Integer(),
+    bytes: Type.Integer(),
+    createdAt: IsoTimestamp,
+    /** null = indefinite retention. */
+    retentionUntil: Type.Union([IsoTimestamp, Type.Null()]),
+    deletedAt: Type.Union([IsoTimestamp, Type.Null()]),
+  },
+  { additionalProperties: false, $id: 'AdminCaptureSummary' },
+);
+export type AdminCaptureSummary = Static<typeof AdminCaptureSummary>;
+
+export const AdminCaptureListResponse = Type.Object(
+  {
+    captures: Type.Array(AdminCaptureSummary),
+    total: Type.Integer(),
+    page: Type.Integer(),
+    pageSize: Type.Integer(),
+  },
+  { additionalProperties: false, $id: 'AdminCaptureListResponse' },
+);
+export type AdminCaptureListResponse = Static<typeof AdminCaptureListResponse>;
+
+/** PATCH /api/v1/admin/captures/:id — the "Keep indefinitely" checkbox (§7). */
+export const AdminCapturePatchRequest = Type.Object(
+  { indefinite: Type.Boolean() },
+  { additionalProperties: false, $id: 'AdminCapturePatchRequest' },
+);
+export type AdminCapturePatchRequest = Static<typeof AdminCapturePatchRequest>;
+
+export const AdminCapturePatchResponse = Type.Object(
+  { retentionUntil: Type.Union([IsoTimestamp, Type.Null()]) },
+  { additionalProperties: false, $id: 'AdminCapturePatchResponse' },
+);
+export type AdminCapturePatchResponse = Static<typeof AdminCapturePatchResponse>;
+
+export const AuditEntry = Type.Object(
+  {
+    id: Type.Integer(),
+    at: IsoTimestamp,
+    actorUserId: Type.Integer(),
+    /** Username at read time; null if ever unresolvable. */
+    actor: Type.Union([Type.String(), Type.Null()]),
+    action: Type.String(),
+    targetType: Type.String(),
+    targetId: Type.Union([Type.Integer(), Type.Null()]),
+    /** Never contains full secrets — 8-char prefixes only (CLAUDE.md rule 3). */
+    detail: Type.Record(Type.String(), Type.Any()),
+    ip: Type.String(),
+  },
+  { additionalProperties: false, $id: 'AuditEntry' },
+);
+export type AuditEntry = Static<typeof AuditEntry>;
+
+export const AuditListResponse = Type.Object(
+  {
+    entries: Type.Array(AuditEntry),
+    total: Type.Integer(),
+    page: Type.Integer(),
+    pageSize: Type.Integer(),
+  },
+  { additionalProperties: false, $id: 'AuditListResponse' },
+);
+export type AuditListResponse = Static<typeof AuditListResponse>;
+
+export const GuardBanEntry = Type.Object(
+  {
+    ipPrefix: Type.String(),
+    strikes: Type.Integer(),
+    bannedUntil: IsoTimestamp,
+    reason: Type.String(),
+    updatedAt: IsoTimestamp,
+    /** false = the ban has lapsed; the row remains for its strike history. */
+    active: Type.Boolean(),
+  },
+  { additionalProperties: false, $id: 'GuardBanEntry' },
+);
+export type GuardBanEntry = Static<typeof GuardBanEntry>;
+
+export const GuardStatusResponse = Type.Object(
+  {
+    breaker: Type.Object({
+      state: Type.Union([
+        Type.Literal('closed'),
+        Type.Literal('open'),
+        Type.Literal('half_open'),
+      ]),
+      retryAfterSeconds: Type.Optional(Type.Integer()),
+    }),
+    bans: Type.Array(GuardBanEntry),
+  },
+  { additionalProperties: false, $id: 'GuardStatusResponse' },
+);
+export type GuardStatusResponse = Static<typeof GuardStatusResponse>;
+
+export const UnbanRequest = Type.Object(
+  { ipPrefix: Type.String({ minLength: 1, maxLength: 64 }) },
+  { additionalProperties: false, $id: 'UnbanRequest' },
+);
+export type UnbanRequest = Static<typeof UnbanRequest>;
+
 // ---- Capture management (§7, §8, §13) ---------------------------------------
 
 /** Retention choices offered by the capture page; filtered to the server max. */

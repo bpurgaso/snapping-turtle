@@ -16,6 +16,7 @@ import { Guard, sendGuardBlocked } from './guard.js';
 import type { PageAssets } from './html.js';
 import { FlatRenderer } from './images/flat.js';
 import { ImageStore } from './images/storage.js';
+import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { captureRoutes } from './routes/captures.js';
 import { ownerRoutes } from './routes/owner.js';
@@ -176,6 +177,7 @@ export async function buildApp(opts: AppOptions): Promise<App> {
   );
 
   await app.register(authRoutes, { db, sessions, throttle, auth, guard, now });
+  await app.register(adminRoutes, { db, config, store, auth, guard, now });
   await app.register(tokenRoutes, { db, auth, now });
   await app.register(pingRoutes, { auth });
   await app.register(captureRoutes, { db, config, store, auth, now });

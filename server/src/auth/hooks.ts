@@ -28,6 +28,8 @@ export interface AuthHooks {
   requireSession: preHandlerAsyncHookHandler;
   /** Run after requireSession: x-csrf-token must match the session → 403. */
   requireCsrf: preHandlerAsyncHookHandler;
+  /** Run after requireSession: admin role required → 403 (CLAUDE.md rule 8). */
+  requireAdmin: preHandlerAsyncHookHandler;
   /** Bearer API token required → 401. Never consults cookies (CLAUDE.md rule 8). */
   requireBearer: preHandlerAsyncHookHandler;
 }
@@ -48,6 +50,13 @@ export function createAuthHooks(db: Db, sessions: SessionService, now: Clock): A
     }
   };
 
+  const requireAdmin = async (req: FastifyRequest): Promise<void> => {
+    if (!req.session) throw new HttpError(401, 'unauthorized', 'sign in required');
+    if (req.session.role !== 'admin') {
+      throw new HttpError(403, 'forbidden', 'admin access required');
+    }
+  };
+
   const requireBearer = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const header = req.headers.authorization;
     const match = typeof header === 'string' ? /^Bearer\s+(\S+)$/i.exec(header) : null;
@@ -60,7 +69,7 @@ export function createAuthHooks(db: Db, sessions: SessionService, now: Clock): A
     req.apiAuth = auth;
   };
 
-  return { requireSession, requireCsrf, requireBearer };
+  return { requireSession, requireCsrf, requireAdmin, requireBearer };
 }
 
 /** Active token of a non-disabled user, by hash; records last use. */
