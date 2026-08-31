@@ -741,7 +741,9 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
     expect(res.headers['content-disposition']).toBe('inline; filename="capture.png"');
     expect(res.headers['referrer-policy']).toBe('no-referrer');
     expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
-    expect(res.headers['cache-control']).toBe('private, no-store');
+    // M4: the flat URL revalidates by annotations revision (0 for a fresh capture).
+    expect(res.headers['cache-control']).toBe('private, no-cache');
+    expect(res.headers['etag']).toBe('"r0"');
     const stored = readFileSync(store.pathFor(captureId));
     expect(Number(res.headers['content-length'])).toBe(stored.length);
     expect(res.rawPayload.equals(stored)).toBe(true);

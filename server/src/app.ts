@@ -13,6 +13,7 @@ import type { Config } from './config.js';
 import type { Db } from './db/client.js';
 import { registerErrorHandler } from './errors.js';
 import type { PageAssets } from './html.js';
+import { FlatRenderer } from './images/flat.js';
 import { ImageStore } from './images/storage.js';
 import { authRoutes } from './routes/auth.js';
 import { captureRoutes } from './routes/captures.js';
@@ -31,6 +32,8 @@ export interface AppOptions {
   checks?: Record<string, () => Promise<void>>;
   /** Injectable clock for sessions, retention and the login throttle. */
   now?: Clock;
+  /** Injectable flat renderer (§10) so tests can observe the render gate. */
+  flat?: FlatRenderer;
 }
 
 /** JSON bodies are small; uploads are multipart with their own cap (routes/captures). */
@@ -119,7 +122,17 @@ export async function buildApp(opts: AppOptions): Promise<App> {
 
   const captureAssets = assetLoader(config, 'src/capture.ts');
   const editorAssets = assetLoader(config, 'src/editor.ts');
-  await app.register(secretRoutes, { db, config, store, sessions, now, captureAssets, editorAssets });
+  const flat = opts.flat ?? new FlatRenderer({ db, store, log: app.log });
+  await app.register(secretRoutes, {
+    db,
+    config,
+    store,
+    flat,
+    sessions,
+    now,
+    captureAssets,
+    editorAssets,
+  });
 
   await registerWeb(app, config);
   return app;

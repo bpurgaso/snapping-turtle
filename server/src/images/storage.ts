@@ -6,21 +6,23 @@ import type { Readable } from 'node:stream';
 
 /**
  * Local-disk image store (§2, §12). Paths are derived from the internal row
- * id only — `{root}/{shard}/{id}.png` — so nothing user-supplied and no
+ * id only — `{root}/{shard}/{id}.png` for the re-encoded original and
+ * `{root}/{shard}/{id}.flat.png` for the cached flat render (§10, one cache
+ * file per capture, overwritten in place) — so nothing user-supplied and no
  * secret ever reaches the filesystem layer.
  */
 export class ImageStore {
   constructor(readonly root: string) {}
 
-  pathFor(id: number): string {
+  pathFor(id: number, variant: 'original' | 'flat' = 'original'): string {
     if (!Number.isSafeInteger(id) || id < 1) throw new Error('invalid image id');
     const shard = (id % 256).toString(16).padStart(2, '0');
-    return join(this.root, shard, `${id}.png`);
+    return join(this.root, shard, variant === 'flat' ? `${id}.flat.png` : `${id}.png`);
   }
 
   /** Atomic write: temp file in the shard directory, then rename. */
-  async write(id: number, png: Uint8Array): Promise<void> {
-    const target = this.pathFor(id);
+  async write(id: number, png: Uint8Array, variant: 'original' | 'flat' = 'original'): Promise<void> {
+    const target = this.pathFor(id, variant);
     const dir = join(target, '..');
     await mkdir(dir, { recursive: true, mode: 0o750 });
     const tmp = `${target}.${randomBytes(6).toString('hex')}.tmp`;
@@ -34,8 +36,11 @@ export class ImageStore {
   }
 
   /** Stream + size for an existing image; null when the file is missing. */
-  async open(id: number): Promise<{ stream: Readable; size: number } | null> {
-    const path = this.pathFor(id);
+  async open(
+    id: number,
+    variant: 'original' | 'flat' = 'original',
+  ): Promise<{ stream: Readable; size: number } | null> {
+    const path = this.pathFor(id, variant);
     try {
       const info = await stat(path);
       if (!info.isFile()) return null;
@@ -46,7 +51,9 @@ export class ImageStore {
     }
   }
 
+  /** Remove every file for a capture — the original and any flat render. */
   async remove(id: number): Promise<void> {
     await rm(this.pathFor(id), { force: true });
+    await rm(this.pathFor(id, 'flat'), { force: true });
   }
 }

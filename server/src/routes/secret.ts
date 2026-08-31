@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyReply } from 'fastify';
 import { randomInt } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -8,6 +8,7 @@ import type { Db } from '../db/client.js';
 import { captures } from '../db/schema.js';
 import { NOT_FOUND_HTML, renderCapturePage, type PageAssets } from '../html.js';
 import { VIEW_ID_PATTERN } from '../ids.js';
+import type { FlatRenderer } from '../images/flat.js';
 import type { ImageStore } from '../images/storage.js';
 import type { App, Clock } from '../types.js';
 import { captureUrls } from '../urls.js';
@@ -16,6 +17,8 @@ export interface SecretRouteDeps {
   db: Db;
   config: Config;
   store: ImageStore;
+  /** Flat composite pipeline for image.png (§10). */
+  flat: FlatRenderer;
   sessions: SessionService;
   now: Clock;
   /** Resolved per request so dev watch builds show up; cached in production by the caller. */
@@ -44,9 +47,21 @@ export function uniformNotFound(config: Config): (reply: FastifyReply) => Promis
   };
 }
 
+/**
+ * Case-insensitive-scheme ETag check per RFC 9110 §13.1.2: a match on any
+ * listed value (weak comparison — a `W/` prefix is ignored) or `*`.
+ */
+export function ifNoneMatchHits(header: string | undefined, etag: string): boolean {
+  if (!header) return false;
+  return header
+    .split(',')
+    .map((v) => v.trim())
+    .some((v) => v === '*' || v === etag || (v.startsWith('W/') && v.slice(2) === etag));
+}
+
 /** GET /s/:viewId and GET /s/:viewId/image.png (§6–§8). View-only for everyone in M1. */
 export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<void> {
-  const { db, config, store, sessions, now, captureAssets, editorAssets } = deps;
+  const { db, config, store, flat, sessions, now, captureAssets, editorAssets } = deps;
   const notFound = uniformNotFound(config);
 
   /** Live capture by view_id: not deleted, not expired. Malformed ids skip the query. */
@@ -63,6 +78,10 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
         height: captures.height,
         createdAt: captures.createdAt,
         retentionUntil: captures.retentionUntil,
+        annotationsRev: captures.annotationsRev,
+        flatRev: captures.flatRev,
+        /** Cheap emptiness check without pulling the (up to 8 MB) document. */
+        shapeCount: sql<number>`jsonb_array_length(${captures.annotations} -> 'shapes')`,
       })
       .from(captures)
       .where(
@@ -114,21 +133,61 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
         return reply.type('text/html; charset=utf-8').send(page);
       });
 
-      // M1: the re-encoded original. M4 serves the flat render from this same URL.
+      // The flat render (§10): the URL is stable while its content follows the
+      // annotations, so the ETag derives from annotations_rev and clients
+      // revalidate cheaply (`private, no-cache`). Zero-annotation captures
+      // serve the re-encoded original untouched — exactly what M1 served.
       s.get<{ Params: { viewId: string } }>('/:viewId/image.png', async (req, reply) => {
         const row = await findLive(req.params.viewId);
         if (!row) return notFound(reply);
-        const file = await store.open(row.id);
-        if (!file) {
+
+        const cacheHeaders = (rev: number) =>
+          reply
+            .header('ETag', `"r${rev}"`)
+            .header('Cache-Control', 'private, no-cache')
+            .header('X-Content-Type-Options', 'nosniff');
+
+        // Headers go on only when a real response is sent, so a fall-through
+        // to notFound() stays byte- and header-identical (CLAUDE.md rule 2).
+        // Returns whether it sent, never the reply: Fastify's Reply is a
+        // thenable, so `await reply.send(...)` would resolve to undefined and
+        // read as "not sent" while the stream is already on the wire.
+        const sendFile = async (rev: number, variant: 'original' | 'flat'): Promise<boolean> => {
+          const file = await store.open(row.id, variant);
+          if (!file) return false;
+          cacheHeaders(rev)
+            .type('image/png')
+            .header('Content-Length', file.size)
+            .header('Content-Disposition', 'inline; filename="capture.png"')
+            .send(file.stream);
+          return true;
+        };
+
+        // A revalidation of the current revision needs no file (or render).
+        if (ifNoneMatchHits(req.headers['if-none-match'], `"r${row.annotationsRev}"`)) {
+          return cacheHeaders(row.annotationsRev).code(304).send();
+        }
+
+        let sent =
+          row.shapeCount === 0
+            ? await sendFile(row.annotationsRev, 'original')
+            : row.flatRev === row.annotationsRev
+              ? await sendFile(row.annotationsRev, 'flat')
+              : false;
+
+        if (!sent) {
+          // Cache stale (or its file missing): render through the gate. The
+          // renderer re-reads the row, so the result may be a newer revision.
+          const rendered = await flat.ensure(row.id);
+          if (rendered) {
+            sent = await sendFile(rendered.rev, rendered.empty ? 'original' : 'flat');
+          }
+        }
+        if (!sent) {
           req.log.error({ captureId: row.id }, 'image file missing for live capture');
           return notFound(reply);
         }
-        return reply
-          .type('image/png')
-          .header('Content-Length', file.size)
-          .header('Content-Disposition', 'inline; filename="capture.png"')
-          .header('X-Content-Type-Options', 'nosniff')
-          .send(file.stream);
+        return reply;
       });
     },
     { prefix: '/s' },
