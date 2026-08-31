@@ -1,8 +1,8 @@
-# snapping-turtle — Implementation Plan (v0.5)
+# snapping-turtle — Implementation Plan (v0.6)
 
 A self-hosted screenshot capture and sharing system: browser extensions (Chrome + Firefox) capture the current tab, upload it to a central server, and open an editor page at an unguessable URL. The owner can annotate with red/white arrows, rectangles, and text; anyone with the link can view the page, copy a flat rendered image link, and follow a link back to the original site. The server is designed defensively from day one: capability URLs with high entropy, aggressive anti-enumeration controls, attribution of every upload, admin audit logging, automated TLS, and a 30-day default retention policy.
 
-This document is a working plan. Section 2 records the confirmed decisions; the only items still open are minor UX questions flagged at the end of that section. v0.4 records the M1 implementation notes (a `sessions` table, the exact auth/token routes, throttle keying, and what `image.png` serves before M4); v0.5 records the M2 extension notes (the `notifications` permission, Firefox 128 minimum, runtime host grants, the ping route, and why capture itself is manually tested).
+This document is a working plan. Section 2 records the confirmed decisions; the only items still open are minor UX questions flagged at the end of that section. v0.4 records the M1 implementation notes (a `sessions` table, the exact auth/token routes, throttle keying, and what `image.png` serves before M4); v0.5 records the M2 extension notes (the `notifications` permission, Firefox 128 minimum, runtime host grants, the ping route, and why capture itself is manually tested); v0.6 records the M3 editor notes at the end of §9 (beacon CSRF-in-body, validation constants, owner-only PATCH until M5, fit-width scaling, and the tall-canvas spike results).
 
 ---
 
@@ -112,7 +112,7 @@ One flag worth deciding early: captures of internal tools will embed internal UR
 | `GET/POST /api/v1/admin/*` | session (admin) | Settings toggle, user create/disable, set-password link issuance, capture search by user, audit log view — every mutation audit-logged |
 | `GET /healthz` | internal only | Compose healthcheck |
 
-All state-changing browser routes require a CSRF token (double-submit) on top of SameSite: the token is an HMAC of the session, delivered in a readable `st_csrf` cookie and by `/me`, and must be echoed in `x-csrf-token`. Token-authenticated upload is exempt (no cookie ambient authority) and, conversely, never accepts a cookie as authentication. Upload is `multipart/form-data` with fields `image`, `sourceUrl`, `title` (names in `shared/` `CAPTURE_UPLOAD_FIELDS`).
+All state-changing browser routes require a CSRF token (double-submit) on top of SameSite: the token is an HMAC of the session, delivered in a readable `st_csrf` cookie and by `/me`, and must be echoed in `x-csrf-token`. One deliberate variant (M3): the editor's unload save uses `sendBeacon`, which cannot set headers, so `POST /api/v1/captures/:viewId/annotations` accepts a `text/plain` body of `{ csrfToken, document }` and verifies the same token from the body — semantics otherwise identical to the PUT. Token-authenticated upload is exempt (no cookie ambient authority) and, conversely, never accepts a cookie as authentication. Upload is `multipart/form-data` with fields `image`, `sourceUrl`, `title` (names in `shared/` `CAPTURE_UPLOAD_FIELDS`).
 
 ## 9. Annotation editor
 
@@ -137,6 +137,8 @@ Fabric.js canvas sized to the image's native pixels, scaled to fit the viewport.
 Server-side validation caps the document: ≤ 500 shapes, text ≤ 2,000 chars/shape, coordinates within image bounds ± margin, control characters stripped. `PUT` with a stale `rev` returns 409 and the editor reloads (last-writer-wins across the owner's own tabs is acceptable for v1). Text is treated strictly as data — rendered via `textContent` in the DOM and escaped into SVG on the server — never interpolated as markup.
 
 Full-page captures make the canvas tall. A single Fabric canvas up to the ~32,000 px cap is workable on desktop, but M3 includes a performance spike on the tallest fixtures; if interaction lags, the fallback is windowed rendering — only the visible slice of the image is on canvas, while annotations live in image coordinates throughout, so nothing else changes.
+
+*M3 implementation notes (v0.6):* the editor ships on Fabric.js **6.9.1** (v7 exists; v6 is what this plan vetted, and it runs clean under the strict CSP — no `unsafe-eval`). Validation constants: coordinates may overhang the image by `ANNOTATION_BOUNDS_MARGIN_PX` (100 px) per side, and the PUT body is capped at `MAX_ANNOTATION_DOC_BYTES` (8 MB — 500 two-thousand-character text shapes are legitimate). The document is validated in the handler with TypeBox `Value.Check` rather than route-level Ajv, because Ajv's `removeAdditional` mutates union branches while evaluating them and corrupts the shape union; no unvalidated field reaches business logic either way. `PATCH /api/v1/captures/:viewId` is **owner-only in M3** — the admin half of the table row (indefinite retention, delete-any) arrives with the M5 panel, and annotations stay owner-only forever (admins get 403). The owner's retention selector re-anchors expiry at `created_at + days`, so the choice is idempotent and displayable. The canvas scales fit-to-width (capped at 1:1) and tall captures scroll vertically — fit-to-viewport would render a 32,000 px capture unreadably small. Rotation controls are disabled on every shape; the schema carries no rotation, and the editor must not outrun what M4's renderer can reproduce. The double-stroke geometry (red 4 px over white 8 px, arrowhead 22×18, text stroke 4 px, Inter) lives in `shared/` `ANNOTATION_STYLE` for both renderers. The spike results (see `docs/perf-tall-canvas.md`) came in comfortably interactive at the 150 MP ingest ceiling — note that ceiling makes the tallest possible fixture 4,680 × 32,000, not 10,000 × 32,000 — so windowed rendering stays a designed fallback, unbuilt.
 
 ## 10. Flat image rendering
 
@@ -173,7 +175,7 @@ Defense-in-depth, outermost first:
 
 ## 13. Retention and lifecycle
 
-`retention_until = created_at + RETENTION_DEFAULT_DAYS (30)` on upload. Owners can raise it up to `RETENTION_MAX_DAYS_USER (365)` from the capture page; admins can clear it (indefinite) via the checkbox. An hourly job deletes expired originals and flat renders, tombstones the rows (§5), and hard-deletes tombstones after 90 days. Expired links fall into the uniform-404 behavior of §6.
+`retention_until = created_at + RETENTION_DEFAULT_DAYS (30)` on upload. Owners can raise it up to `RETENTION_MAX_DAYS_USER (365)` from the capture page (M3: `PATCH` with `retentionDays`, always anchored at `created_at`; beyond the ceiling → 400); admins can clear it (indefinite) via the checkbox. An hourly job deletes expired originals and flat renders, tombstones the rows (§5), and hard-deletes tombstones after 90 days. Expired links fall into the uniform-404 behavior of §6.
 
 ## 14. Deployment, TLS, configuration
 
