@@ -4,6 +4,8 @@
 # is mergeable. Major bumps of security-sensitive runtime pieces are left
 # to a human on purpose (Fabric.js: renderer parity contract, PLAN §10;
 # sharp/argon2: native binaries; Fastify: the whole HTTP surface).
+# Groups apply to version updates only (the default `applies-to`): security
+# updates stay one PR per advisory so they are never held behind a batch.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -28,11 +30,16 @@ updates:
       - dependency-name: fastify
         update-types: [version-update:semver-major]
 
+  # One weekly PR for all workflow actions (CI-only, no runtime exposure);
+  # a major of any of them lands in the same PR and is reviewed there.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
+    groups:
+      ci-actions:
+        patterns: ['*']
 
   - package-ecosystem: docker
     directory: /deploy
