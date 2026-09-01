@@ -53,6 +53,78 @@ docker compose -f deploy/docker-compose.yml cp caddy:/data/caddy/pki/authorities
 `/healthz` is answered by Caddy with a 404 on purpose (PLAN.md §8: internal
 only); the compose healthcheck calls the app container directly.
 
+## Backups and restore
+
+The `backup` service (`deploy/Dockerfile.backup`, `deploy/backup/backup.sh`)
+runs nightly at `BACKUP_TIME_UTC` (default 03:30) and, every run:
+
+1. `pg_dump -Fc` of the database into the `backups` volume
+   (`/backups/db/snapping_turtle-<stamp>.dump`, custom format, ACLs kept so the
+   `st_app` grants restore too) plus a `.counts` manifest of row counts;
+2. a hardlinked `rsync` snapshot of the image volume
+   (`/backups/images/<stamp>/` — unchanged files share inodes with the previous
+   snapshot, so daily snapshots cost roughly one copy plus the day's uploads);
+3. rotation: local dumps and snapshots older than `BACKUP_KEEP_DAYS` (14) go;
+4. **off-box, when `RESTIC_REPOSITORY` and `RESTIC_PASSWORD` are set:** a
+   restic snapshot of the new dump, its manifest and the images, then
+   `restic forget --prune` with `RESTIC_KEEP_DAILY/WEEKLY/MONTHLY` (14/8/6).
+   Backend credentials (`AWS_*`, `B2_*`) pass through from `deploy/.env`.
+   The repository is initialised on first use.
+
+**Limitation when restic is not configured:** the `backups` volume lives on the
+same disk as the data. That protects against a bad migration, an accidental
+delete or a corrupt table — not against losing the host. Copy the volume
+elsewhere (`docker run --rm -v snapping-turtle_backups:/b:ro -v $PWD:/out alpine tar czf /out/backups.tgz -C /b .`)
+or, better, set `RESTIC_REPOSITORY`.
+
+The sidecar runs as uid 1000 (the app's `node` user) with a read-only root, the
+image volume mounted read-only, no capabilities, and reaches only the
+`internal` network (Postgres) plus an `egress` network for the restic target.
+It logs one `sec.backup.completed` line per run with sizes and counts, and
+`sec.backup.failed` on error — never a connection string or repository URL.
+
+Ad-hoc backup: `docker compose -f deploy/docker-compose.yml run --rm backup run`.
+
+### Proving a backup restores
+
+```sh
+deploy/backup/verify-restore.sh
+```
+
+starts a scratch `postgres:16-alpine` on the compose-internal network, restores
+the latest dump into it (creating the `st_app` role first, as a real restore
+must — roles are cluster-level and not part of a database dump), compares row
+counts with the manifest, checks that `st_app` still cannot `UPDATE`/`DELETE`
+`audit_log`, restores the newest live capture's image file — from the local
+snapshot, or from the latest restic snapshot when `RESTIC_REPOSITORY` is set —
+and verifies its sha256 against the restored row. It prints `PASS`/`FAIL`
+lines and exits non-zero on any failure; the live stack is never touched.
+Run it after the first nightly backup and whenever the backup target changes.
+
+### Restoring for real
+
+On a fresh host with `deploy/.env` recovered (the secrets matter: `SESSION_SECRET`,
+`POSTGRES_PASSWORD`, `APP_DB_PASSWORD`, and `RESTIC_PASSWORD` if used):
+
+```sh
+docker compose -f deploy/docker-compose.yml up -d postgres          # empty cluster
+# 1. database — from the backups volume or a restic restore of /backups/db/latest.dump
+docker compose -f deploy/docker-compose.yml run --rm --no-deps backup sh -c '
+  psql -X -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '"'"'st_app'"'"') THEN CREATE ROLE st_app LOGIN; END IF; END \$\$;" &&
+  pg_restore --no-owner --exit-on-error -d "$PGDATABASE" /backups/db/latest.dump'
+# 2. images — copy the matching snapshot into the images volume
+docker run --rm -v snapping-turtle_backups:/b:ro -v snapping-turtle_images:/data/images \
+  alpine sh -c 'cp -a /b/images/latest/. /data/images/ && chown -R 1000:1000 /data/images'
+# 3. everything else
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+With restic, replace steps 1–2's sources with
+`restic restore latest --target /tmp/r` inside the backup container (it has
+the repository env) and copy from `/tmp/r/backups/db/…` and
+`/tmp/r/data/images/…`. The app re-syncs `st_app`'s password from
+`APP_DB_PASSWORD` at boot, so the restored grants become usable immediately.
+
 ## Domain migration
 
 Change `PUBLIC_HOST`, run `docker compose ... up -d`, rebuild the extension so its
@@ -64,5 +136,5 @@ name serving a `redir 308` block for one retention window (PLAN.md §15).
 - Caddy runs as root inside its container (needed to bind 80/443 in the stock
   image); the app and Postgres do not.
 - Resource limits are set via `deploy.resources.limits`; adjust per host.
-- Backups, Trivy image scanning and the separate least-privilege DB role for
-  `audit_log` arrive with M5/M7.
+- Trivy scans the built app and backup images in CI (HIGH/CRITICAL fail the
+  build; reviewed exceptions live in `deploy/.trivyignore`).

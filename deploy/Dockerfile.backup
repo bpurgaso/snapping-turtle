@@ -1,0 +1,21 @@
+# Backup sidecar (PLAN.md §12 "Operational"): nightly pg_dump + a copy of
+# the image volume, optionally shipped off-box with restic. Based on the same
+# postgres:16 image the database runs, so pg_dump/pg_restore always match the
+# server major. restic and rsync come from Alpine's package index — they are
+# the backup tools themselves, not incidental dependencies.
+#
+# Runs as uid 1000 — the `node` user the app writes images as — so the
+# read-only image volume is readable without loosening its 0750/0640 modes.
+FROM postgres:16-alpine
+RUN apk add --no-cache restic rsync \
+ && adduser -D -u 1000 -h /tmp backup \
+ && mkdir -p /backups /data/images \
+ && chown backup:backup /backups
+COPY --chmod=0755 backup/backup.sh /usr/local/bin/backup
+USER backup
+ENV HOME=/tmp \
+    BACKUP_ROOT=/backups \
+    IMAGES_DIR=/data/images \
+    RESTIC_CACHE_DIR=/tmp/restic-cache
+ENTRYPOINT ["/usr/local/bin/backup"]
+CMD ["loop"]

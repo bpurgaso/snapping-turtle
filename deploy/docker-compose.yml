@@ -92,6 +92,51 @@ services:
         limits:
           memory: 1G
 
+  # Nightly backups (PLAN.md §12): pg_dump + hardlinked image snapshots into
+  # the `backups` volume, and — when RESTIC_REPOSITORY/RESTIC_PASSWORD are set
+  # — a restic snapshot off-box. `backup run` for an ad-hoc backup,
+  # deploy/backup/verify-restore.sh to prove the latest one restores.
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+    image: snapping-turtle/backup:local
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-snapping_turtle}
+      BACKUP_TIME_UTC: ${BACKUP_TIME_UTC:-03:30}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_ON_START: ${BACKUP_ON_START:-false}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
+      RESTIC_KEEP_DAILY: ${RESTIC_KEEP_DAILY:-14}
+      RESTIC_KEEP_WEEKLY: ${RESTIC_KEEP_WEEKLY:-8}
+      RESTIC_KEEP_MONTHLY: ${RESTIC_KEEP_MONTHLY:-6}
+      # Backend credentials for restic, passed through only when set.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-}
+      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID:-}
+      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY:-}
+    volumes:
+      - images:/data/images:ro
+      - backups:/backups
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    read_only: true
+    networks: [internal, egress]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -122,9 +167,12 @@ networks:
         - subnet: 172.28.101.0/24
   internal:
     internal: true
+  # Outbound-only network for the backup sidecar's off-box restic target.
+  egress: {}
 
 volumes:
   caddy_data:
   caddy_config:
   images:
   pgdata:
+  backups:
