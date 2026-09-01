@@ -106,7 +106,12 @@ export class FlatRenderer {
     return this.gate.run(captureId, () => this.render(captureId));
   }
 
-  private async render(captureId: number): Promise<EnsureResult> {
+  /**
+   * The render job proper. `protected` only so a test can subclass and hold a
+   * render open (flat-render.test.ts pins every viewer of a burst inside the
+   * gate before letting it finish); production never overrides it.
+   */
+  protected async render(captureId: number): Promise<EnsureResult> {
     const [row] = await this.db
       .select({
         annotations: captures.annotations,

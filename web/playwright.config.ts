@@ -17,7 +17,8 @@ export default defineConfig({
   globalSetup: './test/parity/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
-  retries: process.env['CI'] ? 1 : 0,
+  // No retries anywhere: a test that needs a second attempt is a bug report, not noise.
+  retries: 0,
   reporter: process.env['CI'] ? [['github'], ['list']] : 'list',
   use: {
     baseURL: `http://127.0.0.1:${port}`,

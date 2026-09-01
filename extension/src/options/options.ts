@@ -18,7 +18,26 @@ import {
  * on both. A refusal leaves the settings untouched and says so. The
  * permissions.request call is the first await in each click handler so the
  * user gesture is still live when it runs.
+ *
+ * Lifecycle is observable through `data-state` on the root `<main>` so tests
+ * (and anyone debugging) can wait on real transitions instead of sleeping:
+ *
+ *   loading → ready → saving → saved | error
+ *                   → testing → connected | error
+ *
+ * Until `ready` the form is disabled — the handlers are attached before the
+ * stored settings are awaited, so nothing a user does early can fall through
+ * to a native form submission or be overwritten by the late prefill.
  */
+
+export type OptionsState =
+  | 'loading'
+  | 'ready'
+  | 'saving'
+  | 'saved'
+  | 'testing'
+  | 'connected'
+  | 'error';
 
 const root = document.getElementById('options');
 if (root) void init(root);
@@ -26,6 +45,11 @@ if (root) void init(root);
 type Tone = 'info' | 'ok' | 'error';
 
 async function init(main: HTMLElement): Promise<void> {
+  const setState = (state: OptionsState) => {
+    main.dataset['state'] = state;
+  };
+  setState('loading');
+
   const heading = document.createElement('h1');
   heading.textContent = 'snapping-turtle settings';
   main.append(heading);
@@ -34,11 +58,17 @@ async function init(main: HTMLElement): Promise<void> {
   form.noValidate = true;
   main.append(form);
 
-  const originInput = field(form, 'origin', 'Server address', 'url', {
+  // Everything interactive sits in one fieldset, disabled until the stored
+  // settings are in the inputs (see the lifecycle note above).
+  const fields = document.createElement('fieldset');
+  fields.disabled = true;
+  form.append(fields);
+
+  const originInput = field(fields, 'origin', 'Server address', 'url', {
     placeholder: 'https://shots.example.com',
     hint: `Default for this build: ${DEFAULT_SERVER_ORIGIN}. https only, except localhost / 127.0.0.1.`,
   });
-  const tokenInput = field(form, 'token', 'API token', 'password', {
+  const tokenInput = field(fields, 'token', 'API token', 'password', {
     placeholder: 'st_…',
     hint: 'Create one on your account page; it is stored only in this browser (storage.local).',
     autocomplete: 'off',
@@ -52,7 +82,7 @@ async function init(main: HTMLElement): Promise<void> {
   const accountRow = document.createElement('p');
   accountRow.className = 'hint';
   accountRow.append(accountLink);
-  form.append(accountRow);
+  fields.append(accountRow);
 
   const showToggle = document.createElement('button');
   showToggle.type = 'button';
@@ -74,7 +104,7 @@ async function init(main: HTMLElement): Promise<void> {
   testButton.type = 'button';
   testButton.textContent = 'Test connection';
   actions.append(saveButton, testButton);
-  form.append(actions);
+  fields.append(actions);
 
   const status = document.createElement('p');
   status.id = 'status';
@@ -86,6 +116,10 @@ async function init(main: HTMLElement): Promise<void> {
     status.textContent = message;
     status.className = `status ${tone}`;
   };
+  const fail = (message: string) => {
+    show(message, 'error');
+    setState('error');
+  };
 
   const syncAccountLink = () => {
     const parsed = parseServerOrigin(originInput.value);
@@ -94,22 +128,17 @@ async function init(main: HTMLElement): Promise<void> {
   };
   originInput.addEventListener('input', syncAccountLink);
 
-  const settings = await loadSettings();
-  originInput.value = settings.serverOrigin;
-  tokenInput.value = settings.apiToken;
-  syncAccountLink();
-
   /** Validate the form; on failure report and return null. Pure — safe before permissions.request. */
   const readForm = (): { origin: string; token: string } | null => {
     const parsed = parseServerOrigin(originInput.value);
     if (!parsed.ok) {
-      show(parsed.reason, 'error');
+      fail(parsed.reason);
       originInput.focus();
       return null;
     }
     const token = tokenInput.value.trim();
     if (!token || /\s/.test(token)) {
-      show('Paste the API token from your account page (a single line, no spaces).', 'error');
+      fail('Paste the API token from your account page (a single line, no spaces).');
       tokenInput.focus();
       return null;
     }
@@ -128,56 +157,75 @@ async function init(main: HTMLElement): Promise<void> {
       const httpHint = origin.startsWith('http:')
         ? ' Browsers only allow https servers to be added after install; for a plain-http local server, rebuild the extension with PUBLIC_ORIGIN set to it.'
         : '';
-      show(`Could not request access to ${origin}: ${why}.${httpHint} Nothing was saved.`, 'error');
+      fail(`Could not request access to ${origin}: ${why}.${httpHint} Nothing was saved.`);
       return false;
     }
     if (!granted) {
-      show(
+      fail(
         `Access to ${origin} was not granted, so nothing was saved. The extension needs permission for that site to upload captures — try again and allow it.`,
-        'error',
       );
     }
     return granted;
   };
 
+  // Handlers go on before anything is awaited: a submit can never reach the
+  // browser's native form submission (which would put the token in a URL).
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const values = readForm();
     if (!values) return;
+    setState('saving');
     void (async () => {
       if (!(await ensureAccess(values.origin))) return;
       await saveSettings({ serverOrigin: values.origin, apiToken: values.token });
       originInput.value = values.origin;
       syncAccountLink();
       show(`Saved. Captures will upload to ${values.origin}.`, 'ok');
+      setState('saved');
     })();
   });
 
   testButton.addEventListener('click', () => {
     const values = readForm();
     if (!values) return;
+    setState('testing');
     void (async () => {
       if (!(await ensureAccess(values.origin))) return;
       testButton.disabled = true;
       show(`Contacting ${values.origin}…`);
       try {
         const outcome = await pingServer(values.origin, values.token);
-        if (outcome.kind === 'ok') show('Connected: the server accepted this token.', 'ok');
-        else if (outcome.kind === 'unauthorized') {
-          show(
+        if (outcome.kind === 'ok') {
+          show('Connected: the server accepted this token.', 'ok');
+          setState('connected');
+        } else if (outcome.kind === 'unauthorized') {
+          fail(
             'The server rejected this token. Create a new one on your account page and paste it here.',
-            'error',
           );
-        } else show(outcome.message, 'error');
+        } else fail(outcome.message);
       } finally {
         testButton.disabled = false;
       }
     })();
   });
+
+  let settings;
+  try {
+    settings = await loadSettings();
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    fail(`Could not read the stored settings: ${why}. Reload this page to try again.`);
+    return;
+  }
+  originInput.value = settings.serverOrigin;
+  tokenInput.value = settings.apiToken;
+  syncAccountLink();
+  fields.disabled = false;
+  setState('ready');
 }
 
 function field(
-  form: HTMLFormElement,
+  parent: HTMLElement,
   id: string,
   labelText: string,
   type: string,
@@ -201,6 +249,6 @@ function field(
   hint.textContent = opts.hint;
   input.setAttribute('aria-describedby', hint.id);
   wrapper.append(label, input, hint);
-  form.append(wrapper);
+  parent.append(wrapper);
   return input;
 }
