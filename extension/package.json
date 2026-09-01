@@ -5,11 +5,12 @@
   "description": "MV3 browser extension: one codebase, Chrome (service worker) and Firefox (event page) builds",
   "type": "module",
   "scripts": {
+    "shared": "pnpm --filter @snapping-turtle/shared build",
     "build": "pnpm build:chrome && pnpm build:firefox",
-    "build:chrome": "tsx scripts/build.ts chrome",
-    "build:firefox": "tsx scripts/build.ts firefox",
-    "build:release": "tsx scripts/release.ts",
-    "sign:firefox": "tsx scripts/sign-firefox.ts",
+    "build:chrome": "pnpm run shared && tsx scripts/build.ts chrome",
+    "build:firefox": "pnpm run shared && tsx scripts/build.ts firefox",
+    "build:release": "pnpm run shared && tsx scripts/release.ts",
+    "sign:firefox": "pnpm run shared && tsx scripts/sign-firefox.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:smoke": "playwright test"

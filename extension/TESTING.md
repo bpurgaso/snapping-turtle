@@ -164,6 +164,15 @@ blog); the server's own `/s/<id>` page of a previous tall capture.
 - **Hostile pages** can still defeat the overlay with `html { transform }` or
   by moving `<html>` — nothing above the root can be protected against.
 - **Chrome badge progress** is global to the toolbar icon, not per window.
+- **Firefox floors (M8).** The manifest requires Firefox 140 (the 2025 ESR) and
+  Firefox for Android 142 — the first releases that understand
+  `data_collection_permissions`, which AMO requires. Android is declared
+  compatible but nothing in this checklist has been run there: **unverified**.
+- **Release builds** (`pnpm --filter extension build:release`) differ from the
+  dev builds above only in inputs and audit: a real https origin baked in, a
+  pinned `EXTENSION_GECKO_ID`, and a Firefox `update_url` pointing at the
+  server's `/ext/updates.json`. Load them the same way for a final check
+  before submitting (`extension/STORE_SUBMISSION.md`).
 
 ## Running the live-server Playwright checks yourself
 
