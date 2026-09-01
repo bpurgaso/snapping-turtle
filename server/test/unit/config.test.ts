@@ -1,4 +1,9 @@
-import { GUARD_DEFAULTS, MAX_UPLOAD_MB, RETENTION_DEFAULT_DAYS } from '@snapping-turtle/shared';
+import {
+  GUARD_DEFAULTS,
+  MAX_UPLOAD_MB,
+  RETENTION_DEFAULT_DAYS,
+  TOMBSTONE_RETENTION_DAYS,
+} from '@snapping-turtle/shared';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from '../../src/config.js';
 
@@ -12,12 +17,19 @@ describe('loadConfig', () => {
     const cfg = loadConfig(minimal);
     expect(cfg.maxUploadMb).toBe(MAX_UPLOAD_MB);
     expect(cfg.retentionDefaultDays).toBe(RETENTION_DEFAULT_DAYS);
+    expect(cfg.tombstoneDays).toBe(TOMBSTONE_RETENTION_DAYS);
     expect(cfg.rate.generalPerMinute).toBe(GUARD_DEFAULTS.generalPerMinute);
     expect(cfg.rate.invalidLookupBudget).toBe(GUARD_DEFAULTS.invalidLookupBudget);
     expect(cfg.rate.invalidLookupWindowMinutes).toBe(GUARD_DEFAULTS.invalidLookupWindowMinutes);
     expect(cfg.rate.breakerInvalidPerMinute).toBe(GUARD_DEFAULTS.breakerInvalidPerMinute);
     expect(cfg.port).toBe(3000);
     expect(cfg.nodeEnv).toBe('development');
+  });
+
+  it('reads TOMBSTONE_DAYS and rejects a non-positive value', () => {
+    expect(loadConfig({ ...minimal, TOMBSTONE_DAYS: '7' }).tombstoneDays).toBe(7);
+    expect(() => loadConfig({ ...minimal, TOMBSTONE_DAYS: '0' })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...minimal, TOMBSTONE_DAYS: 'ninety' })).toThrow(ConfigError);
   });
 
   it('honours overrides and strips trailing slashes from PUBLIC_ORIGIN', () => {

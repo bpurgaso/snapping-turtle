@@ -11,6 +11,7 @@ import { NOT_FOUND_HTML, renderCapturePage, type PageAssets } from '../html.js';
 import { VIEW_ID_PATTERN } from '../ids.js';
 import type { FlatRenderer } from '../images/flat.js';
 import type { ImageStore } from '../images/storage.js';
+import { logSecurityEvent } from '../security-events.js';
 import type { App, Clock } from '../types.js';
 import { captureUrls } from '../urls.js';
 
@@ -197,7 +198,10 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
           }
         }
         if (!sent) {
-          req.log.error({ captureId: row.id }, 'image file missing for live capture');
+          // Defense in depth (§13): a live row whose file is gone — e.g. a
+          // crash between the purge's unlink and its row update — answers
+          // exactly like never-existed and is never charged to the guard.
+          logSecurityEvent(req.log, { tag: 'sec.image.missing_file', captureId: row.id });
           return notFoundFault(req, reply);
         }
         return reply;

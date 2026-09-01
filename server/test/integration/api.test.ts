@@ -26,6 +26,7 @@ import { seedAdmin } from '../../src/db/seed-admin.js';
 import { NOT_FOUND_HTML } from '../../src/html.js';
 import { sha256Hex } from '../../src/ids.js';
 import { ImageStore } from '../../src/images/storage.js';
+import { PurgeJob } from '../../src/jobs/purge.js';
 import type { App } from '../../src/types.js';
 import { craftPngBomb, makeJpegWithExif, makePng, SVG_BYTES } from '../helpers/images.js';
 
@@ -761,21 +762,79 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
     expect(head.headers['content-type']).toBe('image/png');
   });
 
-  it('never-existed, expired, deleted and malformed ids are byte-identical 404s', async () => {
+  it('every lifecycle state is a byte-identical 404: never-existed, owner-deleted, expired-and-purged, hard-deleted, missing-file, malformed', async () => {
     const alice = await login(ALICE);
     const t = await createToken(alice, '404-tests');
     const mk = async () => viewIdOf((await upload(t.token, await makePng(8, 8))).json().pageUrl);
+    const idOf = async (viewId: string) =>
+      (
+        await handle.db
+          .select({ id: captures.id })
+          .from(captures)
+          .where(eq(captures.viewId, viewId))
+      )[0]!.id;
+    const purge = new PurgeJob({
+      db: handle.db,
+      store,
+      now: () => clock,
+      log: app.log,
+      tombstoneDays: config.tombstoneDays,
+    });
+
+    // Owner-deleted through the real M3 route (tombstone + immediate unlink).
+    const ownerDeletedId = await mk();
+    expect(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/v1/captures/${ownerDeletedId}`,
+          payload: { delete: true },
+          headers: { cookie: alice.cookie, [CSRF_HEADER]: alice.csrf },
+        })
+      ).statusCode,
+    ).toBe(204);
+
+    // Expired, then processed by the purge job (files gone, row tombstoned).
     const expiredId = await mk();
-    const deletedId = await mk();
-    const liveId = await mk();
     await handle.db
       .update(captures)
       .set({ retentionUntil: new Date(clock.getTime() - 1000) })
       .where(eq(captures.viewId, expiredId));
+    // Deleted long ago: the purge hard-deletes the row outright.
+    const hardDeletedId = await mk();
     await handle.db
       .update(captures)
-      .set({ deletedAt: clock })
-      .where(eq(captures.viewId, deletedId));
+      .set({ deletedAt: new Date(clock.getTime() - (config.tombstoneDays + 1) * 86_400_000) })
+      .where(eq(captures.viewId, hardDeletedId));
+    const hardDeletedRow = await idOf(hardDeletedId);
+    const report = await purge.runOnce();
+    expect(report.expired).toBeGreaterThanOrEqual(1);
+    expect(report.hardDeleted).toBeGreaterThanOrEqual(1);
+    expect(existsSync(store.pathFor(await idOf(expiredId)))).toBe(false);
+    expect(
+      await handle.db.select().from(captures).where(eq(captures.id, hardDeletedRow)),
+    ).toHaveLength(0);
+
+    // Live row whose file vanished underneath it — plain and annotated.
+    const missingId = await mk();
+    const missingAnnotatedId = await mk();
+    await handle.db
+      .update(captures)
+      .set({
+        annotations: {
+          version: 1,
+          rev: 1,
+          shapes: [{ id: 'a1', type: 'rect', x: 1, y: 1, w: 4, h: 4 }],
+        },
+        annotationsRev: 1,
+      })
+      .where(eq(captures.viewId, missingAnnotatedId));
+    for (const v of [missingId, missingAnnotatedId]) {
+      expect((await app.inject({ method: 'GET', url: `/s/${v}/image.png` })).statusCode).toBe(200);
+      await store.remove(await idOf(v));
+    }
+
+    const liveId = await mk();
     const neverId = randomBytes(20).toString('base64url');
 
     // Sanity: the live one still works, so the misses below are real distinctions.
@@ -783,12 +842,16 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
 
     const urls = [
       `/s/${neverId}`,
+      `/s/${ownerDeletedId}`,
       `/s/${expiredId}`,
-      `/s/${deletedId}`,
+      `/s/${hardDeletedId}`,
       '/s/malformed-id',
       `/s/${neverId}/image.png`,
+      `/s/${ownerDeletedId}/image.png`,
       `/s/${expiredId}/image.png`,
-      `/s/${deletedId}/image.png`,
+      `/s/${hardDeletedId}/image.png`,
+      `/s/${missingId}/image.png`,
+      `/s/${missingAnnotatedId}/image.png`,
       `/s/${liveId}/other.png`,
     ];
     const responses = [];
@@ -864,7 +927,11 @@ describe('annotations API (S8, S9)', () => {
       (await app.inject({ method: 'GET', url: aUrl(), headers: { cookie: admin.cookie } }))
         .statusCode,
     ).toBe(403);
-    const mine = await app.inject({ method: 'GET', url: aUrl(), headers: { cookie: alice.cookie } });
+    const mine = await app.inject({
+      method: 'GET',
+      url: aUrl(),
+      headers: { cookie: alice.cookie },
+    });
     expect(mine.statusCode).toBe(200);
     expect(mine.json()).toEqual({ version: 1, rev: 0, shapes: [] });
   });
@@ -874,9 +941,9 @@ describe('annotations API (S8, S9)', () => {
     expect((await put(doc)).statusCode).toBe(401);
     expect((await put(doc, { cookie: alice.cookie })).statusCode).toBe(403);
     expect((await put(doc, { cookie: bob.cookie, [CSRF_HEADER]: bob.csrf })).statusCode).toBe(403);
-    expect(
-      (await put(doc, { cookie: admin.cookie, [CSRF_HEADER]: admin.csrf })).statusCode,
-    ).toBe(403);
+    expect((await put(doc, { cookie: admin.cookie, [CSRF_HEADER]: admin.csrf })).statusCode).toBe(
+      403,
+    );
     const [row] = await handle.db
       .select({ rev: captures.annotationsRev })
       .from(captures)
@@ -984,7 +1051,10 @@ describe('annotations API (S8, S9)', () => {
 
   it('unknown and malformed view ids are 404 for the owner session', async () => {
     const ghost = randomBytes(20).toString('base64url');
-    for (const path of [`/api/v1/captures/${ghost}/annotations`, '/api/v1/captures/nope/annotations']) {
+    for (const path of [
+      `/api/v1/captures/${ghost}/annotations`,
+      '/api/v1/captures/nope/annotations',
+    ]) {
       expect(
         (await app.inject({ method: 'GET', url: path, headers: { cookie: alice.cookie } }))
           .statusCode,
@@ -1054,7 +1124,12 @@ describe('PATCH /api/v1/captures/:viewId (S7, S13)', () => {
     return viewIdOf(res.json().pageUrl);
   };
   const patch = (id: string, body: unknown, headers: Record<string, string> = {}) =>
-    app.inject({ method: 'PATCH', url: `/api/v1/captures/${id}`, payload: body as object, headers });
+    app.inject({
+      method: 'PATCH',
+      url: `/api/v1/captures/${id}`,
+      payload: body as object,
+      headers,
+    });
   const asOwner = () => ({ cookie: alice.cookie, [CSRF_HEADER]: alice.csrf });
 
   it('authz: anonymous 401; owner without CSRF 403; non-owner and admin 403', async () => {

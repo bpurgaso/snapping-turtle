@@ -214,6 +214,7 @@ Key configuration (single `deploy/.env`, read by both compose and local `pnpm de
 | `PUBLIC_HOST` | `shots.example.com` | The single domain knob: Caddy vhost/cert directly; compose derives `PUBLIC_ORIGIN=https://$PUBLIC_HOST` for the app, and the extension build reads `PUBLIC_ORIGIN` or falls back to `https://$PUBLIC_HOST` |
 | `PUBLIC_ORIGIN` | derived | App absolute URLs, extension build default. Set explicitly only for local `pnpm dev` (e.g. `http://localhost:3000`) |
 | `RETENTION_DEFAULT_DAYS` / `RETENTION_MAX_DAYS_USER` | 30 / 365 | app |
+| `TOMBSTONE_DAYS` | 90 | purge job (§13): days a deleted/expired capture's tombstone row survives before hard delete |
 | `MAX_UPLOAD_MB` | 30 | Caddy + app |
 | `RATE_*` knobs (windows, budgets, breaker threshold + cooldown, ban ladder, not-found jitter) | sane defaults | guard |
 | `APP_DB_PASSWORD`, `MIGRATE_DATABASE_URL` | generated at install / derived by compose | runtime `st_app` role vs. privileged migrations (§11, M5) |

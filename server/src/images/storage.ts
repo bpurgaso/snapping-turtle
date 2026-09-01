@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -21,7 +21,11 @@ export class ImageStore {
   }
 
   /** Atomic write: temp file in the shard directory, then rename. */
-  async write(id: number, png: Uint8Array, variant: 'original' | 'flat' = 'original'): Promise<void> {
+  async write(
+    id: number,
+    png: Uint8Array,
+    variant: 'original' | 'flat' = 'original',
+  ): Promise<void> {
     const target = this.pathFor(id, variant);
     const dir = join(target, '..');
     await mkdir(dir, { recursive: true, mode: 0o750 });
@@ -51,9 +55,21 @@ export class ImageStore {
     }
   }
 
-  /** Remove every file for a capture — the original and any flat render. */
-  async remove(id: number): Promise<void> {
-    await rm(this.pathFor(id), { force: true });
-    await rm(this.pathFor(id, 'flat'), { force: true });
+  /**
+   * Remove every file for a capture — the original and any flat render.
+   * Missing files are not an error (the purge job re-runs over partial
+   * state, §13); returns how many files actually existed and were removed.
+   */
+  async remove(id: number): Promise<number> {
+    let removed = 0;
+    for (const variant of ['original', 'flat'] as const) {
+      try {
+        await unlink(this.pathFor(id, variant));
+        removed += 1;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+    }
+    return removed;
   }
 }

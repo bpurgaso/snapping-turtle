@@ -6,6 +6,7 @@ import {
   MAX_UPLOAD_MB,
   RETENTION_DEFAULT_DAYS,
   RETENTION_MAX_DAYS_USER,
+  TOMBSTONE_RETENTION_DAYS,
 } from '@snapping-turtle/shared';
 import { defaultImagesDir, defaultWebDist } from './paths.js';
 
@@ -46,6 +47,8 @@ export const ConfigSchema = Type.Object({
   maxUploadMb: Type.Integer({ minimum: 1, maximum: 1024 }),
   retentionDefaultDays: Type.Integer({ minimum: 1 }),
   retentionMaxDaysUser: Type.Integer({ minimum: 1 }),
+  /** Tombstones (deleted or expired captures) are hard-deleted after this many days (§5, §13). */
+  tombstoneDays: Type.Integer({ minimum: 1 }),
   /** Per-account login backoff (§11). */
   loginThrottle: Type.Object({
     freeAttempts: Type.Integer({ minimum: 0 }),
@@ -129,6 +132,7 @@ export function loadConfig(env: Env = process.env): Config {
     maxUploadMb: int(env, 'MAX_UPLOAD_MB', MAX_UPLOAD_MB),
     retentionDefaultDays: int(env, 'RETENTION_DEFAULT_DAYS', RETENTION_DEFAULT_DAYS),
     retentionMaxDaysUser: int(env, 'RETENTION_MAX_DAYS_USER', RETENTION_MAX_DAYS_USER),
+    tombstoneDays: int(env, 'TOMBSTONE_DAYS', TOMBSTONE_RETENTION_DAYS),
     loginThrottle: {
       freeAttempts: int(env, 'LOGIN_THROTTLE_FREE_ATTEMPTS', LOGIN_THROTTLE_DEFAULTS.freeAttempts),
       baseSeconds: int(env, 'LOGIN_THROTTLE_BASE_SECONDS', LOGIN_THROTTLE_DEFAULTS.baseSeconds),

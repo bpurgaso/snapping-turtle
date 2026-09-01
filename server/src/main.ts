@@ -2,6 +2,8 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createDb, type DbHandle } from './db/client.js';
 import { loadEnvFile } from './env.js';
+import { ImageStore } from './images/storage.js';
+import { PurgeJob } from './jobs/purge.js';
 import { loggerOptions } from './log.js';
 
 export interface RunningServer {
@@ -23,7 +25,19 @@ export async function startServer(existing?: DbHandle): Promise<RunningServer> {
   const address = await app.listen({ host: config.host, port: config.port });
   app.log.info({ publicOrigin: config.publicOrigin, nodeEnv: config.nodeEnv }, 'listening');
 
+  // Retention purge (§13): hourly, first pass right after boot so a crash
+  // mid-run or a long outage is repaired without waiting an hour.
+  const purge = new PurgeJob({
+    db: handle.db,
+    store: new ImageStore(config.imagesDir),
+    now: () => new Date(),
+    log: app.log,
+    tombstoneDays: config.tombstoneDays,
+  });
+  purge.start();
+
   const close = async () => {
+    await purge.stop();
     await app.close();
     await handle.close();
   };

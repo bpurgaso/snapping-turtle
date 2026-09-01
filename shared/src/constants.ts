@@ -81,8 +81,11 @@ export const ACCOUNT_LINK_TTL_HOURS = 24;
 
 export const RETENTION_DEFAULT_DAYS = 30;
 export const RETENTION_MAX_DAYS_USER = 365;
-/** Deleted/expired captures keep a tombstone row this long before hard delete (§5). */
+/** Deleted/expired captures keep a tombstone row this long before hard delete (§5).
+ *  Overridable via TOMBSTONE_DAYS (§14). */
 export const TOMBSTONE_RETENTION_DAYS = 90;
+/** The retention purge job runs this often (§13: hourly). */
+export const PURGE_INTERVAL_MS = 60 * 60 * 1000;
 
 // ---- Guard defaults (§12) ---------------------------------------------------
 

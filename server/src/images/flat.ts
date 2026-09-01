@@ -74,7 +74,9 @@ export interface FlatRendererDeps {
 }
 
 export type EnsureResult =
-  /** The capture disappeared (deleted) between lookup and render. */
+  /** The capture disappeared (deleted) between lookup and render, or its
+   *  original file is missing on disk — the route answers both with the
+   *  uniform not-found (§6, §12 "server-side faults"). */
   | null
   /** `rev` is now represented on disk: the flat file, or the original when `empty`. */
   | { rev: number; empty: boolean };
@@ -122,13 +124,22 @@ export class FlatRenderer {
 
     const startedAt = Date.now();
     const overlay = buildOverlaySvg(row.annotations, { width: row.width, height: row.height });
-    const png = await sharp(this.store.pathFor(captureId), {
-      limitInputPixels: MAX_IMAGE_PIXELS,
-      sequentialRead: true,
-    })
-      .composite([{ input: Buffer.from(overlay, 'utf8') }])
-      .png()
-      .toBuffer();
+    let png: Buffer;
+    try {
+      png = await sharp(this.store.pathFor(captureId), {
+        limitInputPixels: MAX_IMAGE_PIXELS,
+        sequentialRead: true,
+      })
+        .composite([{ input: Buffer.from(overlay, 'utf8') }])
+        .png()
+        .toBuffer();
+    } catch (err) {
+      // A live row whose original vanished (crash between a file unlink and
+      // its row update, or an operator mistake) must not become a 500 — the
+      // route turns null into the uniform 404 without charging the guard.
+      if (isMissingInput(err)) return null;
+      throw err;
+    }
     // File first, then the revision marker: flat_rev never claims a render
     // that is not on disk, and a crash in between just re-renders next time.
     await this.store.write(captureId, png, 'flat');
@@ -142,4 +153,11 @@ export class FlatRenderer {
     );
     return { rev, empty: false };
   }
+}
+
+/** sharp reports a missing input file as an Error whose message names ENOENT / "Input file is missing". */
+function isMissingInput(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || /input file is missing|ENOENT/i.test(err.message);
 }
