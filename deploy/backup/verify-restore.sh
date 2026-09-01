@@ -26,7 +26,7 @@ echo "verify-restore: scratch postgres '$scratch' on network '$network'"
 docker run -d --rm --name "$scratch" --network "$network" \
   -e POSTGRES_USER=app -e POSTGRES_PASSWORD=scratch-only -e POSTGRES_DB=restore_check \
   --security-opt no-new-privileges:true --memory 512m \
-  postgres:16-alpine >/dev/null
+  postgres:16.15-alpine >/dev/null
 for _ in $(seq 1 60); do
   if docker exec "$scratch" pg_isready -q -U app -d restore_check 2>/dev/null; then break; fi
   sleep 1

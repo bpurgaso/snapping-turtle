@@ -25,7 +25,7 @@ pnpm install
 cp deploy/.env.example deploy/.env      # both compose and pnpm dev read this file
 # Point DATABASE_URL at a Postgres you own, e.g. a throwaway container:
 docker run -d --name st-pg -e POSTGRES_USER=app -e POSTGRES_PASSWORD=devpassword \
-  -e POSTGRES_DB=snapping_turtle -p 5432:5432 postgres:16-alpine
+  -e POSTGRES_DB=snapping_turtle -p 5432:5432 postgres:16.15-alpine
 #   DATABASE_URL=postgres://app:devpassword@localhost:5432/snapping_turtle
 
 pnpm --filter server db:migrate         # apply migrations

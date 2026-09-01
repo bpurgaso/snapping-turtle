@@ -138,7 +138,11 @@ services:
           memory: 256M
 
   postgres:
-    image: postgres:16-alpine
+    # Authoritative pin (scripts/check-image-pins.sh syncs every other site).
+    # Explicit patch tag on purpose: `up -d --build` never re-pulls a cached
+    # floating tag, and Dependabot can only bump a literal — see
+    # deploy/README.md "The Postgres image pin".
+    image: postgres:16.15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}

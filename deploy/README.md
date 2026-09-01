@@ -125,9 +125,29 @@ the repository env) and copy from `/tmp/r/backups/db/…` and
 `/tmp/r/data/images/…`. The app re-syncs `st_app`'s password from
 `APP_DB_PASSWORD` at boot, so the restored grants become usable immediately.
 
-### Upgrading Postgres across a major version
+### The Postgres image pin
 
-A major bump of the `postgres` image (`16-alpine` → `17`/`18`) is a data
+`deploy/docker-compose.yml` pins an explicit patch release
+(`postgres:16.15-alpine`), not the floating `16-alpine` tag, and
+`scripts/check-image-pins.sh` (run in CI) holds every other site that names
+the image — the backup sidecar's `FROM`, the CI service container,
+`verify-restore.sh`'s scratch container and the README quickstart — to the
+same literal. Two reasons for the explicit pin, decided in M8:
+
+- **Reproducible deploys.** `docker compose up -d --build` never re-pulls a
+  tag the host already has, so a floating `16-alpine` means "whatever this
+  box pulled the first time" — silently stale, and different from box to box.
+  An explicit tag is what it says it is until someone changes it.
+- **A visible update trail.** Dependabot cannot propose anything against a
+  floating tag (there is nothing to bump), so patch releases arrived never.
+  With the explicit pin the docker-compose ecosystem opens a `16.N → 16.N+1`
+  PR (its ignore rule is majors-only), the pin check makes that PR sync the
+  other sites before it can go green, and the deploy picks it up on the next
+  `up -d`. Patch upgrades within a major are safe on the existing data volume.
+
+## Upgrading Postgres across a major version
+
+A major bump of the `postgres` image (`16.15-alpine` → `17`/`18`) is a data
 migration, not a dependency update, and Dependabot is configured to ignore it
 (`.github/dependabot.yml`; minors/patches of the compose pin still flow, and a
 Dependabot bump of that pin fails `scripts/check-image-pins.sh` until the
