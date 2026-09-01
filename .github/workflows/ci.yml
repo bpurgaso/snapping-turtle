@@ -98,7 +98,7 @@ jobs:
       # the build; reviewed exceptions live in deploy/.trivyignore
       # (docs/supply-chain.md). Unfixable findings are reported, not fatal.
       - name: Trivy scan ${{ matrix.image }} image
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: snapping-turtle/${{ matrix.image }}:ci
           scanners: vuln
