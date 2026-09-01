@@ -1,5 +1,5 @@
-import { Type, type Static } from '@sinclair/typebox';
-import { Value } from '@sinclair/typebox/value';
+import { Type, type Static } from 'typebox';
+import { Value } from 'typebox/value';
 import { ANNOTATION_SCHEMA_VERSION } from './constants.js';
 
 /**
@@ -194,6 +194,43 @@ export type AnnotationValidation =
   | { ok: false; reason: string };
 
 /**
+ * Schema-level check of an untrusted document, with two rules the wire
+ * contract fixes independently of the validator library (they changed between
+ * TypeBox 0.34 and 1.x, and `test/fixtures/annotation-corpus.ts` pins them):
+ *
+ * - `maxTextLength` counts UTF-16 code units (`String.length`), which is what
+ *   the editor truncates to (`web/src/editor/shapes.ts`) — the server must
+ *   never accept a text the editor could not have produced.
+ * - a sparse `shapes` array (a hole) is invalid, not "a shape that is skipped";
+ *   JSON cannot express one, but in-process callers can.
+ *
+ * Returns null when the document is valid, else the reason (with the
+ * validator's error path where it reports one).
+ */
+export function annotationSchemaError(input: unknown): string | null {
+  if (!Value.Check(AnnotationDocument, input)) {
+    const [first] = Value.Errors(AnnotationDocument, input);
+    const where = first?.instancePath ? ` at ${first.instancePath}` : '';
+    return `invalid annotation document${where}`;
+  }
+  for (let i = 0; i < input.shapes.length; i++) {
+    const shape = input.shapes[i];
+    if (!(i in input.shapes) || shape === undefined) {
+      return `invalid annotation document at /shapes/${i}`;
+    }
+    if (shape.type === 'text' && shape.text.length > ANNOTATION_LIMITS.maxTextLength) {
+      return `invalid annotation document at /shapes/${i}`;
+    }
+  }
+  return null;
+}
+
+/** `annotationSchemaError(input) === null`, as a type guard. */
+export function isAnnotationDocument(input: unknown): input is AnnotationDocument {
+  return annotationSchemaError(input) === null;
+}
+
+/**
  * Full server-side validation of an untrusted annotation document (S9):
  * schema (shape count, text length, finite coordinates, unknown keys),
  * then control-character stripping, then image-bounds checks. The returned
@@ -203,10 +240,9 @@ export function validateAnnotationDocument(
   input: unknown,
   image: { width: number; height: number },
 ): AnnotationValidation {
-  if (!Value.Check(AnnotationDocument, input)) {
-    const first = Value.Errors(AnnotationDocument, input).First();
-    const where = first?.path ? ` at ${first.path}` : '';
-    return { ok: false, reason: `invalid annotation document${where}` };
+  const schemaError = annotationSchemaError(input);
+  if (schemaError !== null || !isAnnotationDocument(input)) {
+    return { ok: false, reason: schemaError ?? 'invalid annotation document' };
   }
   const shapes = input.shapes.map((s) =>
     s.type === 'text' ? { ...s, text: stripAnnotationControlChars(s.text) } : { ...s },

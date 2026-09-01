@@ -7,8 +7,8 @@ import {
   PutAnnotationsResponse,
   validateAnnotationDocument,
 } from '@snapping-turtle/shared';
-import { Type } from '@sinclair/typebox';
-import { Value } from '@sinclair/typebox/value';
+import { Type } from 'typebox';
+import { Value } from 'typebox/value';
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { AuthHooks } from '../auth/hooks.js';

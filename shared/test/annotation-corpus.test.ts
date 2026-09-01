@@ -1,25 +1,30 @@
-import { Value } from '@sinclair/typebox/value';
+import { Value } from 'typebox/value';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  AnnotationDocument,
   BeaconAnnotationsRequest,
+  isAnnotationDocument,
   validateAnnotationDocument,
 } from '../src/index.js';
 import { CORPUS, IMAGE } from './fixtures/annotation-corpus.js';
 
 /**
  * Validator-independence guard for the annotation wire format: every corpus
- * case must produce exactly the row recorded in the expected table (generated
- * under @sinclair/typebox 0.34). The schema library is an implementation
- * detail; the accept/reject contract is not. See fixtures/annotation-corpus.ts.
+ * case must reproduce the row recorded in the expected table (generated under
+ * @sinclair/typebox 0.34): accept/reject, reason category, and the sanitised
+ * document that would be persisted, all exact. The one thing not compared
+ * byte-for-byte is the validator-supplied error *path* inside `reason`
+ * (`… at /shapes/0/id`): TypeBox 1.x reports deeper paths for union members
+ * and none for root-level missing/extra keys, which changes the message, not
+ * the outcome. The schema library is an implementation detail; the contract
+ * is not. See fixtures/annotation-corpus.ts.
  */
 
 type Category = 'ok' | 'schema' | 'bounds';
 
 interface Row {
-  /** `Value.Check(AnnotationDocument, input)` alone. */
+  /** `isAnnotationDocument(input)` — the schema layer alone, before bounds. */
   schema: boolean;
   /** `validateAnnotationDocument(input, image)` outcome. */
   ok: boolean;
@@ -40,7 +45,7 @@ function categorise(reason: string): Category {
 }
 
 function row(input: unknown, image: { width: number; height: number }): Row {
-  const schema = Value.Check(AnnotationDocument, input);
+  const schema = isAnnotationDocument(input);
   const res = validateAnnotationDocument(input, image);
   if (res.ok) return { schema, ok: true, category: 'ok', persisted: JSON.stringify(res.doc) };
   return { schema, ok: false, category: categorise(res.reason), reason: res.reason };
@@ -80,9 +85,17 @@ describe('annotation validation corpus', () => {
     expect(Object.keys(actual).sort()).toEqual(Object.keys(expected).sort());
   });
 
+  /** The reason minus the validator's error path — the part that is ours. */
+  const withoutPath = (reason: string | undefined) => reason?.replace(/ at \/.*$/, '');
+
   for (const c of CORPUS) {
     it(`matches the recorded outcome: ${c.name}`, () => {
-      expect(actual[c.name]).toEqual(expected[c.name]);
+      const got = actual[c.name]!;
+      const want = expected[c.name]!;
+      expect({ ...got, reason: withoutPath(got.reason) }).toEqual({
+        ...want,
+        reason: withoutPath(want.reason),
+      });
     });
   }
 });

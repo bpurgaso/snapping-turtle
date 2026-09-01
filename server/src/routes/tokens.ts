@@ -4,7 +4,7 @@ import {
   TokenListResponse,
   type TokenSummary,
 } from '@snapping-turtle/shared';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { AuthHooks } from '../auth/hooks.js';
 import type { Db } from '../db/client.js';
