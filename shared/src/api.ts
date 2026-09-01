@@ -1,4 +1,4 @@
-import { Type, type Static } from '@sinclair/typebox';
+import { Type, type Static } from 'typebox';
 import {
   MAX_TOKEN_NAME_LENGTH,
   PASSWORD_MAX_LENGTH,

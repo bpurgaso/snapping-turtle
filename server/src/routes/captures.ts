@@ -5,7 +5,7 @@ import {
   MAX_PAGE_TITLE_LENGTH,
   MAX_SOURCE_URL_LENGTH,
 } from '@snapping-turtle/shared';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { AuthHooks } from '../auth/hooks.js';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';

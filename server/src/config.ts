@@ -1,5 +1,5 @@
-import { Type, type Static } from '@sinclair/typebox';
-import { Value } from '@sinclair/typebox/value';
+import { Type, type Static } from 'typebox';
+import { Value } from 'typebox/value';
 import {
   GUARD_DEFAULTS,
   LOGIN_THROTTLE_DEFAULTS,
@@ -174,8 +174,8 @@ export function loadConfig(env: Env = process.env): Config {
     },
   };
 
-  const errors = [...Value.Errors(ConfigSchema, candidate)].map(
-    (e) => `${e.path.replace(/^\//, '').replace(/\//g, '.') || '(root)'}: ${e.message}`,
+  const errors = Value.Errors(ConfigSchema, candidate).map(
+    (e) => `${e.instancePath.replace(/^\//, '').replace(/\//g, '.') || '(root)'}: ${e.message}`,
   );
   if (candidate.retentionDefaultDays > candidate.retentionMaxDaysUser) {
     errors.push('RETENTION_DEFAULT_DAYS must not exceed RETENTION_MAX_DAYS_USER');

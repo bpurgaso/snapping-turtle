@@ -10,7 +10,7 @@ import {
   RegistrationSetting,
   UnbanRequest,
 } from '@snapping-turtle/shared';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { randomBytes } from 'node:crypto';
