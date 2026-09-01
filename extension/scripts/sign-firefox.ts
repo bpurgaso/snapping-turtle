@@ -58,7 +58,9 @@ if (built.version !== inputs.version || gecko?.id !== geckoId) {
 const artifactsDir = join(pkgRoot, 'dist', 'signed');
 let xpiPath: string;
 if (presigned) {
-  xpiPath = resolve(presigned);
+  // pnpm runs scripts with cwd = the package dir; resolve a relative path
+  // against where the user actually typed the command (pnpm sets INIT_CWD).
+  xpiPath = resolve(process.env['INIT_CWD'] ?? process.cwd(), presigned);
   if (!existsSync(xpiPath)) fail(`${xpiPath} does not exist`);
 } else {
   if (!process.env['WEB_EXT_API_KEY'] || !process.env['WEB_EXT_API_SECRET']) {
