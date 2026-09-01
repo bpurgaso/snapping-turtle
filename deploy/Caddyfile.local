@@ -38,3 +38,6 @@
 	tls internal
 	import site
 }
+
+# Same as Caddyfile: extra site blocks (old-domain redirect) from deploy/caddy.d/.
+import /etc/caddy/sites.d/*.caddy

@@ -52,3 +52,8 @@
 {$PUBLIC_HOST} {
 	import site
 }
+
+# Extra site blocks from the bind-mounted deploy/caddy.d/ — today only the
+# old-domain `redir 308` used during a domain migration
+# (docs/runbooks/domain-migration.md). A glob that matches nothing is fine.
+import /etc/caddy/sites.d/*.caddy

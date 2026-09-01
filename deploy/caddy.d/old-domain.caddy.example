@@ -1,0 +1,12 @@
+# Old-domain redirect for a domain migration (docs/runbooks/domain-migration.md).
+# Copy to old-domain.caddy, replace the hostname, `docker compose up -d`.
+#
+# `redir ... {uri} 308` forwards the full path AND query string, so every
+# previously shared https://old-host/s/<id> link lands on the same capture at
+# the new host; 308 (not 301/302) keeps the method for API clients. Caddy
+# manages a certificate for this name as long as the block exists and DNS for
+# it still points here — remove the block only when you are ready for old
+# links to stop working (see the runbook's redirect-lifetime section).
+old.shots.example.com {
+	redir https://{$PUBLIC_HOST}{uri} 308
+}

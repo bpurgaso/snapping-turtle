@@ -185,9 +185,24 @@ completed at least one nightly backup that `verify-restore.sh` passes.
 
 ## Domain migration
 
-Change `PUBLIC_HOST`, run `docker compose ... up -d`, rebuild the extension so its
-baked-in default server matches (`pnpm --filter extension build`). Keep the old
-name serving a `redir 308` block for one retention window (PLAN.md §15).
+One variable: change `PUBLIC_HOST`, add the old-domain `redir 308` block in
+`deploy/caddy.d/` (copy the example), `docker compose ... up -d`, then
+`build:release` + re-sign/republish the extension so its baked-in default
+matches. The full procedure — DNS preconditions, verification, what users
+see, how long the redirect must live, rollback — is
+[`docs/runbooks/domain-migration.md`](../docs/runbooks/domain-migration.md),
+and `deploy/test-domain-migration.sh` rehearses it against a throwaway compose
+project (both hostnames, Caddy's internal CA) and asserts that shared
+`/s/<id>?query` links survive the redirect byte-for-byte. Run it before a
+real migration.
+
+## Extension distribution
+
+The app serves `deploy/ext/` read-only at `https://$PUBLIC_HOST/ext/`: the
+AMO-signed Firefox `.xpi` and the `updates.json` Firefox polls for updates
+(`pnpm --filter extension sign:firefox` writes both; see
+`extension/STORE_SUBMISSION.md`). Chrome installs come from the unlisted Web
+Store listing and update through the store.
 
 ## Notes
 

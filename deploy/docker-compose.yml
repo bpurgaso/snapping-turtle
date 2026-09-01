@@ -21,6 +21,8 @@ services:
       CADDY_RATE_PER_IP_PER_MIN: ${CADDY_RATE_PER_IP_PER_MIN:-300}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Extra site blocks (old-domain redirect during a domain migration).
+      - ./caddy.d:/etc/caddy/sites.d:ro
       - caddy_data:/data
       - caddy_config:/config
     networks: [web]

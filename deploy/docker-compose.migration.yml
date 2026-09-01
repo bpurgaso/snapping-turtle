@@ -1,0 +1,45 @@
+# Domain-migration rehearsal profile (PLAN.md §15, docs/runbooks/domain-migration.md).
+# Used ONLY by deploy/test-domain-migration.sh, as the third override on top of
+# docker-compose.yml + docker-compose.local.yml (Caddy internal CA):
+#
+#   docker compose -p snapping-turtle-migration --env-file <scratch .env> \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml \
+#     -f deploy/docker-compose.migration.yml up -d --wait
+#
+# A separate compose project with fresh volumes, so a rehearsal never touches
+# a real deployment on the same host. What it changes, and why:
+#   - No published ports: the only client is a curl container on the `web`
+#     network, so a running production stack on :80/:443 is left alone.
+#   - Caddy carries both hostnames as network aliases: "DNS" for the old and
+#     the new name resolves to the same proxy, exactly like a real migration
+#     where both records point at one box.
+#   - deploy/caddy.d is swapped for the rehearsal's scratch sites.d so the
+#     old-domain redirect block is written and removed by the script.
+#   - Own subnet + matching TRUST_PROXY, so it can coexist with the
+#     production (172.28.101.0/24) and loadtest (172.28.102.0/24) projects.
+#   - The backup sidecar is parked behind a profile.
+name: snapping-turtle-migration
+
+services:
+  caddy:
+    ports: !reset []
+    networks:
+      web:
+        aliases:
+          - ${MIGRATION_OLD_HOST:?set MIGRATION_OLD_HOST}
+          - ${MIGRATION_NEW_HOST:?set MIGRATION_NEW_HOST}
+    volumes:
+      - ${MIGRATION_SITES_DIR:?set MIGRATION_SITES_DIR}:/etc/caddy/sites.d:ro
+
+  app:
+    environment:
+      TRUST_PROXY: 172.28.103.0/24
+
+  backup:
+    profiles: [backup]
+
+networks:
+  web:
+    ipam:
+      config:
+        - subnet: 172.28.103.0/24
