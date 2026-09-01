@@ -85,6 +85,20 @@ browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.Message
   return undefined;
 });
 
+// A region selection that never reports (the tab navigated away or closed
+// mid-drag) must not hold the capture lock until the worker is recycled.
+browser.tabs.onRemoved.addListener((tabId) => abandonRegion(tabId));
+browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading') abandonRegion(tabId);
+});
+
+function abandonRegion(tabId: number): void {
+  const pending = pendingRegions.get(tabId);
+  if (!pending) return;
+  pendingRegions.delete(tabId);
+  pending.release();
+}
+
 browser.commands.onCommand.addListener((command, tab) => {
   const mode = COMMANDS[command];
   if (!mode) return;

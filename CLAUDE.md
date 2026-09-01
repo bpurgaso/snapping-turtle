@@ -10,7 +10,7 @@ snapping-turtle: a self-hosted screenshot capture and sharing system. Browser ex
 
 ## Status
 
-M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404), M2 (extension walking skeleton: popup, visible-viewport capture, options page, `GET /api/v1/ping`, Chrome + Firefox builds), M3 (annotation editor: Fabric.js rect/arrow/text, autosave with revisions, owner gating, retention selector + delete, tall-canvas perf spike in `docs/perf-tall-canvas.md`), M4 (flat renderer: SVG overlay + sharp composite behind `/s/:viewId/image.png` with per-capture cache, ETag/304, render gate, vendored Inter + fontconfig, `pnpm test:parity` pixel harness and server goldens) and M5 (guard: per-IP windows + escalating persisted bans + breaker; DB-enforced append-only `audit_log` via the `st_app` role split; admin panel with one-time-link account lifecycle at `/admin`; `/reset/:token`; xcaddy rate-limit build) are done. Next is M6 (region + full-page capture). Milestones live in PLAN.md §16. The commands below are the contract and CI keeps them green. Capture needs a real browser gesture, so `extension/TESTING.md` holds the manual checklist for what automation cannot reach.
+M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404), M2 (extension walking skeleton: popup, visible-viewport capture, options page, `GET /api/v1/ping`, Chrome + Firefox builds), M3 (annotation editor: Fabric.js rect/arrow/text, autosave with revisions, owner gating, retention selector + delete, tall-canvas perf spike in `docs/perf-tall-canvas.md`), M4 (flat renderer: SVG overlay + sharp composite behind `/s/:viewId/image.png` with per-capture cache, ETag/304, render gate, vendored Inter + fontconfig, `pnpm test:parity` pixel harness and server goldens), M5 (guard: per-IP windows + escalating persisted bans + breaker; DB-enforced append-only `audit_log` via the `st_app` role split; admin panel with one-time-link account lifecycle at `/admin`; `/reset/:token`; xcaddy rate-limit build) and M6 (region-select overlay in a closed shadow root; full page via Firefox `captureTab` rect and Chrome scroll-and-stitch with pure, unit-tested geometry in `extension/src/lib/capture-geometry.ts`; Firefox `captureTab` semantics measured in `docs/firefox-capturetab-probe.md`) are done. Next is M7 (retention purge, backups, structured security logging, k6). Milestones live in PLAN.md §16. The commands below are the contract and CI keeps them green. Capture needs a real browser gesture, so `extension/TESTING.md` holds the manual checklist for what automation cannot reach.
 
 ## Layout (pnpm workspaces)
 
@@ -18,7 +18,7 @@ M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened 
 shared/     Annotation schema, API types, cross-cutting constants (size caps, guard defaults). Source of truth.
 server/     Fastify app: API, page serving, sharp flat renderer, guard (rate limits / bans / breaker), jobs (retention purge). Drizzle + Postgres.
 web/        Vite bundles served by server/: capture page + Fabric.js editor, auth pages, account, admin panel.
-extension/  One MV3 codebase → Chrome (service worker) and Firefox (event page) builds via manifest templates; TESTING.md manual checklist.
+extension/  One MV3 codebase → Chrome (service worker) and Firefox (event page) builds via manifest templates; src/content/ is the on-demand content script (region overlay, page driver); TESTING.md manual checklist.
 deploy/     docker-compose.yml, Caddyfile, .env.example.
 data/       Local image store (git-ignored; IMAGES_DIR, compose mounts a volume at /data/images).
 PLAN.md     Full design document.
@@ -35,7 +35,7 @@ pnpm test:integration                         # API, authz matrix, guard behavio
 pnpm test:parity                              # editor <-> server render golden tests (Playwright)
 pnpm lint && pnpm typecheck                   # must pass before commit
 pnpm --filter extension build:chrome          # extension zip (also build:firefox)
-pnpm --filter extension test:smoke            # Playwright: built Chrome extension (run build:chrome first)
+pnpm --filter extension test:smoke            # Playwright: overlay/driver in fixture pages + built Chrome extension (run build:chrome first)
 pnpm --filter server db:migrate               # migrations
 pnpm --filter server db:seed                  # bootstrap admin + accounts via one-time links
 docker compose -f deploy/docker-compose.yml up -d --build
