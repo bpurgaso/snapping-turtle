@@ -75,7 +75,7 @@ COPY --from=build --chown=node:node /app/server/package.json ./server/package.js
 COPY --from=build --chown=node:node /app/server/dist ./server/dist
 COPY --from=build --chown=node:node /app/server/drizzle ./server/drizzle
 COPY --from=build --chown=node:node /app/web/dist ./web/dist
-RUN mkdir -p /data/images && chown -R node:node /data
+RUN mkdir -p /data/images /data/ext && chown -R node:node /data
 USER node
 WORKDIR /app/server
 EXPOSE 3000

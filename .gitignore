@@ -12,6 +12,10 @@ deploy/.env
 # local image store (server default IMAGES_DIR)
 data/
 
+# signed Firefox artifacts published by `sign:firefox` (served at /ext/); build output, not source
+deploy/ext/*
+!deploy/ext/README.md
+
 # test artifacts
 coverage/
 playwright-report/

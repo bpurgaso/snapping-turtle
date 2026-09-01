@@ -8,7 +8,7 @@ import {
   RETENTION_MAX_DAYS_USER,
   TOMBSTONE_RETENTION_DAYS,
 } from '@snapping-turtle/shared';
-import { defaultImagesDir, defaultWebDist } from './paths.js';
+import { defaultExtDir, defaultImagesDir, defaultWebDist } from './paths.js';
 
 /**
  * Typed runtime configuration parsed from the environment (PLAN.md §14).
@@ -42,6 +42,8 @@ export const ConfigSchema = Type.Object({
   sessionSecret: Type.String({ minLength: 32 }),
   sessionTtlDays: Type.Integer({ minimum: 1, maximum: 3650 }),
   webDistDir: Type.String({ minLength: 1 }),
+  /** Signed Firefox .xpi files + updates.json, served read-only at /ext/ (§15, M8). */
+  extDir: Type.String({ minLength: 1 }),
   /** Re-encoded originals live here as {shard}/{id}.png (§12). The server chooses every path. */
   imagesDir: Type.String({ minLength: 1 }),
   maxUploadMb: Type.Integer({ minimum: 1, maximum: 1024 }),
@@ -128,6 +130,7 @@ export function loadConfig(env: Env = process.env): Config {
     sessionSecret: env['SESSION_SECRET'] ?? '',
     sessionTtlDays: int(env, 'SESSION_TTL_DAYS', 30),
     webDistDir: env['WEB_DIST_DIR'] ?? defaultWebDist,
+    extDir: env['EXT_DIR'] ?? defaultExtDir,
     imagesDir: env['IMAGES_DIR'] ?? defaultImagesDir,
     maxUploadMb: int(env, 'MAX_UPLOAD_MB', MAX_UPLOAD_MB),
     retentionDefaultDays: int(env, 'RETENTION_DEFAULT_DAYS', RETENTION_DEFAULT_DAYS),

@@ -2,7 +2,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
-import { HealthzResponse } from '@snapping-turtle/shared';
+import { EXT_ROUTE_PREFIX, EXT_UPDATES_MANIFEST, HealthzResponse } from '@snapping-turtle/shared';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -225,6 +225,7 @@ export async function buildApp(opts: AppOptions): Promise<App> {
   });
 
   await registerWeb(app, config);
+  await registerExtensionDistribution(app, config);
   return app;
 }
 
@@ -305,4 +306,40 @@ async function registerWeb(app: App, config: Config): Promise<void> {
       immutable: true,
     });
   }
+}
+
+/** Exactly the two file shapes sign:firefox publishes; nothing else in EXT_DIR is reachable. */
+const EXT_XPI_PATH = /^\/snapping-turtle-firefox-\d+(\.\d+){0,3}\.xpi$/;
+
+/**
+ * Public, secret-free static route for the self-distributed Firefox build
+ * (PLAN.md §15, M8): `/ext/updates.json` — the manifest's `update_url` —
+ * and the signed .xpi files it links to, from EXT_DIR (compose bind-mounts
+ * deploy/ext there read-only). No listing, no other files, no auth: the
+ * artifacts are exactly what AMO signed, and Firefox verifies the signature
+ * and the sha256 in updates.json itself. Short public caching, since
+ * Firefox polls once a day and a new release must land within minutes.
+ */
+async function registerExtensionDistribution(app: App, config: Config): Promise<void> {
+  if (!existsSync(config.extDir)) {
+    app.log.info(
+      { extDir: config.extDir },
+      'no extension distribution directory; /ext/ serves nothing until sign:firefox publishes',
+    );
+    return;
+  }
+  await app.register(fastifyStatic, {
+    root: config.extDir,
+    prefix: EXT_ROUTE_PREFIX,
+    decorateReply: false,
+    index: false,
+    list: false,
+    allowedPath: (pathName) =>
+      pathName === `/${EXT_UPDATES_MANIFEST}` || EXT_XPI_PATH.test(pathName),
+    cacheControl: false,
+    setHeaders: (reply, path) => {
+      reply.header('Cache-Control', 'public, max-age=300');
+      if (path.endsWith('.xpi')) reply.header('Content-Type', 'application/x-xpinstall');
+    },
+  });
 }

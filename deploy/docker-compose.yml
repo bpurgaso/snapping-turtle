@@ -72,11 +72,15 @@ services:
       LOGIN_THROTTLE_BASE_SECONDS: ${LOGIN_THROTTLE_BASE_SECONDS:-5}
       LOGIN_THROTTLE_MAX_SECONDS: ${LOGIN_THROTTLE_MAX_SECONDS:-3600}
       IMAGES_DIR: /data/images
+      # Signed Firefox .xpi + updates.json, published by
+      # `pnpm --filter extension sign:firefox` into deploy/ext (§15, M8).
+      EXT_DIR: /data/ext
       # Only consumed by `docker compose run --rm app node dist/db/seed.js`.
       ADMIN_BOOTSTRAP_USER: ${ADMIN_BOOTSTRAP_USER:-}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
     volumes:
       - images:/data/images
+      - ./ext:/data/ext:ro
     tmpfs:
       - /tmp:size=64m,mode=1777
     read_only: true
