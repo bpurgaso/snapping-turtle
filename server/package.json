@@ -20,7 +20,7 @@
     "@fastify/helmet": "13.1.1",
     "@fastify/multipart": "10.1.1",
     "@fastify/static": "10.1.3",
-    "@fastify/type-provider-typebox": "5.2.0",
+    "@fastify/type-provider-typebox": "6.1.0",
     "@sinclair/typebox": "0.34.52",
     "@snapping-turtle/shared": "workspace:*",
     "argon2": "0.45.1",
