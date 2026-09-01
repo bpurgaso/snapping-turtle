@@ -39,3 +39,9 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    ignore:
+      # Stateful: a Postgres major is a dump/restore migration of the data
+      # volume, done by hand per deploy/README.md "Upgrading Postgres across a
+      # major version" — never a mergeable bump. Minors/patches still flow.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]

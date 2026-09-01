@@ -125,6 +125,40 @@ the repository env) and copy from `/tmp/r/backups/db/…` and
 `/tmp/r/data/images/…`. The app re-syncs `st_app`'s password from
 `APP_DB_PASSWORD` at boot, so the restored grants become usable immediately.
 
+### Upgrading Postgres across a major version
+
+A major bump of the `postgres` image (`16-alpine` → `17`/`18`) is a data
+migration, not a dependency update, and Dependabot is configured to ignore it
+(`.github/dependabot.yml`). Postgres will not open a data directory written by
+an older major — the new image simply refuses to start on the old volume — and
+an older `pg_restore` cannot read dumps produced by a newer `pg_dump`, so the
+server image and the backup sidecar's client (`deploy/Dockerfile.backup`) have
+to move together. The procedure reuses the backup tooling above:
+
+```sh
+# 0. fresh backup, and prove it restores before touching anything
+docker compose -f deploy/docker-compose.yml run --rm backup run
+deploy/backup/verify-restore.sh
+# 1. stop writers; keep postgres and backup up
+docker compose -f deploy/docker-compose.yml stop app
+# 2. bump BOTH images in one commit: deploy/docker-compose.yml (postgres service)
+#    and deploy/Dockerfile.backup (FROM postgres:<new>-alpine); also the
+#    scratch image in deploy/backup/verify-restore.sh and the CI service in
+#    .github/workflows/ci.yml so they keep matching production.
+# 3. bring up an empty cluster of the new major on a NEW volume
+docker compose -f deploy/docker-compose.yml stop postgres && docker compose -f deploy/docker-compose.yml rm -f postgres
+docker volume rm snapping-turtle_pgdata              # or rename it to keep a fallback
+docker compose -f deploy/docker-compose.yml up -d --build postgres backup
+# 4. restore the dump from step 0 exactly as in "Restoring for real" (create
+#    st_app first, then pg_restore --no-owner --exit-on-error)
+# 5. verify against the new cluster, then release traffic
+deploy/backup/verify-restore.sh
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+Keep the step-0 dump (and the old volume, if renamed) until the new cluster has
+completed at least one nightly backup that `verify-restore.sh` passes.
+
 ## Domain migration
 
 Change `PUBLIC_HOST`, run `docker compose ... up -d`, rebuild the extension so its
