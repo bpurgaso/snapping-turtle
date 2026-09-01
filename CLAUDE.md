@@ -21,6 +21,7 @@ web/        Vite bundles served by server/: capture page + Fabric.js editor, aut
 extension/  One MV3 codebase → Chrome (service worker) and Firefox (event page) builds via manifest templates; src/content/ is the on-demand content script (region overlay, page driver); TESTING.md manual checklist.
 deploy/     docker-compose.yml (+ .loadtest.yml override), Caddyfile, Dockerfiles (app, caddy, backup), backup/ (backup.sh, verify-restore.sh), .env.example, .trivyignore.
 loadtest/   k6 guard scenarios (ban, breaker, baseline) + run.sh; k6 runs as a container, never as a dependency.
+scripts/    check-image-pins.sh: the Postgres image tag in deploy/docker-compose.yml is authoritative; CI fails if any other site drifts.
 docs/       security-events.md (sec.* taxonomy), loadtest.md, supply-chain.md, perf/probe notes.
 data/       Local image store (git-ignored; IMAGES_DIR, compose mounts a volume at /data/images).
 PLAN.md     Full design document.
@@ -44,6 +45,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml run --rm backup run   # ad-hoc backup (nightly otherwise)
 deploy/backup/verify-restore.sh               # prove the latest backup restores (scratch Postgres, sha256 check)
 pnpm loadtest [ban|breaker|baseline]          # k6 guard scenarios against the dedicated loadtest compose project (not in CI)
+scripts/check-image-pins.sh                   # every postgres image tag equals the deploy/docker-compose.yml pin (runs in CI)
 ```
 
 ## Security invariants — hard rules, never traded for convenience
