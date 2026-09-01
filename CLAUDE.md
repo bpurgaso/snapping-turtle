@@ -10,7 +10,7 @@ snapping-turtle: a self-hosted screenshot capture and sharing system. Browser ex
 
 ## Status
 
-M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404), M2 (extension walking skeleton: popup, visible-viewport capture, options page, `GET /api/v1/ping`, Chrome + Firefox builds), M3 (annotation editor: Fabric.js rect/arrow/text, autosave with revisions, owner gating, retention selector + delete, tall-canvas perf spike in `docs/perf-tall-canvas.md`), M4 (flat renderer: SVG overlay + sharp composite behind `/s/:viewId/image.png` with per-capture cache, ETag/304, render gate, vendored Inter + fontconfig, `pnpm test:parity` pixel harness and server goldens), M5 (guard: per-IP windows + escalating persisted bans + breaker; DB-enforced append-only `audit_log` via the `st_app` role split; admin panel with one-time-link account lifecycle at `/admin`; `/reset/:token`; xcaddy rate-limit build), M6 (region-select overlay in a closed shadow root; full page via Firefox `captureTab` rect and Chrome scroll-and-stitch with pure, unit-tested geometry in `extension/src/lib/capture-geometry.ts`; Firefox `captureTab` semantics measured in `docs/firefox-capturetab-probe.md`) and M7 (hourly retention purge with tombstones and hard delete after `TOMBSTONE_DAYS` in `server/src/jobs/purge.ts`; backup sidecar + `deploy/backup/verify-restore.sh`; the `sec.*` security-event taxonomy in `docs/security-events.md`; k6 guard scenarios under `loadtest/` with results in `docs/loadtest.md`; pnpm audit + Trivy + Dependabot in CI per `docs/supply-chain.md`) are done. Next is M8 (store packaging, domain-migration runbook, README). Milestones live in PLAN.md §16. The commands below are the contract and CI keeps them green. Capture needs a real browser gesture, so `extension/TESTING.md` holds the manual checklist for what automation cannot reach.
+M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened upload, view-only capture page, uniform 404), M2 (extension walking skeleton: popup, visible-viewport capture, options page, `GET /api/v1/ping`, Chrome + Firefox builds), M3 (annotation editor: Fabric.js rect/arrow/text, autosave with revisions, owner gating, retention selector + delete, tall-canvas perf spike in `docs/perf-tall-canvas.md`), M4 (flat renderer: SVG overlay + sharp composite behind `/s/:viewId/image.png` with per-capture cache, ETag/304, render gate, vendored Inter + fontconfig, `pnpm test:parity` pixel harness and server goldens), M5 (guard: per-IP windows + escalating persisted bans + breaker; DB-enforced append-only `audit_log` via the `st_app` role split; admin panel with one-time-link account lifecycle at `/admin`; `/reset/:token`; xcaddy rate-limit build), M6 (region-select overlay in a closed shadow root; full page via Firefox `captureTab` rect and Chrome scroll-and-stitch with pure, unit-tested geometry in `extension/src/lib/capture-geometry.ts`; Firefox `captureTab` semantics measured in `docs/firefox-capturetab-probe.md`) M7 (hourly retention purge with tombstones and hard delete after `TOMBSTONE_DAYS` in `server/src/jobs/purge.ts`; backup sidecar + `deploy/backup/verify-restore.sh`; the `sec.*` security-event taxonomy in `docs/security-events.md`; k6 guard scenarios under `loadtest/` with results in `docs/loadtest.md`; pnpm audit + Trivy + Dependabot in CI per `docs/supply-chain.md`) and M8 (audited `build:release`, Firefox AMO signing via `sign:firefox` + self-hosted updates from the public `/ext/` route, the Chrome submission kit in `extension/STORE_SUBMISSION.md`, the rehearsed domain-migration runbook in `docs/runbooks/`, the tag-triggered release workflow, README + `docs/README.md`) are done: v1 is complete. What remains is human-gated — store submission and the first AMO signing with the owner's accounts (`extension/STORE_SUBMISSION.md`). Future work is the deferred backlog in PLAN.md §17; milestones live in §16. The commands below are the contract and CI keeps them green. Capture needs a real browser gesture, so `extension/TESTING.md` holds the manual checklist for what automation cannot reach.
 
 ## Layout (pnpm workspaces)
 
@@ -18,11 +18,11 @@ M0 (scaffold), M1 (server core: auth, registration toggle, API tokens, hardened 
 shared/     Annotation schema, API types, cross-cutting constants (size caps, guard defaults). Source of truth.
 server/     Fastify app: API, page serving, sharp flat renderer, guard (rate limits / bans / breaker), jobs (retention purge). Drizzle + Postgres.
 web/        Vite bundles served by server/: capture page + Fabric.js editor, auth pages, account, admin panel.
-extension/  One MV3 codebase → Chrome (service worker) and Firefox (event page) builds via manifest templates; src/content/ is the on-demand content script (region overlay, page driver); TESTING.md manual checklist.
-deploy/     docker-compose.yml (+ .loadtest.yml override), Caddyfile, Dockerfiles (app, caddy, backup), backup/ (backup.sh, verify-restore.sh), .env.example, .trivyignore.
+extension/  One MV3 codebase → Chrome (service worker) and Firefox (event page) builds via manifest templates; src/content/ is the on-demand content script (region overlay, page driver); scripts/ (build, audited release, AMO signing); TESTING.md manual checklist; STORE_SUBMISSION.md store handoff.
+deploy/     docker-compose.yml (+ .local/.loadtest/.migration overrides), Caddyfile(s) + caddy.d/ (old-domain redirect), Dockerfiles (app, caddy, backup), backup/ (backup.sh, verify-restore.sh), ext/ (signed .xpi + updates.json served at /ext/), test-domain-migration.sh, .env.example, .trivyignore.
 loadtest/   k6 guard scenarios (ban, breaker, baseline) + run.sh; k6 runs as a container, never as a dependency.
 scripts/    check-image-pins.sh: the Postgres image tag in deploy/docker-compose.yml is authoritative; CI fails if any other site drifts.
-docs/       security-events.md (sec.* taxonomy), loadtest.md, supply-chain.md, perf/probe notes.
+docs/       README.md index; runbooks/domain-migration.md; security-events.md (sec.* taxonomy), loadtest.md, supply-chain.md, perf/probe notes.
 data/       Local image store (git-ignored; IMAGES_DIR, compose mounts a volume at /data/images).
 PLAN.md     Full design document.
 ```
@@ -37,7 +37,9 @@ pnpm test                                     # unit (vitest)
 pnpm test:integration                         # API, authz matrix, guard behavior
 pnpm test:parity                              # editor <-> server render golden tests (Playwright)
 pnpm lint && pnpm typecheck                   # must pass before commit
-pnpm --filter extension build:chrome          # extension zip (also build:firefox)
+pnpm --filter extension build:chrome          # dev extension zip (also build:firefox)
+pnpm --filter extension build:release         # audited production builds of both targets (PUBLIC_HOST + EXTENSION_GECKO_ID from deploy/.env)
+pnpm --filter extension sign:firefox          # AMO signing with WEB_EXT_API_KEY/SECRET from the shell env only → deploy/ext/
 pnpm --filter extension test:smoke            # Playwright: overlay/driver in fixture pages + built Chrome extension (run build:chrome first)
 pnpm --filter server db:migrate               # migrations
 pnpm --filter server db:seed                  # bootstrap admin + accounts via one-time links
@@ -45,6 +47,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml run --rm backup run   # ad-hoc backup (nightly otherwise)
 deploy/backup/verify-restore.sh               # prove the latest backup restores (scratch Postgres, sha256 check)
 pnpm loadtest [ban|breaker|baseline]          # k6 guard scenarios against the dedicated loadtest compose project (not in CI)
+deploy/test-domain-migration.sh               # rehearse the domain-migration runbook on a throwaway stack (not in CI)
 scripts/check-image-pins.sh                   # every postgres image tag equals the deploy/docker-compose.yml pin (runs in CI)
 ```
 
@@ -81,6 +84,9 @@ scripts/check-image-pins.sh                   # every postgres image tag equals 
 - The 32,000 px height cap is shared between extension capture, server ingest validation, and the editor; changing it means revisiting browser canvas limits (§9, §15).
 - Security-relevant log lines go through `logSecurityEvent()` with a `sec.*` tag; adding a tag without a row in `docs/security-events.md` fails a unit test. Purge, backup and guard logs name captures by internal id only.
 - Roles are not in a `pg_dump`: any restore creates `st_app` before `pg_restore` (the dump keeps its grants) — `deploy/backup/verify-restore.sh` does exactly this and is the template.
+- The extension imports only `@snapping-turtle/shared/constants`, never the barrel: the schema modules build TypeBox objects at import time, which bundles all of TypeBox into every extension script and fails the release audit (`http://example.com` in its format code). Put cross-cutting constants in `shared/src/constants.ts`.
+- `EXTENSION_GECKO_ID` is pinned in `deploy/.env` and never changes — AMO ties every signed version to it; changing it orphans every installed Firefox copy. `build:release` refuses to run without it.
+- `strict_min_version` (Firefox 140 / Android 142) is the floor for `data_collection_permissions`; lowering it makes addons-linter fail the release build.
 
 ## Maintaining this file
 
