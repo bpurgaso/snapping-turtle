@@ -28,12 +28,44 @@ export function redactSecretPath(url: string): string {
   return touched || query === undefined ? parts.join('/') : `${path}?${query}`;
 }
 
+/**
+ * pino redaction paths (CLAUDE.md rule 3). Credential-bearing headers, plus
+ * any object logged with a secret-shaped key one level down (`*.password`,
+ * `*.token`, …) — belt and braces over the rule that such objects are never
+ * logged in the first place. pino's `*` matches exactly one path segment.
+ */
+export const REDACT_PATHS: readonly string[] = [
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'req.headers["x-csrf-token"]',
+  'res.headers["set-cookie"]',
+  'headers.authorization',
+  'headers.cookie',
+  'password',
+  'token',
+  'csrfToken',
+  'resetUrl',
+  'sessionSecret',
+  'databaseUrl',
+  'migrateDatabaseUrl',
+  '*.password',
+  '*.token',
+  '*.csrfToken',
+  '*.resetUrl',
+  '*.sessionSecret',
+  '*.databaseUrl',
+  '*.migrateDatabaseUrl',
+  '*.authorization',
+  '*.cookie',
+  '*["set-cookie"]',
+];
+
 export function loggerOptions(config: Config): FastifyServerOptions['logger'] {
   const pretty = config.nodeEnv === 'development';
   return {
     level: config.logLevel,
     redact: {
-      paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+      paths: [...REDACT_PATHS],
       censor: '[redacted]',
     },
     serializers: {

@@ -5,6 +5,8 @@ import type { Db } from '../db/client.js';
 import { apiTokens, users } from '../db/schema.js';
 import { HttpError } from '../errors.js';
 import { sha256Hex } from '../ids.js';
+import { redactSecretPath } from '../log.js';
+import { logSecurityEvent } from '../security-events.js';
 import type { Clock } from '../types.js';
 import type { SessionContext, SessionService } from './session.js';
 
@@ -38,7 +40,14 @@ export function createAuthHooks(db: Db, sessions: SessionService, now: Clock): A
   const requireSession = async (req: FastifyRequest): Promise<void> => {
     const token = sessions.tokenFromRequest(req);
     const session = token ? await sessions.resolve(token) : null;
-    if (!session) throw new HttpError(401, 'unauthorized', 'sign in required');
+    if (!session) {
+      logSecurityEvent(req.log, {
+        tag: 'sec.auth.session_rejected',
+        ip: req.ip,
+        path: redactSecretPath(req.url),
+      });
+      throw new HttpError(401, 'unauthorized', 'sign in required');
+    }
     req.session = session;
   };
 
@@ -46,6 +55,12 @@ export function createAuthHooks(db: Db, sessions: SessionService, now: Clock): A
     if (!req.session) throw new HttpError(401, 'unauthorized', 'sign in required');
     const presented = req.headers[CSRF_HEADER];
     if (!sessions.verifyCsrf(req.session, Array.isArray(presented) ? undefined : presented)) {
+      logSecurityEvent(req.log, {
+        tag: 'sec.auth.csrf_rejected',
+        userId: req.session.userId,
+        ip: req.ip,
+        path: redactSecretPath(req.url),
+      });
       throw new HttpError(403, 'csrf', 'missing or invalid CSRF token');
     }
   };
@@ -53,6 +68,13 @@ export function createAuthHooks(db: Db, sessions: SessionService, now: Clock): A
   const requireAdmin = async (req: FastifyRequest): Promise<void> => {
     if (!req.session) throw new HttpError(401, 'unauthorized', 'sign in required');
     if (req.session.role !== 'admin') {
+      logSecurityEvent(req.log, {
+        tag: 'sec.auth.forbidden',
+        reason: 'admin_required',
+        userId: req.session.userId,
+        ip: req.ip,
+        path: redactSecretPath(req.url),
+      });
       throw new HttpError(403, 'forbidden', 'admin access required');
     }
   };
@@ -63,6 +85,11 @@ export function createAuthHooks(db: Db, sessions: SessionService, now: Clock): A
     const token = match?.[1];
     const auth = token ? await lookupToken(db, token, now) : null;
     if (!auth) {
+      logSecurityEvent(req.log, {
+        tag: 'sec.auth.token_rejected',
+        ip: req.ip,
+        path: redactSecretPath(req.url),
+      });
       reply.header('WWW-Authenticate', 'Bearer realm="snapping-turtle"');
       throw new HttpError(401, 'unauthorized', 'a valid API token is required');
     }

@@ -19,6 +19,7 @@ import { captures } from '../db/schema.js';
 import { HttpError } from '../errors.js';
 import { VIEW_ID_PATTERN } from '../ids.js';
 import type { ImageStore } from '../images/storage.js';
+import { logSecurityEvent } from '../security-events.js';
 import type { App, Clock } from '../types.js';
 
 export interface OwnerRouteDeps {
@@ -70,6 +71,13 @@ export async function ownerRoutes(app: App, deps: OwnerRouteDeps): Promise<void>
       .limit(1);
     if (!row) throw notFound();
     if (row.ownerId !== req.session!.userId) {
+      logSecurityEvent(req.log, {
+        tag: 'sec.auth.forbidden',
+        reason: 'not_owner',
+        userId: req.session!.userId,
+        ip: req.ip,
+        path: `${req.method} /api/v1/captures/…`,
+      });
       throw new HttpError(403, 'forbidden', 'only the owner may do this');
     }
     return row;
@@ -98,11 +106,7 @@ export async function ownerRoutes(app: App, deps: OwnerRouteDeps): Promise<void>
       .update(captures)
       .set({ annotations: { ...validated.doc, rev: nextRev }, annotationsRev: nextRev })
       .where(
-        and(
-          eq(captures.id, row.id),
-          eq(captures.annotationsRev, base),
-          isNull(captures.deletedAt),
-        ),
+        and(eq(captures.id, row.id), eq(captures.annotationsRev, base), isNull(captures.deletedAt)),
       )
       .returning({ id: captures.id });
     if (updated.length === 0) throw stale();

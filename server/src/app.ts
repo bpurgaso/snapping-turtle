@@ -16,6 +16,7 @@ import { Guard, sendGuardBlocked } from './guard.js';
 import type { PageAssets } from './html.js';
 import { FlatRenderer } from './images/flat.js';
 import { ImageStore } from './images/storage.js';
+import { redactSecretPath } from './log.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { captureRoutes } from './routes/captures.js';
@@ -24,6 +25,7 @@ import { pingRoutes } from './routes/ping.js';
 import { resetRoutes } from './routes/reset.js';
 import { secretRoutes } from './routes/secret.js';
 import { tokenRoutes } from './routes/tokens.js';
+import { logSecurityEvent } from './security-events.js';
 import type { App, Clock } from './types.js';
 import { readEntryAssets } from './web-assets.js';
 
@@ -96,6 +98,16 @@ export async function buildApp(opts: AppOptions): Promise<App> {
     }
   });
 
+  // Permissive proxy trust means anyone who can reach the socket can pick
+  // the IP the guard keys on (§12). The loadtest compose profile needs it;
+  // production must never — so it is loud, on every boot, at error level.
+  if (isPermissiveProxyTrust(config.trustProxy)) {
+    logSecurityEvent(app.log, {
+      tag: 'sec.proxy.permissive_trust',
+      trustProxy: String(config.trustProxy),
+    });
+  }
+
   await app.register(fastifyCookie, { secret: config.sessionSecret });
   app.decorateRequest('session', null);
   app.decorateRequest('apiAuth', null);
@@ -116,7 +128,7 @@ export async function buildApp(opts: AppOptions): Promise<App> {
       db,
       rate: config.rate,
       now,
-      onEvent: (event) => app.log.warn({ securityEvent: event }, 'guard event'),
+      onEvent: (event) => logSecurityEvent(app.log, event),
     });
   if (!opts.guard) await guard.init();
 
@@ -151,6 +163,12 @@ export async function buildApp(opts: AppOptions): Promise<App> {
     if (anonymous) {
       const decision = guard.checkGeneral(ipKey);
       if (!decision.allowed) {
+        logSecurityEvent(req.log, {
+          tag: 'sec.throttle.general',
+          ipPrefix: ipKey,
+          retryAfterSeconds: decision.retryAfterSeconds,
+          path: redactSecretPath(path),
+        });
         if (secretPath) return sendGuardBlocked(reply, decision.retryAfterSeconds);
         throw new HttpError(429, 'throttled', 'too many requests', decision.retryAfterSeconds);
       }
@@ -208,6 +226,16 @@ export async function buildApp(opts: AppOptions): Promise<App> {
 
   await registerWeb(app, config);
   return app;
+}
+
+/**
+ * `true` trusts every peer; a `/0` CIDR is the same thing spelled longer.
+ * Exact CIDRs (compose pins the Caddy subnet) are the intended shape.
+ */
+export function isPermissiveProxyTrust(trustProxy: Config['trustProxy']): boolean {
+  if (trustProxy === true) return true;
+  if (trustProxy === false) return false;
+  return trustProxy.some((entry) => /\/0+$/.test(entry.trim()));
 }
 
 /** Raw HTML page loader: cached in production, re-read per request in dev. */

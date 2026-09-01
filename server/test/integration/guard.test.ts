@@ -181,7 +181,7 @@ describe('invalid-lookup budget → escalating persisted ban (§12)', () => {
     expect(row!.bannedUntil.toISOString()).toBe(
       new Date(clock.getTime() + 15 * 60_000).toISOString(),
     );
-    expect(events.filter((e) => e.type === 'ip_ban')).toHaveLength(1);
+    expect(events.filter((e) => e.tag === 'sec.ban.created')).toHaveLength(1);
   });
 
   it('while banned, valid and invalid links get byte-identical 429s before any lookup', async () => {
@@ -214,7 +214,8 @@ describe('invalid-lookup budget → escalating persisted ban (§12)', () => {
 
   it('strikes escalate 15 min → 1 h → 24 h and the last rung repeats', async () => {
     const trip = async () => {
-      for (let i = 0; i <= BUDGET; i++) expect((await get(app, missUrl(), IP)).statusCode).toBe(404);
+      for (let i = 0; i <= BUDGET; i++)
+        expect((await get(app, missUrl(), IP)).statusCode).toBe(404);
     };
     await trip(); // strike 2
     let [row] = await handle.db.select().from(ipBans).where(eq(ipBans.ipPrefix, IP));
@@ -299,7 +300,9 @@ describe('X-Forwarded-For is trusted only from the proxy network (§12)', () => 
     for (let i = 0; i <= BUDGET; i++) {
       await get(xffApp, missUrl(), '203.0.113.50', { 'x-forwarded-for': '198.51.100.11' });
     }
-    expect((await handle.db.select().from(ipBans).where(eq(ipBans.ipPrefix, '198.51.100.11')))).toHaveLength(0);
+    expect(
+      await handle.db.select().from(ipBans).where(eq(ipBans.ipPrefix, '198.51.100.11')),
+    ).toHaveLength(0);
     const [row] = await handle.db.select().from(ipBans).where(eq(ipBans.ipPrefix, '203.0.113.50'));
     expect(row?.strikes).toBe(1);
   });
@@ -308,7 +311,10 @@ describe('X-Forwarded-For is trusted only from the proxy network (§12)', () => 
 describe('general unauthenticated cap (§12)', () => {
   let capApp: App;
   beforeAll(async () => {
-    ({ app: capApp } = await newApp({ RATE_GENERAL_PER_MIN: '3', RATE_INVALID_LOOKUP_BUDGET: '1000' }));
+    ({ app: capApp } = await newApp({
+      RATE_GENERAL_PER_MIN: '3',
+      RATE_INVALID_LOOKUP_BUDGET: '1000',
+    }));
   });
   afterAll(() => capApp.close());
 
@@ -355,7 +361,7 @@ describe('general unauthenticated cap (§12)', () => {
 
 describe('global breaker (§12)', () => {
   const breakerEvents = () =>
-    events.filter((e) => e.type.startsWith('breaker_')).map((e) => e.type);
+    events.filter((e) => e.tag.startsWith('sec.breaker.')).map((e) => e.tag);
 
   it('opens when aggregate invalid lookups exceed the threshold', async () => {
     advanceMinutes(2); // fresh minute for the aggregate window
@@ -366,8 +372,8 @@ describe('global breaker (§12)', () => {
         await get(app, missUrl(), `10.60.0.${ip}`);
       }
     }
-    expect(events.some((e) => e.type === 'breaker_open')).toBe(true);
-    expect(events.filter((e) => e.type === 'ip_ban')).toHaveLength(0);
+    expect(events.some((e) => e.tag === 'sec.breaker.opened')).toBe(true);
+    expect(events.filter((e) => e.tag === 'sec.ban.created')).toHaveLength(0);
   });
 
   it('while open: anonymous /s/* gets 429 + Retry-After, sessions pass, other routes work', async () => {
@@ -395,11 +401,11 @@ describe('global breaker (§12)', () => {
     advanceMinutes(1.1); // past the 60 s cooldown
     const probe = await get(app, validPath, '10.61.0.2');
     expect(probe.statusCode).toBe(200);
-    expect(breakerEvents()).toContain('breaker_half_open');
+    expect(breakerEvents()).toContain('sec.breaker.half_open');
 
     advanceMinutes(1.1); // a clean minute in half-open closes it
     expect((await get(app, validPath, '10.61.0.3')).statusCode).toBe(200);
-    expect(breakerEvents()).toContain('breaker_close');
+    expect(breakerEvents()).toContain('sec.breaker.closed');
   });
 
   it('re-opens from half-open when probes keep missing', async () => {
@@ -408,13 +414,13 @@ describe('global breaker (§12)', () => {
     for (let ip = 1; ip <= 6; ip++) {
       for (let i = 0; i < 2; i++) await get(app, missUrl(), `10.62.0.${ip}`);
     }
-    expect(events.some((e) => e.type === 'breaker_open')).toBe(true);
+    expect(events.some((e) => e.tag === 'sec.breaker.opened')).toBe(true);
     advanceMinutes(1.1);
     // First anonymous request transitions to half-open and is admitted…
     const probeMiss = await get(app, missUrl(), '10.63.0.1');
     expect(probeMiss.statusCode).toBe(404);
     // …but its miss exceeds the half-open tolerance (ceil(10/10) = 1): re-open.
-    expect(events.filter((e) => e.type === 'breaker_open')).toHaveLength(2);
+    expect(events.filter((e) => e.tag === 'sec.breaker.opened')).toHaveLength(2);
     expect((await get(app, validPath, '10.63.0.2')).statusCode).toBe(429);
   });
 });

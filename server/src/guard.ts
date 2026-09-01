@@ -5,6 +5,7 @@ import type { Config } from './config.js';
 import type { Db } from './db/client.js';
 import { ipBans } from './db/schema.js';
 import { html } from './html.js';
+import type { SecurityEvent } from './security-events.js';
 import type { Clock } from './types.js';
 
 /**
@@ -121,11 +122,19 @@ class SlidingWindows {
 
 // ---- guard ------------------------------------------------------------------
 
-export type GuardEvent =
-  | { type: 'ip_ban'; ipPrefix: string; strikes: number; banMinutes: number; bannedUntil: string }
-  | { type: 'breaker_open'; reason: 'invalid_rate' | 'half_open_failed'; cooldownSeconds: number }
-  | { type: 'breaker_half_open' }
-  | { type: 'breaker_close' };
+/** The guard's slice of the security taxonomy (docs/security-events.md). */
+export type GuardEvent = Extract<
+  SecurityEvent,
+  {
+    tag:
+      | 'sec.ban.created'
+      | 'sec.ban.expired'
+      | 'sec.ban.lifted'
+      | 'sec.breaker.opened'
+      | 'sec.breaker.half_open'
+      | 'sec.breaker.closed';
+  }
+>;
 
 type BreakerState =
   | { state: 'closed' }
@@ -163,7 +172,11 @@ export class Guard {
   async init(): Promise<void> {
     const now = this.deps.now();
     const rows = await this.deps.db
-      .select({ ipPrefix: ipBans.ipPrefix, strikes: ipBans.strikes, bannedUntil: ipBans.bannedUntil })
+      .select({
+        ipPrefix: ipBans.ipPrefix,
+        strikes: ipBans.strikes,
+        bannedUntil: ipBans.bannedUntil,
+      })
       .from(ipBans)
       .where(gt(ipBans.bannedUntil, now));
     for (const row of rows) {
@@ -189,6 +202,7 @@ export class Guard {
     if (ban.bannedUntilMs <= nowMs) {
       // Expired: memory only — the DB row keeps the strike count.
       this.bans.delete(ipKey);
+      this.emit({ tag: 'sec.ban.expired', ipPrefix: ipKey, strikes: ban.strikes });
       return null;
     }
     return Math.max(1, Math.ceil((ban.bannedUntilMs - nowMs) / 1000));
@@ -227,21 +241,22 @@ export class Guard {
         };
       }
       this.breaker = { state: 'half_open', sinceMs: nowMs, invalid: 0 };
-      this.emit({ type: 'breaker_half_open' });
+      this.emit({ tag: 'sec.breaker.half_open' });
       return { allowed: true };
     }
     if (this.breaker.state === 'half_open' && nowMs - this.breaker.sinceMs >= MINUTE_MS) {
       this.breaker = { state: 'closed' };
       this.breakerHits = [];
-      this.emit({ type: 'breaker_close' });
+      this.emit({ tag: 'sec.breaker.closed' });
     }
     return { allowed: true };
   }
 
   /** Drop a ban from memory after the admin's transaction deleted the row. */
   forgetBan(ipKey: string): void {
-    this.bans.delete(ipKey);
+    const had = this.bans.delete(ipKey);
     this.invalid.clear(ipKey);
+    if (had) this.emit({ tag: 'sec.ban.lifted', ipPrefix: ipKey });
   }
 
   /** Breaker state for the admin guard view. */
@@ -282,7 +297,7 @@ export class Guard {
     this.bans.set(ipKey, { strikes, bannedUntilMs: bannedUntil.getTime() });
     this.invalid.clear(ipKey);
     this.emit({
-      type: 'ip_ban',
+      tag: 'sec.ban.created',
       ipPrefix: ipKey,
       strikes,
       banMinutes,
@@ -316,7 +331,7 @@ export class Guard {
     const cooldownSeconds = this.deps.rate.breakerCooldownSeconds;
     this.breaker = { state: 'open', untilMs: nowMs + cooldownSeconds * 1000 };
     this.breakerHits = [];
-    this.emit({ type: 'breaker_open', reason, cooldownSeconds });
+    this.emit({ tag: 'sec.breaker.opened', reason, cooldownSeconds });
   }
 
   private emit(event: GuardEvent): void {

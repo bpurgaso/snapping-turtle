@@ -12,6 +12,7 @@ import { HttpError } from '../errors.js';
 import type { Guard } from '../guard.js';
 import { LINK_TOKEN_PATTERN, secretPrefix, sha256Hex } from '../ids.js';
 import { hashPassword, verifyPassword } from '../password.js';
+import { logSecurityEvent } from '../security-events.js';
 import type { App, Clock } from '../types.js';
 
 export interface AuthRouteDeps {
@@ -59,6 +60,12 @@ export async function authRoutes(app: App, deps: AuthRouteDeps): Promise<void> {
       const { username, password } = req.body;
       const decision = throttle.check(username);
       if (!decision.allowed) {
+        logSecurityEvent(req.log, {
+          tag: 'sec.throttle.login',
+          username,
+          retryAfterSeconds: decision.retryAfterSeconds,
+          ip: req.ip,
+        });
         throw new HttpError(
           429,
           'throttled',
@@ -82,7 +89,12 @@ export async function authRoutes(app: App, deps: AuthRouteDeps): Promise<void> {
       const verified = await verifyPassword(user?.passwordHash ?? decoyHash, password);
       if (!user || !verified || user.disabledAt !== null) {
         const lockSeconds = throttle.recordFailure(username);
-        req.log.info({ username, lockSeconds }, 'login failed');
+        logSecurityEvent(req.log, {
+          tag: 'sec.auth.login_failed',
+          username,
+          lockSeconds,
+          ip: req.ip,
+        });
         throw new HttpError(401, 'invalid_credentials', 'invalid username or password');
       }
       throttle.recordSuccess(username);
@@ -128,58 +140,67 @@ export async function authRoutes(app: App, deps: AuthRouteDeps): Promise<void> {
       const { token, password } = req.body;
       const invalid = async (): Promise<HttpError> => {
         await guard.recordInvalidLookup(guard.keyFor(req.ip));
+        logSecurityEvent(req.log, { tag: 'sec.auth.link_rejected', ip: req.ip });
         return new HttpError(404, 'not_found', 'this link is invalid or has expired');
       };
       if (!LINK_TOKEN_PATTERN.test(token)) throw await invalid();
 
       const passwordHash = await hashPassword(password);
       const consumedAt = now();
-      const outcome = await db.transaction(async (tx) => {
-        const [link] = await tx
-          .update(accountLinks)
-          .set({ consumedAt })
-          .where(
-            and(
-              eq(accountLinks.tokenHash, sha256Hex(token)),
-              isNull(accountLinks.consumedAt),
-              gt(accountLinks.expiresAt, consumedAt),
-            ),
-          )
-          .returning({
-            id: accountLinks.id,
-            userId: accountLinks.userId,
-            purpose: accountLinks.purpose,
+      const outcome = await db
+        .transaction(async (tx) => {
+          const [link] = await tx
+            .update(accountLinks)
+            .set({ consumedAt })
+            .where(
+              and(
+                eq(accountLinks.tokenHash, sha256Hex(token)),
+                isNull(accountLinks.consumedAt),
+                gt(accountLinks.expiresAt, consumedAt),
+              ),
+            )
+            .returning({
+              id: accountLinks.id,
+              userId: accountLinks.userId,
+              purpose: accountLinks.purpose,
+            });
+          if (!link) return undefined;
+          const [user] = await tx
+            .select({ id: users.id, username: users.username, role: users.role })
+            .from(users)
+            .where(and(eq(users.id, link.userId), isNull(users.disabledAt)))
+            .limit(1);
+          // A disabled user's link stays unconsumed: rolling back keeps the
+          // row available should the admin re-enable the account.
+          if (!user) throw new RollbackDisabled();
+          await tx.update(users).set({ passwordHash }).where(eq(users.id, user.id));
+          // §11: completing a reset revokes the user's other sessions.
+          await tx.delete(sessionsTable).where(eq(sessionsTable.userId, user.id));
+          await writeAudit(tx, consumedAt, {
+            actorUserId: user.id,
+            action: 'auth.set_password',
+            targetType: 'user',
+            targetId: user.id,
+            detail: { purpose: link.purpose, linkId: link.id, token: secretPrefix(token) },
+            ip: req.ip,
           });
-        if (!link) return undefined;
-        const [user] = await tx
-          .select({ id: users.id, username: users.username, role: users.role })
-          .from(users)
-          .where(and(eq(users.id, link.userId), isNull(users.disabledAt)))
-          .limit(1);
-        // A disabled user's link stays unconsumed: rolling back keeps the
-        // row available should the admin re-enable the account.
-        if (!user) throw new RollbackDisabled();
-        await tx.update(users).set({ passwordHash }).where(eq(users.id, user.id));
-        // §11: completing a reset revokes the user's other sessions.
-        await tx.delete(sessionsTable).where(eq(sessionsTable.userId, user.id));
-        await writeAudit(tx, consumedAt, {
-          actorUserId: user.id,
-          action: 'auth.set_password',
-          targetType: 'user',
-          targetId: user.id,
-          detail: { purpose: link.purpose, linkId: link.id, token: secretPrefix(token) },
-          ip: req.ip,
+          return { ...user, linkId: link.id, purpose: link.purpose };
+        })
+        .catch((err: unknown) => {
+          if (err instanceof RollbackDisabled) return undefined;
+          throw err;
         });
-        return user;
-      }).catch((err: unknown) => {
-        if (err instanceof RollbackDisabled) return undefined;
-        throw err;
-      });
       if (!outcome) throw await invalid();
 
       const created = await sessions.create(outcome.id);
       sessions.setCookies(reply, created.token, created.csrfToken);
-      req.log.info({ userId: outcome.id }, 'set-password link consumed');
+      logSecurityEvent(req.log, {
+        tag: 'sec.auth.link_consumed',
+        userId: outcome.id,
+        linkId: outcome.linkId,
+        purpose: outcome.purpose,
+        ip: req.ip,
+      });
       return reply.send({
         username: outcome.username,
         role: outcome.role,

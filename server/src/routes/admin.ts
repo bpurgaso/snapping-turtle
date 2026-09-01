@@ -12,18 +12,27 @@ import {
 } from '@snapping-turtle/shared';
 import { Type } from '@sinclair/typebox';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import type { FastifyBaseLogger } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import type { AuthHooks } from '../auth/hooks.js';
 import { issueAccountLink, type LinkPurpose } from '../auth/links.js';
 import type { Config } from '../config.js';
 import { writeAudit } from '../db/audit.js';
 import type { Db } from '../db/client.js';
-import { auditLog, captures, ipBans, sessions as sessionsTable, settings, users } from '../db/schema.js';
+import {
+  auditLog,
+  captures,
+  ipBans,
+  sessions as sessionsTable,
+  settings,
+  users,
+} from '../db/schema.js';
 import { HttpError } from '../errors.js';
 import type { Guard } from '../guard.js';
 import { secretPrefix } from '../ids.js';
 import type { ImageStore } from '../images/storage.js';
 import { hashPassword } from '../password.js';
+import { logSecurityEvent } from '../security-events.js';
 import type { App, Clock } from '../types.js';
 import { captureUrls } from '../urls.js';
 
@@ -38,10 +47,7 @@ export interface AdminRouteDeps {
 
 const PAGE_SIZE = 50;
 
-const IdParams = Type.Object(
-  { id: Type.Integer({ minimum: 1 }) },
-  { additionalProperties: false },
-);
+const IdParams = Type.Object({ id: Type.Integer({ minimum: 1 }) }, { additionalProperties: false });
 const PageQuery = Type.Object(
   { page: Type.Optional(Type.Integer({ minimum: 1 })) },
   { additionalProperties: false },
@@ -62,6 +68,22 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
   const { db, config, store, auth, guard, now } = deps;
   const read = { preHandler: [auth.requireSession, auth.requireAdmin] };
   const write = { preHandler: [auth.requireSession, auth.requireAdmin, auth.requireCsrf] };
+
+  /** After the audited transaction committed: the same fact as a `sec.admin.mutation` log line. */
+  const mutated = (
+    req: { log: FastifyBaseLogger; ip: string; session: { userId: number } | null },
+    action: string,
+    targetType: string,
+    targetId: number | null,
+  ) =>
+    logSecurityEvent(req.log, {
+      tag: 'sec.admin.mutation',
+      action,
+      actorUserId: req.session!.userId,
+      targetType,
+      targetId,
+      ip: req.ip,
+    });
 
   // ---- settings -------------------------------------------------------------
 
@@ -100,6 +122,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
           ip: req.ip,
         });
       });
+      mutated(req, 'settings.registration', 'settings', null);
       return { enabled };
     },
   );
@@ -166,6 +189,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
         return { userId: user.id, link };
       });
       if (!issued) throw new HttpError(409, 'username_taken', 'that username is taken');
+      mutated(req, 'user.create', 'user', issued.userId);
       return reply.code(201).send({
         userId: issued.userId,
         username,
@@ -178,7 +202,12 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
   /** Look a user up or 404 — admin routes may say "no such user" (not secret). */
   async function findUser(id: number) {
     const [user] = await db
-      .select({ id: users.id, username: users.username, role: users.role, disabledAt: users.disabledAt })
+      .select({
+        id: users.id,
+        username: users.username,
+        role: users.role,
+        disabledAt: users.disabledAt,
+      })
       .from(users)
       .where(eq(users.id, id))
       .limit(1);
@@ -217,6 +246,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
           ip: req.ip,
         });
       });
+      mutated(req, 'user.disable', 'user', user.id);
       return reply.code(204).send(null);
     },
   );
@@ -241,6 +271,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
           ip: req.ip,
         });
       });
+      mutated(req, 'user.enable', 'user', user.id);
       return reply.code(204).send(null);
     },
   );
@@ -268,6 +299,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
         });
         return issued;
       });
+      mutated(req, 'link.issue', 'account_link', link.id);
       return reply.code(201).send({
         userId: user.id,
         username: user.username,
@@ -281,7 +313,10 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
 
   app.get(
     '/api/v1/admin/captures',
-    { ...read, schema: { querystring: CaptureSearchQuery, response: { 200: AdminCaptureListResponse } } },
+    {
+      ...read,
+      schema: { querystring: CaptureSearchQuery, response: { 200: AdminCaptureListResponse } },
+    },
     async (req) => {
       const page = req.query.page ?? 1;
       const where = eq(captures.ownerId, req.query.userId);
@@ -362,6 +397,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
           ip: req.ip,
         });
       });
+      mutated(req, 'capture.retention', 'capture', row.id);
       return { retentionUntil: retentionUntil?.toISOString() ?? null };
     },
   );
@@ -389,6 +425,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
         return rows[0];
       });
       if (!deleted) throw new HttpError(404, 'not_found', 'no such capture');
+      mutated(req, 'capture.delete', 'capture', deleted.id);
       // Files go after the commit (§5 tombstone rule, same as owner delete);
       // a failed unlink is logged and swept by M7's purge job.
       try {
@@ -441,11 +478,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
     { ...read, schema: { response: { 200: GuardStatusResponse } } },
     async () => {
       const at = now();
-      const rows = await db
-        .select()
-        .from(ipBans)
-        .orderBy(desc(ipBans.updatedAt))
-        .limit(200);
+      const rows = await db.select().from(ipBans).orderBy(desc(ipBans.updatedAt)).limit(200);
       return {
         breaker: guard.breakerStatus(),
         bans: rows.map((b) => ({
@@ -486,6 +519,7 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
         return true;
       });
       if (!removed) throw new HttpError(404, 'not_found', 'no such ban');
+      mutated(req, 'guard.unban', 'ip_ban', null);
       guard.forgetBan(req.body.ipPrefix);
       return reply.code(204).send(null);
     },
