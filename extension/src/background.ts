@@ -1,4 +1,4 @@
-import { CAPTURE_TILE_INTERVAL_MS } from '@snapping-turtle/shared';
+import { CAPTURE_TILE_INTERVAL_MS } from '@snapping-turtle/shared/constants';
 import browser, { type Runtime, type Tabs } from 'webextension-polyfill';
 import { uploadCapture } from './lib/api.js';
 import { clearBadge, showProgress } from './lib/badge.js';
@@ -65,10 +65,6 @@ const OWN_PAGE_PREFIX = browser.runtime.getURL('');
 const lock = createCaptureLock();
 /** Region selections in flight, by tab; releases the lock when the result arrives. */
 const pendingRegions = new Map<number, { release: () => void; settings: Settings }>();
-
-browser.runtime.onInstalled.addListener((details) => {
-  console.info(`snapping-turtle installed (${details.reason})`);
-});
 
 browser.runtime.onMessage.addListener((message: unknown, sender: Runtime.MessageSender) => {
   if (sender.id !== browser.runtime.id) return undefined;
@@ -299,7 +295,7 @@ async function captureFullPageFirefox(tab: Ready['tab']): Promise<FullPageResult
   try {
     const rec = reconcileFullPageCapture(spec, bitmap);
     if (rec.scaleMismatch) {
-      console.info(
+      console.warn(
         `captureTab rendered at ${rec.effectiveScale.toFixed(3)}× (asked ${spec.scale}); cropping to the cap if needed`,
       );
     }

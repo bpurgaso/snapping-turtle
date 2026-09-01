@@ -1,3 +1,4 @@
+import { EXT_ROUTE_PREFIX, EXT_UPDATES_MANIFEST } from '@snapping-turtle/shared/constants';
 import { hostPattern, parseServerOrigin } from './lib/origin.js';
 
 /**
@@ -42,15 +43,54 @@ export type Manifest = ManifestTemplate & {
   host_permissions: string[];
   background: { service_worker: string } | { scripts: string[] };
   minimum_chrome_version?: string;
-  browser_specific_settings?: { gecko: { id: string; strict_min_version: string } };
+  browser_specific_settings?: {
+    gecko: GeckoSettings;
+    gecko_android: { strict_min_version: string };
+  };
 };
+
+export interface GeckoSettings {
+  id: string;
+  strict_min_version: string;
+  /**
+   * Self-distributed builds update themselves from the server's public
+   * `/ext/updates.json` (M8, PLAN.md §15). Firefox requires https here, so a
+   * plain-http localhost dev build carries no update_url at all.
+   */
+  update_url?: string;
+  /**
+   * AMO's addons-linter requires a data-collection declaration for new
+   * submissions (Firefox 140+ shows it at install; older versions ignore the
+   * key). Declared truthfully: captures are website content and the source
+   * URL + title are browsing activity — both go only to the user's own server.
+   */
+  data_collection_permissions: { required: readonly DataCollectionCategory[] };
+}
+
+export type DataCollectionCategory = 'websiteContent' | 'browsingActivity';
+export const DATA_COLLECTION_REQUIRED: readonly DataCollectionCategory[] = [
+  'websiteContent',
+  'browsingActivity',
+];
 
 const VERSION_PATTERN = /^\d+(\.\d+){0,3}$/;
 
 /** Chrome 116+: MV3 service workers with reliable `runtime.onMessage` promises. */
 export const MIN_CHROME = '116';
-/** Firefox 128+: first release with `optional_host_permissions` (MDN compat data). */
-export const MIN_FIREFOX = '128.0';
+/**
+ * Firefox 140+ (the 2025 ESR). 128 was the `optional_host_permissions` floor
+ * (M2); 140 is the first release that understands
+ * `data_collection_permissions`, which AMO requires for new submissions —
+ * older Firefox would install the add-on but addons-linter flags the key as
+ * unsupported below 140. 128 ESR reached end of life before M8 shipped.
+ */
+export const MIN_FIREFOX = '140.0';
+/**
+ * Firefox for Android learned `data_collection_permissions` in 142. Android
+ * has no ESR channel (users ride the release train), so this floor excludes
+ * nobody real; the build is not tested on Android (extension/TESTING.md).
+ */
+export const MIN_FIREFOX_ANDROID = '142.0';
 
 export function buildManifest(target: Target, opts: BuildManifestOptions): Manifest {
   if (!VERSION_PATTERN.test(opts.version)) {
@@ -83,7 +123,12 @@ export function buildManifest(target: Target, opts: BuildManifestOptions): Manif
           gecko: {
             id: opts.geckoId ?? `snapping-turtle@${origin.hostname}`,
             strict_min_version: MIN_FIREFOX,
+            ...(origin.protocol === 'https:'
+              ? { update_url: `${origin.origin}${EXT_ROUTE_PREFIX}${EXT_UPDATES_MANIFEST}` }
+              : {}),
+            data_collection_permissions: { required: [...DATA_COLLECTION_REQUIRED] },
           },
+          gecko_android: { strict_min_version: MIN_FIREFOX_ANDROID },
         },
       };
   }

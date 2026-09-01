@@ -13,7 +13,10 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 export function parseServerOrigin(input: string): OriginResult {
   const trimmed = input.trim();
   if (trimmed === '')
-    return { ok: false, reason: 'Enter your server address, e.g. https://shots.example.com' };
+    return {
+      ok: false,
+      reason: 'Enter your server address: the https origin of your snapping-turtle server',
+    };
   let url: URL;
   try {
     url = new URL(trimmed);

@@ -152,16 +152,6 @@ export type CreateTokenResponse = Static<typeof CreateTokenResponse>;
 
 // ---- Captures (§8, §12) -----------------------------------------------------
 
-/** multipart/form-data field names for POST /api/v1/captures. */
-export const CAPTURE_UPLOAD_FIELDS = {
-  /** PNG or JPEG bytes; the server sniffs magic bytes and ignores the declared type. */
-  image: 'image',
-  /** Absolute http(s) URL of the captured page. Required. */
-  sourceUrl: 'sourceUrl',
-  /** Page title; optional, truncated to MAX_PAGE_TITLE_LENGTH. */
-  title: 'title',
-} as const;
-
 export const CreateCaptureResponse = Type.Object(
   {
     /** Absolute URL of the capture page (`/s/{viewId}`). Treat as a secret. */
@@ -336,11 +326,7 @@ export type GuardBanEntry = Static<typeof GuardBanEntry>;
 export const GuardStatusResponse = Type.Object(
   {
     breaker: Type.Object({
-      state: Type.Union([
-        Type.Literal('closed'),
-        Type.Literal('open'),
-        Type.Literal('half_open'),
-      ]),
+      state: Type.Union([Type.Literal('closed'), Type.Literal('open'), Type.Literal('half_open')]),
       retryAfterSeconds: Type.Optional(Type.Integer()),
     }),
     bans: Type.Array(GuardBanEntry),

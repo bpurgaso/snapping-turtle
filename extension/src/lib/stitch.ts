@@ -1,4 +1,4 @@
-import { CAPTURE_TILE_INTERVAL_MS } from '@snapping-turtle/shared';
+import { CAPTURE_TILE_INTERVAL_MS } from '@snapping-turtle/shared/constants';
 import {
   deriveScale,
   drawRectFor,

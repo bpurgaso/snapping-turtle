@@ -1,4 +1,4 @@
-import { CAPTURE_UPLOAD_FIELDS } from '@snapping-turtle/shared/api';
+import { CAPTURE_UPLOAD_FIELDS } from '@snapping-turtle/shared/constants';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildUploadForm,

@@ -8,6 +8,8 @@
     "build": "pnpm build:chrome && pnpm build:firefox",
     "build:chrome": "tsx scripts/build.ts chrome",
     "build:firefox": "tsx scripts/build.ts firefox",
+    "build:release": "tsx scripts/release.ts",
+    "sign:firefox": "tsx scripts/sign-firefox.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:smoke": "playwright test"
@@ -24,6 +26,7 @@
     "tsx": "4.23.13",
     "typescript": "5.9.3",
     "vite": "8.2.2",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "web-ext": "10.6.0"
   }
 }

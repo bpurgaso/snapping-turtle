@@ -26,6 +26,25 @@ describe('buildManifest', () => {
     ).toBe('custom@example.org');
   });
 
+  it('firefox: self-hosted update_url under the server origin, https only (M8, §15)', () => {
+    const gecko = buildManifest('firefox', opts).browser_specific_settings?.gecko;
+    expect(gecko?.update_url).toBe('https://shots.example.com/ext/updates.json');
+    // Firefox refuses non-https update manifests; a plain-http dev build carries none.
+    const dev = buildManifest('firefox', { ...opts, publicOrigin: 'http://localhost:3000' });
+    expect(dev.browser_specific_settings?.gecko.update_url).toBeUndefined();
+    // Chrome updates through the Web Store: no update_url anywhere in its manifest.
+    expect(JSON.stringify(buildManifest('chrome', opts))).not.toContain('update_url');
+  });
+
+  it('firefox: declares AMO data-collection categories truthfully', () => {
+    const gecko = buildManifest('firefox', opts).browser_specific_settings?.gecko;
+    // Captures are website content; source URL + title are browsing activity.
+    // Both go to the user's own server only — there is no "none" to claim.
+    expect(gecko?.data_collection_permissions).toEqual({
+      required: ['websiteContent', 'browsingActivity'],
+    });
+  });
+
   it('both targets share everything except the background entry and gecko block', () => {
     const { background: _c, minimum_chrome_version: _v, ...chrome } = buildManifest('chrome', opts);
     const {
@@ -61,7 +80,8 @@ describe('buildManifest', () => {
     expect(m.action.default_icon).toEqual(m.icons);
     expect(m.options_ui).toEqual({ page: 'options/index.html', open_in_tab: true });
     expect(m.action.default_popup).toBe('popup/index.html');
-    expect(m.browser_specific_settings?.gecko.strict_min_version).toBe('128.0');
+    expect(m.browser_specific_settings?.gecko.strict_min_version).toBe('140.0');
+    expect(m.browser_specific_settings?.gecko_android.strict_min_version).toBe('142.0');
   });
 
   it('does not mutate the template between builds', () => {

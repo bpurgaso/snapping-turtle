@@ -3,7 +3,7 @@ import {
   MAX_IMAGE_WIDTH_PX,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_MB,
-} from '@snapping-turtle/shared';
+} from '@snapping-turtle/shared/constants';
 
 /**
  * Pure geometry for region and full-page capture (PLAN.md §15). No browser

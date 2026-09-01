@@ -31,13 +31,7 @@ import {
  */
 
 export type OptionsState =
-  | 'loading'
-  | 'ready'
-  | 'saving'
-  | 'saved'
-  | 'testing'
-  | 'connected'
-  | 'error';
+  'loading' | 'ready' | 'saving' | 'saved' | 'testing' | 'connected' | 'error';
 
 const root = document.getElementById('options');
 if (root) void init(root);
@@ -65,7 +59,7 @@ async function init(main: HTMLElement): Promise<void> {
   form.append(fields);
 
   const originInput = field(fields, 'origin', 'Server address', 'url', {
-    placeholder: 'https://shots.example.com',
+    placeholder: DEFAULT_SERVER_ORIGIN,
     hint: `Default for this build: ${DEFAULT_SERVER_ORIGIN}. https only, except localhost / 127.0.0.1.`,
   });
   const tokenInput = field(fields, 'token', 'API token', 'password', {

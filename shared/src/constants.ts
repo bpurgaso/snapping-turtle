@@ -40,6 +40,32 @@ export const MAX_ANNOTATION_DOC_BYTES = 8 * 1024 * 1024;
  *  are paced this far apart. Do not "optimize" this away. */
 export const CAPTURE_TILE_INTERVAL_MS = 600;
 
+// ---- Upload wire contract (§8) ----------------------------------------------
+
+/** multipart/form-data field names for POST /api/v1/captures. Lives here rather
+ *  than in api.ts so the extension can import it without pulling the TypeBox
+ *  schemas (and TypeBox itself) into its bundles. */
+export const CAPTURE_UPLOAD_FIELDS = {
+  /** PNG or JPEG bytes; the server sniffs magic bytes and ignores the declared type. */
+  image: 'image',
+  /** Absolute http(s) URL of the captured page. Required. */
+  sourceUrl: 'sourceUrl',
+  /** Page title; optional, truncated to MAX_PAGE_TITLE_LENGTH. */
+  title: 'title',
+} as const;
+
+// ---- Extension distribution (§15, M8) ---------------------------------------
+
+/** Public, secret-free static route serving the self-distributed Firefox
+ *  build: `/ext/updates.json` plus the signed .xpi files it points at. */
+export const EXT_ROUTE_PREFIX = '/ext/';
+/** Firefox update manifest name under EXT_ROUTE_PREFIX (the manifest's `update_url`). */
+export const EXT_UPDATES_MANIFEST = 'updates.json';
+/** Signed Firefox artifact name for a version; also what updates.json links to. */
+export function firefoxXpiFilename(version: string): string {
+  return `snapping-turtle-firefox-${version}.xpi`;
+}
+
 // ---- Identifiers and secrets (§6, CLAUDE.md rule 1 & 3) ---------------------
 
 /** Bytes of CSPRNG entropy in a view_id (20 bytes → 27 base64url chars ≈ 160 bits). */

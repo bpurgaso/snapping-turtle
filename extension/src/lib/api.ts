@@ -1,4 +1,5 @@
-import { CAPTURE_UPLOAD_FIELDS, type CreateCaptureResponse } from '@snapping-turtle/shared/api';
+import type { CreateCaptureResponse } from '@snapping-turtle/shared/api';
+import { CAPTURE_UPLOAD_FIELDS } from '@snapping-turtle/shared/constants';
 
 /**
  * The extension's view of the M1 server contract (PLAN.md §8):

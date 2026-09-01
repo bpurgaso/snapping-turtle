@@ -20,10 +20,11 @@ image build). Two ways to clear a finding, in order of preference:
    `package.json`, and a row in the table below. Only when the vulnerable
    code path is provably unreachable here.
 
-| CVE | Package | Why it is ignored | Revisit |
-| --- | --- | --- | --- |
-| CVE-2026-27013 (GHSA-hfvx-25r5-qc3w) | fabric 6.9.1 | Stored XSS through `loadFromJSON()` → `toSVG()`. The editor never deserialises Fabric JSON (documents are our own validated schema, PLAN §9) and never calls `toSVG()`; rule 5 forbids `innerHTML` in `web/`, and CSP has no `unsafe-inline`. | Fabric 7 upgrade — a major with renderer-parity implications (PLAN §10), scheduled deliberately, not by Dependabot (`.github/dependabot.yml` ignores it) |
-| CVE-2026-44311 (GHSA-w22m-hvvm-xmwx) | fabric 6.9.1 | Same export path, `Gradient` colour stops; the editor uses no gradients. | Same as above |
+| CVE                                                                       | Package                                        | Why it is ignored                                                                                                                                                                                                                                                                                                               | Revisit                                                                                                                                                  |
+| ------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CVE-2026-27013 (GHSA-hfvx-25r5-qc3w)                                      | fabric 6.9.1                                   | Stored XSS through `loadFromJSON()` → `toSVG()`. The editor never deserialises Fabric JSON (documents are our own validated schema, PLAN §9) and never calls `toSVG()`; rule 5 forbids `innerHTML` in `web/`, and CSP has no `unsafe-inline`.                                                                                   | Fabric 7 upgrade — a major with renderer-parity implications (PLAN §10), scheduled deliberately, not by Dependabot (`.github/dependabot.yml` ignores it) |
+| CVE-2026-44311 (GHSA-w22m-hvvm-xmwx)                                      | fabric 6.9.1                                   | Same export path, `Gradient` colour stops; the editor uses no gradients.                                                                                                                                                                                                                                                        | Same as above                                                                                                                                            |
+| CVE-2025-71329, CVE-2025-71330 (GHSA-5p2g-fcmc-qvqq, GHSA-w3rx-r6r6-pgpr) | image-size 2.0.2 (via web-ext → addons-linter) | Infinite loops on crafted ICNS/JXL/HEIF input. No patched release exists (2.0.2 is the latest). addons-linter only measures the icons in `extension/icons/` — files in this repo — during `build:release` / `sign:firefox`; nothing user-supplied ever reaches it, and it is never part of the server or the shipped extension. | An image-size release above 2.0.2, or addons-linter dropping it; re-check when Dependabot bumps web-ext                                                  |
 
 Below-threshold advisories are reported but do not fail the build; at the
 time of writing the only one is esbuild 0.18 inside `drizzle-kit`'s bundled
@@ -35,7 +36,7 @@ The `docker` job builds the app, backup and Caddy images and scans each with
 Trivy (`--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`, OS packages
 and application dependencies). Findings without an upstream fix are
 reported, not fatal — there is nothing to do about them but watch. Findings
-*with* a fix fail the build, because the fix is almost always mechanical:
+_with_ a fix fail the build, because the fix is almost always mechanical:
 
 - the Dockerfiles run `apt-get upgrade` / `apk upgrade` at build time, so a
   rebuild picks up base-OS fixes without waiting for a new base tag;
