@@ -32,6 +32,8 @@ jobs:
       DATABASE_URL: postgres://app:ci-only-password@127.0.0.1:5432/snapping_turtle_test
     steps:
       - uses: actions/checkout@v7
+      - name: Postgres image pin consistency (deploy/docker-compose.yml is authoritative)
+        run: scripts/check-image-pins.sh
       - uses: pnpm/action-setup@v6 # version comes from package.json#packageManager
       - uses: actions/setup-node@v7
         with:

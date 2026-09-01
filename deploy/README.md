@@ -91,7 +91,7 @@ Ad-hoc backup: `docker compose -f deploy/docker-compose.yml run --rm backup run`
 deploy/backup/verify-restore.sh
 ```
 
-starts a scratch `postgres:16-alpine` on the compose-internal network, restores
+starts a scratch Postgres (the compose-pinned image) on the compose-internal network, restores
 the latest dump into it (creating the `st_app` role first, as a real restore
 must — roles are cluster-level and not part of a database dump), compares row
 counts with the manifest, checks that `st_app` still cannot `UPDATE`/`DELETE`
@@ -129,7 +129,9 @@ the repository env) and copy from `/tmp/r/backups/db/…` and
 
 A major bump of the `postgres` image (`16-alpine` → `17`/`18`) is a data
 migration, not a dependency update, and Dependabot is configured to ignore it
-(`.github/dependabot.yml`). Postgres will not open a data directory written by
+(`.github/dependabot.yml`; minors/patches of the compose pin still flow, and a
+Dependabot bump of that pin fails `scripts/check-image-pins.sh` until the
+other sites are synced in the same PR — the drift is loud on purpose). Postgres will not open a data directory written by
 an older major — the new image simply refuses to start on the old volume — and
 an older `pg_restore` cannot read dumps produced by a newer `pg_dump`, so the
 server image and the backup sidecar's client (`deploy/Dockerfile.backup`) have
@@ -141,10 +143,12 @@ docker compose -f deploy/docker-compose.yml run --rm backup run
 deploy/backup/verify-restore.sh
 # 1. stop writers; keep postgres and backup up
 docker compose -f deploy/docker-compose.yml stop app
-# 2. bump BOTH images in one commit: deploy/docker-compose.yml (postgres service)
-#    and deploy/Dockerfile.backup (FROM postgres:<new>-alpine); also the
-#    scratch image in deploy/backup/verify-restore.sh and the CI service in
-#    .github/workflows/ci.yml so they keep matching production.
+# 2. change the pin in deploy/docker-compose.yml (postgres service) — that is
+#    the authoritative, Dependabot-visible literal — then run
+#    scripts/check-image-pins.sh: it fails until deploy/Dockerfile.backup
+#    (FROM), deploy/backup/verify-restore.sh (scratch image), the CI service in
+#    .github/workflows/ci.yml and the README quickstart carry the same tag.
+#    Sync them in the same commit; CI runs the check on every push.
 # 3. bring up an empty cluster of the new major on a NEW volume
 docker compose -f deploy/docker-compose.yml stop postgres && docker compose -f deploy/docker-compose.yml rm -f postgres
 docker volume rm snapping-turtle_pgdata              # or rename it to keep a fallback

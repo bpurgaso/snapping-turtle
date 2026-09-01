@@ -1,7 +1,8 @@
 # Backup sidecar (PLAN.md §12 "Operational"): nightly pg_dump + a copy of
 # the image volume, optionally shipped off-box with restic. Based on the same
-# postgres:16 image the database runs, so pg_dump/pg_restore always match the
-# server major. restic and rsync come from Alpine's package index — they are
+# postgres image the database runs (the FROM below must equal the pin in
+# deploy/docker-compose.yml — scripts/check-image-pins.sh enforces it), so
+# pg_dump/pg_restore always match the server major. restic and rsync come from Alpine's package index — they are
 # the backup tools themselves, not incidental dependencies.
 #
 # Runs as uid 1000 — the `node` user the app writes images as — so the

@@ -49,7 +49,11 @@ updates:
       ci-actions:
         patterns: ['*']
 
-  - package-ecosystem: docker
+  # The Postgres pin has one authoritative site, deploy/docker-compose.yml;
+  # scripts/check-image-pins.sh (CI) holds the Dockerfile FROM, the CI service
+  # container, verify-restore.sh and the README to it. Dependabot proposes the
+  # compose bump; the PR then syncs the rest by hand before it can go green.
+  - package-ecosystem: docker-compose
     directory: /deploy
     schedule:
       interval: weekly
@@ -60,3 +64,13 @@ updates:
       # major version" — never a mergeable bump. Minors/patches still flow.
       - dependency-name: postgres
         update-types: [version-update:semver-major]
+
+  - package-ecosystem: docker
+    directory: /deploy
+    schedule:
+      interval: weekly
+      day: monday
+    ignore:
+      # deploy/Dockerfile.backup's FROM follows the compose pin above (checked
+      # in CI); a Dockerfile-only postgres PR could never pass, so none is asked for.
+      - dependency-name: postgres
