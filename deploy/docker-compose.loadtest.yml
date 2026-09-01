@@ -1,0 +1,60 @@
+# Loadtest profile (PLAN.md §16 M7, docs/loadtest.md). Use ONLY as an override
+# on top of docker-compose.yml, and only for the k6 guard scenarios:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.loadtest.yml up -d --wait app postgres
+#
+# It is a separate compose project (own volumes, fresh database) so bans and
+# breaker state from a run never touch a real deployment on the same host.
+#
+# What it changes, and why none of it may leak into production:
+#   - TRUST_PROXY=true: k6 talks to app:3000 directly and asserts client IPs
+#     via X-Forwarded-For to simulate many attackers. The app logs
+#     sec.proxy.permissive_trust at error level on every boot with this
+#     setting — that line appearing on a production box is an incident.
+#   - RATE_BREAKER_COOLDOWN_SECONDS is shortened so half-open recovery is
+#     observable in a two-minute run; every other guard knob keeps its
+#     production default so the scenarios measure the real thresholds.
+#   - Caddy and the backup sidecar are parked behind profiles (not started).
+#   - A throwaway admin is seeded with a fixed, non-secret password.
+name: snapping-turtle-loadtest
+
+services:
+  caddy:
+    profiles: [proxy]
+
+  backup:
+    profiles: [backup]
+
+  app:
+    environment:
+      TRUST_PROXY: 'true'
+      PUBLIC_ORIGIN: http://app:3000
+      LOG_LEVEL: info
+      RATE_BREAKER_COOLDOWN_SECONDS: ${LOADTEST_BREAKER_COOLDOWN_SECONDS:-30}
+      ADMIN_BOOTSTRAP_USER: loadtest-admin
+      ADMIN_BOOTSTRAP_PASSWORD: loadtest-admin-password-not-secret
+    ports:
+      - '127.0.0.1:3100:3000'
+
+  k6:
+    image: grafana/k6:1.3.0
+    profiles: [k6]
+    networks: [web]
+    volumes:
+      - ../loadtest:/loadtest:ro
+    working_dir: /loadtest
+    environment:
+      BASE_URL: http://app:3000
+      LOADTEST_USER: loadtest-admin
+      LOADTEST_PASSWORD: loadtest-admin-password-not-secret
+      K6_NO_USAGE_REPORT: 'true'
+    depends_on:
+      app:
+        condition: service_healthy
+
+networks:
+  # A different fixed subnet from the production project's 172.28.101.0/24,
+  # so both stacks can exist on one host (TRUST_PROXY=true here anyway).
+  web:
+    ipam:
+      config:
+        - subnet: 172.28.102.0/24

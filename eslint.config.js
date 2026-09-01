@@ -58,4 +58,17 @@ export default tseslint.config(
     files: ['web/**/*.ts', 'extension/**/*.ts'],
     languageOptions: { globals: { ...globals.browser } },
   },
+  {
+    // k6 scripts run inside the grafana/k6 container: its own globals, no Node.
+    files: ['loadtest/**/*.js'],
+    languageOptions: {
+      globals: {
+        __ENV: 'readonly',
+        __VU: 'readonly',
+        __ITER: 'readonly',
+        open: 'readonly',
+        console: 'readonly',
+      },
+    },
+  },
 );
