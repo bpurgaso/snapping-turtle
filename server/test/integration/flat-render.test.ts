@@ -17,7 +17,7 @@ import { createDb, type DbHandle } from '../../src/db/client.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import { captures } from '../../src/db/schema.js';
 import { seedAdmin } from '../../src/db/seed-admin.js';
-import { FlatRenderer } from '../../src/images/flat.js';
+import { FlatRenderer, type EnsureResult } from '../../src/images/flat.js';
 import { ImageStore } from '../../src/images/storage.js';
 import type { App } from '../../src/types.js';
 import { makePng } from '../helpers/images.js';
@@ -61,9 +61,59 @@ const config = loadConfig({
 
 const OWNER = { username: 'flat-owner', password: 'flat-owner-password-not-real-1' };
 
+/**
+ * The production renderer with two test-only seams: a render can be held open
+ * until the test says so, and the test can wait until N viewers have provably
+ * entered `ensure()`. Together they make the stampede assertion exact — the
+ * old burst test raced 8 HTTP lookups against one ~10 ms sharp composite and
+ * lost that race on a loaded CI box (`gate.started` 4 vs 3).
+ */
+class HeldRenderer extends FlatRenderer {
+  private hold: Promise<void> | null = null;
+  private ensureCalls = 0;
+  private arrival: { n: number; resolve: () => void } | null = null;
+
+  /** Every render started while `until` is pending waits for it. */
+  holdRenders(until: Promise<void>): void {
+    this.hold = until.finally(() => {
+      this.hold = null;
+    });
+  }
+
+  /** Resolves once `n` further calls to `ensure()` have been made. */
+  ensureCallsReach(n: number): Promise<void> {
+    this.ensureCalls = 0;
+    return new Promise((resolve) => {
+      this.arrival = { n, resolve };
+    });
+  }
+
+  override ensure(captureId: number): Promise<EnsureResult> {
+    this.ensureCalls += 1;
+    if (this.arrival && this.ensureCalls >= this.arrival.n) {
+      this.arrival.resolve();
+      this.arrival = null;
+    }
+    return super.ensure(captureId);
+  }
+
+  protected override async render(captureId: number): Promise<EnsureResult> {
+    if (this.hold) await this.hold;
+    return super.render(captureId);
+  }
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 let handle: DbHandle;
 let app: App;
-let renderer: FlatRenderer;
+let renderer: HeldRenderer;
 const store = new ImageStore(imagesDir);
 
 let cookie: string;
@@ -83,7 +133,7 @@ beforeAll(async () => {
   await handle.sql`create schema public`;
   await runMigrations(handle);
   await seedAdmin(handle.db, OWNER);
-  renderer = new FlatRenderer({ db: handle.db, store, concurrency: 2 });
+  renderer = new HeldRenderer({ db: handle.db, store, concurrency: 2 });
   app = await buildApp({ config, db: handle.db, flat: renderer });
 
   const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: OWNER });
@@ -274,16 +324,35 @@ describe('GET /s/:viewId/image.png (§10)', () => {
   });
 
   it('coalesces a burst of viewers onto one render (§10 stampede control)', async () => {
+    // Deterministic by construction: the first render is held open until all
+    // N viewers have looked the row up and called ensure(), so every one of
+    // them provably arrives while it is in flight. No timing assumption, and
+    // the assertion is exact — one job for N viewers, never "at most".
+    const N = 8;
     const started = renderer.gate.started;
-    const burst = await Promise.all(
-      Array.from({ length: 8 }, () => app.inject({ method: 'GET', url: imagePath() })),
+    const gateOpen = deferred();
+    renderer.holdRenders(gateOpen.promise);
+    const allInside = renderer.ensureCallsReach(N);
+
+    const burst = Promise.all(
+      Array.from({ length: N }, () => app.inject({ method: 'GET', url: imagePath() })),
     );
-    for (const res of burst) {
+    await allInside;
+    expect(renderer.gate.started).toBe(started + 1); // one render running, N-1 coalesced
+
+    gateOpen.resolve();
+    const responses = await burst;
+    for (const res of responses) {
       expect(res.statusCode).toBe(200);
       expect(res.headers['etag']).toBe(`"r${rev}"`);
-      expect(res.rawPayload.equals(burst[0]!.rawPayload)).toBe(true);
+      expect(res.rawPayload.equals(responses[0]!.rawPayload)).toBe(true);
     }
     expect(renderer.gate.started).toBe(started + 1);
+    const [row] = await handle.db
+      .select({ flatRev: captures.flatRev })
+      .from(captures)
+      .where(eq(captures.id, captureId));
+    expect(row!.flatRev).toBe(rev);
   });
 
   it('deleting every annotation goes back to serving the original', async () => {

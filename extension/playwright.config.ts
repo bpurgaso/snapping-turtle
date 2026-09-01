@@ -21,7 +21,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env['CI'],
-  retries: process.env['CI'] ? 1 : 0,
+  // No retries anywhere: a test that needs a second attempt is a bug report, not noise.
+  retries: 0,
   reporter: process.env['CI'] ? [['github'], ['list']] : 'list',
   timeout: 30_000,
   use: { trace: 'retain-on-failure' },

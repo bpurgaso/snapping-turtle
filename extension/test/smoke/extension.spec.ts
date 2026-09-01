@@ -92,6 +92,8 @@ test.describe('built Chrome extension', () => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
     await page.goto(`chrome-extension://${extensionId}/options/index.html`);
+    const state = page.locator('#options');
+    await expect(state).toHaveAttribute('data-state', 'ready');
 
     const originInput = page.getByLabel('Server address');
     const tokenInput = page.getByLabel('API token');
@@ -106,6 +108,7 @@ test.describe('built Chrome extension', () => {
     // Save with the default origin: already granted, so no permission prompt.
     await tokenInput.fill(FAKE_TOKEN);
     await page.getByRole('button', { name: 'Save' }).click();
+    await expect(state).toHaveAttribute('data-state', 'saved');
     await expect(page.locator('#status')).toHaveText(`Saved. Captures will upload to ${origin}.`);
 
     const stored = await page.evaluate(() => chrome.storage.local.get(null));
@@ -114,6 +117,7 @@ test.describe('built Chrome extension', () => {
     expect(synced).toEqual({});
 
     await page.reload();
+    await expect(state).toHaveAttribute('data-state', 'ready');
     await expect(page.getByLabel('Server address')).toHaveValue(origin);
     await expect(page.getByLabel('API token')).toHaveValue(FAKE_TOKEN);
 
@@ -131,6 +135,8 @@ test.describe('built Chrome extension', () => {
     const origin = defaultOrigin();
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/options/index.html`);
+    const state = page.locator('#options');
+    await expect(state).toHaveAttribute('data-state', 'ready');
     const originInput = page.getByLabel('Server address');
     const status = page.locator('#status');
 
@@ -143,13 +149,17 @@ test.describe('built Chrome extension', () => {
     ] as const) {
       await originInput.fill(bad);
       await page.getByRole('button', { name: 'Save' }).click();
+      await expect(state).toHaveAttribute('data-state', 'error');
       await expect(status).toHaveText(pattern);
       expect(await page.evaluate(() => chrome.storage.local.get(null))).toEqual({});
+      // The next attempt must be observable as a fresh transition.
+      await page.evaluate(() => document.getElementById('options')!.setAttribute('data-state', 'test-armed'));
     }
 
     await originInput.fill(origin);
     await page.getByLabel('API token').fill('');
     await page.getByRole('button', { name: 'Save' }).click();
+    await expect(state).toHaveAttribute('data-state', 'error');
     await expect(status).toContainText('Paste the API token');
     expect(await page.evaluate(() => chrome.storage.local.get(null))).toEqual({});
   });
@@ -169,18 +179,61 @@ test.describe('built Chrome extension', () => {
 
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/options/index.html`);
+    const state = page.locator('#options');
+    await expect(state).toHaveAttribute('data-state', 'ready');
     await page.getByLabel('API token').fill(FAKE_TOKEN);
     const status = page.locator('#status');
 
     await page.getByRole('button', { name: 'Test connection' }).click();
+    await expect(state).toHaveAttribute('data-state', 'connected');
     await expect(status).toHaveText('Connected: the server accepted this token.');
     expect(seen).toEqual([{ method: 'GET', auth: `Bearer ${FAKE_TOKEN}` }]);
 
     nextStatus = 401;
     await page.getByRole('button', { name: 'Test connection' }).click();
+    await expect(state).toHaveAttribute('data-state', 'error');
     await expect(status).toContainText('The server rejected this token');
 
     // Testing does not save.
     expect(await page.evaluate(() => chrome.storage.local.get(null))).toEqual({});
+  });
+
+  test('options: input that arrives before the stored settings have loaded is neither lost nor submitted natively', async ({
+    context,
+    extensionId,
+  }) => {
+    // The page used to attach its handlers only after `await loadSettings()`;
+    // on a slow machine a click could land on a bare <form> (a native GET
+    // submission with the token in the URL) or the late prefill could wipe
+    // what was typed — the "#status unchanged" CI flake. Stretch that window
+    // to a full second and drive the page exactly as the other tests do: the
+    // form must stay disabled until `ready`, and the save must still land.
+    const origin = defaultOrigin();
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      const real = chrome.storage.local.get.bind(chrome.storage.local) as (
+        ...args: unknown[]
+      ) => Promise<Record<string, unknown>>;
+      chrome.storage.local.get = ((...args: unknown[]) =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          setTimeout(() => void real(...args).then(resolve), 1000);
+        })) as typeof chrome.storage.local.get;
+    });
+    await page.goto(`chrome-extension://${extensionId}/options/index.html`);
+    const state = page.locator('#options');
+    await expect(state).toHaveAttribute('data-state', 'loading');
+    await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await expect(page.getByLabel('API token')).toBeDisabled();
+
+    // Actionability waits do the rest: fill/click block until `ready`.
+    await page.getByLabel('API token').fill(FAKE_TOKEN);
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect(state).toHaveAttribute('data-state', 'saved');
+    await expect(page.locator('#status')).toHaveText(`Saved. Captures will upload to ${origin}.`);
+    expect(new URL(page.url()).search).toBe(''); // never a native form submission
+    expect(await page.evaluate(() => chrome.storage.local.get(null))).toEqual({
+      serverOrigin: origin,
+      apiToken: FAKE_TOKEN,
+    });
   });
 });
