@@ -1,0 +1,63 @@
+# Release (M8, PLAN.md §15): on a `v<version>` tag, build both extension
+# artifacts with the audited release build and attach them to a GitHub
+# release. This workflow packages; it never signs — AMO credentials are
+# env-only on the operator's machine (`pnpm --filter extension sign:firefox`,
+# extension/STORE_SUBMISSION.md) and are not stored in CI. The Chrome zip is
+# uploaded to the Web Store by hand from the release page.
+#
+# Inputs are repository *variables* (Settings → Secrets and variables →
+# Actions → Variables), not secrets — neither value is secret and both are
+# printed in the build log by design:
+#   PUBLIC_ORIGIN        https://<your PUBLIC_HOST>   (baked as the default server)
+#   EXTENSION_GECKO_ID   the pinned Firefox add-on id (must equal deploy/.env's)
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  extension:
+    name: audited extension build → GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+      EXTENSION_GECKO_ID: ${{ vars.EXTENSION_GECKO_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Release inputs present (repository variables)
+        run: |
+          [ -n "$PUBLIC_ORIGIN" ] || { echo "::error::set the repository variable PUBLIC_ORIGIN (https://<PUBLIC_HOST>)"; exit 1; }
+          [ -n "$EXTENSION_GECKO_ID" ] || { echo "::error::set the repository variable EXTENSION_GECKO_ID (same value as deploy/.env)"; exit 1; }
+      - name: Tag matches extension/package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(node -p "require('./extension/package.json').version")
+          [ "$tag" = "$version" ] || { echo "::error::tag v$tag does not match extension version $version — bump extension/package.json first"; exit 1; }
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @snapping-turtle/shared build
+      - run: pnpm --filter @snapping-turtle/extension test
+      - name: Audited release build (both targets; addons-linter in self-hosted mode)
+        run: pnpm --filter @snapping-turtle/extension build:release
+      - name: Checksums
+        run: cd extension/dist && sha256sum ./*.zip | tee SHA256SUMS
+      - name: Create the GitHub release and attach the artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber extension/dist/*.zip extension/dist/SHA256SUMS
+          else
+            notes=$(printf 'Extension builds for **%s**, default server `%s`.\n\n- Chrome: upload the chrome zip to the Web Store developer dashboard (unlisted item).\n- Firefox: sign locally with `pnpm --filter extension sign:firefox`; the signed .xpi is served from `/ext/`.\n\nSee extension/STORE_SUBMISSION.md.\n' "$GITHUB_REF_NAME" "$PUBLIC_ORIGIN")
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes --notes "$notes" \
+              extension/dist/*.zip extension/dist/SHA256SUMS
+          fi
