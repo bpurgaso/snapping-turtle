@@ -29,6 +29,14 @@ updates:
         update-types: [version-update:semver-major]
       - dependency-name: fastify
         update-types: [version-update:semver-major]
+      # Toolchain majors are migrations, not bumps: TypeScript majors have to
+      # move with typescript-eslint/tsx/vitest support (TS 7 is the Go
+      # compiler); @types/node must track the runtime major in .nvmrc and the
+      # NODE_IMAGE the app image is built from, never lead it.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
 
   # One weekly PR for all workflow actions (CI-only, no runtime exposure);
   # a major of any of them lands in the same PR and is reviewed there.
