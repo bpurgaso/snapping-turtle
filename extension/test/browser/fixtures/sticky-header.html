@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>sticky header fixture</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        scroll-behavior: smooth;
+      }
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 60px;
+        background: #222;
+        color: #fff;
+      }
+      aside {
+        position: sticky;
+        top: 70px;
+        height: 100px;
+        background: #f39c12;
+        width: 200px;
+      }
+      .static {
+        position: relative;
+        height: 200px;
+        background: #ecf0f1;
+      }
+      .filler {
+        height: 5000px;
+        background: linear-gradient(#fff, #999);
+      }
+      footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 40px;
+        background: #333;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <header id="header">fixed header</header>
+    <div class="static" id="static">static block</div>
+    <aside id="aside">sticky aside</aside>
+    <div
+      id="inline-visible"
+      style="
+        visibility: visible;
+        position: fixed;
+        top: 100px;
+        left: 10px;
+        height: 20px;
+        width: 20px;
+        background: #0f0;
+      "
+    ></div>
+    <div class="filler"></div>
+    <div id="shadow-host"></div>
+    <footer id="footer">fixed footer</footer>
+    <script>
+      const root = document.getElementById('shadow-host').attachShadow({ mode: 'open' });
+      const style = document.createElement('style');
+      style.textContent =
+        '.pinned { position: fixed; right: 0; top: 200px; width: 30px; height: 30px; background: #00f; }';
+      const pinned = document.createElement('div');
+      pinned.className = 'pinned';
+      pinned.id = 'pinned';
+      root.append(style, pinned);
+    </script>
+  </body>
+</html>

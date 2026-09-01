@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>long page fixture</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: #fff;
+      }
+      .band {
+        height: 400px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font: 32px system-ui;
+        color: #fff;
+      }
+      .band:nth-child(odd) {
+        background: #c0392b;
+      }
+      .band:nth-child(even) {
+        background: #2980b9;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      for (let i = 0; i < 30; i++) {
+        const band = document.createElement('div');
+        band.className = 'band';
+        band.textContent = 'band ' + i;
+        document.body.append(band);
+      }
+    </script>
+  </body>
+</html>

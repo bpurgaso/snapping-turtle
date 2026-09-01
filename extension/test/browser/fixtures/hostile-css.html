@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>hostile css fixture</title>
+    <style>
+      /* A page that tries to hide, flatten, unstack and mute everything it does not own. */
+      * {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        position: static !important;
+        z-index: -1 !important;
+        pointer-events: none !important;
+        transform: scale(0.1) !important;
+        filter: blur(20px) !important;
+        width: 1px !important;
+        height: 1px !important;
+      }
+      html,
+      body,
+      main,
+      p {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        transform: none !important;
+        filter: none !important;
+        width: auto !important;
+        height: auto !important;
+        pointer-events: auto !important;
+      }
+      snapping-turtle-region {
+        display: none !important;
+        z-index: 1 !important;
+      }
+      body {
+        margin: 0;
+        background: #fff;
+        min-height: 2000px !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p id="target">hostile page content</p>
+    </main>
+    <script>
+      window.__seen = [];
+      for (const type of [
+        'pointerdown',
+        'pointerup',
+        'mousedown',
+        'mouseup',
+        'click',
+        'contextmenu',
+      ]) {
+        document.addEventListener(type, (e) =>
+          window.__seen.push(type + ':' + (e.target.tagName || '?')),
+        );
+        document
+          .getElementById('target')
+          .addEventListener(type, (e) => window.__seen.push('target:' + type));
+      }
+      document.addEventListener('keydown', (e) => window.__seen.push('keydown:' + e.key));
+    </script>
+  </body>
+</html>

@@ -8,7 +8,8 @@ import { createConfig } from '../vite.config.js';
 
 /**
  * `tsx scripts/build.ts <chrome|firefox>`:
- *   1. vite build (popup + options pages, then self-contained background) → dist/<target>/
+ *   1. vite build (popup + options pages, then the self-contained background
+ *      and content scripts) → dist/<target>/
  *   2. copy icons/ and write dist/<target>/manifest.json from the template
  *   3. zip dist/<target>/ → dist/snapping-turtle-<target>-<version>.zip
  *
@@ -43,6 +44,7 @@ const publicOrigin =
 const outDir = join(pkgRoot, 'dist', target);
 await build(createConfig(target, 'pages', { publicOrigin }));
 await build(createConfig(target, 'background', { publicOrigin }));
+await build(createConfig(target, 'content', { publicOrigin }));
 cpSync(join(pkgRoot, 'icons'), join(outDir, 'icons'), { recursive: true });
 
 const manifest = buildManifest(target, {

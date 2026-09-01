@@ -51,10 +51,12 @@ describe('buildManifest', () => {
     expect(m.host_permissions).not.toContain('<all_urls>');
   });
 
-  it('declares only the visible-capture command in M2, plus icons and an options page', () => {
+  it('declares one keyboard command per capture mode (M6), plus icons and an options page', () => {
     const m = buildManifest('firefox', opts);
-    expect(Object.keys(m.commands)).toEqual(['capture-visible']);
-    expect(m.commands['capture-visible']?.suggested_key.default).toMatch(/^\w+(\+\w+)+$/);
+    expect(Object.keys(m.commands)).toEqual(['capture-visible', 'capture-region', 'capture-full']);
+    const keys = Object.values(m.commands).map((c) => c.suggested_key.default);
+    for (const key of keys) expect(key).toMatch(/^\w+(\+\w+)+$/);
+    expect(new Set(keys).size).toBe(3);
     expect(Object.keys(m.icons).sort()).toEqual(['128', '16', '32', '48']);
     expect(m.action.default_icon).toEqual(m.icons);
     expect(m.options_ui).toEqual({ page: 'options/index.html', open_in_tab: true });

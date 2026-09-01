@@ -12,7 +12,7 @@ test.describe('built Chrome extension', () => {
     expect(worker?.url()).toBe(`chrome-extension://${extensionId}/background.js`);
   });
 
-  test('popup: three modes, only Visible enabled, M6 hint on the rest, no console errors', async ({
+  test('popup: three live modes with hints, no console errors', async ({
     context,
     extensionId,
   }) => {
@@ -25,19 +25,18 @@ test.describe('built Chrome extension', () => {
     await expect(page.getByRole('heading', { name: 'snapping-turtle' })).toBeVisible();
     const buttons = page.locator('.modes button');
     await expect(buttons).toHaveCount(3);
-    await expect(buttons.nth(0)).toHaveText('Visible');
+    await expect(buttons.nth(0)).toContainText('Visible');
     await expect(buttons.nth(1)).toContainText('Region');
-    await expect(buttons.nth(1)).toContainText('coming in M6');
-    await expect(buttons.nth(1)).toBeDisabled();
+    await expect(buttons.nth(1)).toContainText('drag to select');
     await expect(buttons.nth(2)).toContainText('Full page');
-    await expect(buttons.nth(2)).toContainText('coming in M6');
-    await expect(buttons.nth(2)).toBeDisabled();
+    await expect(buttons.nth(2)).toContainText('scrolls the whole page');
+    await expect(page.locator('.modes')).not.toContainText('coming in M6');
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
 
     // Opened as a tab, the popup's "active tab" is itself (chrome-extension://),
-    // which is exactly the restricted-page path: a clear message, capture disabled.
+    // which is exactly the restricted-page path: a clear message, every mode disabled.
     await expect(page.locator('#status')).toContainText("Can't capture this page");
-    await expect(buttons.nth(0)).toBeDisabled();
+    for (let i = 0; i < 3; i++) await expect(buttons.nth(i)).toBeDisabled();
     expect(errors).toEqual([]);
   });
 

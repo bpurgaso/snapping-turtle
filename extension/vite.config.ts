@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { defineConfig, type InlineConfig } from 'vite';
 import { isTarget, type Target } from './src/manifest.js';
 
-export type Entry = 'pages' | 'background';
+export type Entry = 'pages' | 'background' | 'content';
 
 export interface BuildOptions {
   /** Build-time default server, exposed to the bundle as __DEFAULT_SERVER_ORIGIN__. */
@@ -10,11 +10,12 @@ export interface BuildOptions {
 }
 
 /**
- * Two vite builds per target: the extension pages (popup + options, module
- * scripts that may share chunks) and a self-contained classic background
- * script, which loads as-is in both Chrome's service worker and Firefox's
- * event page. Output names are fixed because the manifest references them.
- * Driven by scripts/build.ts.
+ * Three vite builds per target: the extension pages (popup + options, module
+ * scripts that may share chunks), a self-contained classic background script,
+ * which loads as-is in both Chrome's service worker and Firefox's event page,
+ * and the self-contained content script that scripting.executeScript injects
+ * for region and full-page capture (M6). Output names are fixed because the
+ * manifest and background reference them. Driven by scripts/build.ts.
  */
 export function createConfig(target: Target, entry: Entry, opts: BuildOptions): InlineConfig {
   const pkgRoot = import.meta.dirname;
@@ -52,6 +53,10 @@ export function createConfig(target: Target, entry: Entry, opts: BuildOptions): 
       },
     };
   }
+  const script =
+    entry === 'background'
+      ? { file: 'src/background.ts', name: 'snappingTurtleBackground', out: 'background.js' }
+      : { file: 'src/content/index.ts', name: 'snappingTurtleContent', out: 'content.js' };
   return {
     ...common,
     build: {
@@ -59,10 +64,10 @@ export function createConfig(target: Target, entry: Entry, opts: BuildOptions): 
       emptyOutDir: false,
       target: 'es2022',
       lib: {
-        entry: resolve(pkgRoot, 'src/background.ts'),
+        entry: resolve(pkgRoot, script.file),
         formats: ['iife'],
-        name: 'snappingTurtleBackground',
-        fileName: () => 'background.js',
+        name: script.name,
+        fileName: () => script.out,
       },
     },
   };

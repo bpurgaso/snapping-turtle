@@ -1,7 +1,7 @@
 /**
  * The slice of the `chrome.*` namespace the smoke tests touch from inside
  * extension pages via page.evaluate. Declared locally instead of pulling in
- * @types/chrome for four calls; production code uses webextension-polyfill.
+ * @types/chrome for a handful of calls; production code uses webextension-polyfill.
  */
 declare namespace chrome {
   namespace storage {
@@ -19,6 +19,13 @@ declare namespace chrome {
     }
     function query(info: { url?: string }): Promise<Tab[]>;
     function getCurrent(): Promise<Tab | undefined>;
+    function sendMessage(tabId: number, message: unknown): Promise<unknown>;
+  }
+  namespace scripting {
+    function executeScript(injection: {
+      target: { tabId: number };
+      files: string[];
+    }): Promise<unknown>;
   }
   namespace runtime {
     function sendMessage(message: unknown): Promise<unknown>;

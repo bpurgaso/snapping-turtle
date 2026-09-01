@@ -3,7 +3,6 @@ import { clearFailureFlag, readLastError } from '../lib/failure-flag.js';
 import { describeLastError } from '../lib/last-error.js';
 import {
   CAPTURE_MODES,
-  ENABLED_MODES,
   type CaptureMode,
   type CaptureRequest,
   type CaptureResponse,
@@ -12,10 +11,12 @@ import { restrictedReason } from '../lib/restricted.js';
 import { loadSettings } from '../lib/settings.js';
 
 /**
- * Toolbar popup (PLAN.md §15): Visible / Region / Full page. Only Visible is
- * wired in M2; the others keep their place in the layout, disabled, with an
- * M6 hint. Built with DOM APIs only — extension pages run under a strict CSP
- * and CLAUDE.md rule 5 forbids innerHTML.
+ * Toolbar popup (PLAN.md §15): Visible / Region / Full page, all live since
+ * M6, with the last-used mode outlined. Visible waits for the upload and
+ * reports inline; Region and Full page close the popup as soon as the
+ * background confirms it has started, so the page has focus for the drag /
+ * Esc and the badge shows progress. Built with DOM APIs only — extension
+ * pages run under a strict CSP and CLAUDE.md rule 5 forbids innerHTML.
  */
 
 const LABELS: Record<CaptureMode, string> = {
@@ -23,7 +24,11 @@ const LABELS: Record<CaptureMode, string> = {
   region: 'Region',
   full: 'Full page',
 };
-const DISABLED_HINT = 'coming in M6';
+const HINTS: Record<CaptureMode, string> = {
+  visible: 'what is on screen',
+  region: 'drag to select',
+  full: 'scrolls the whole page',
+};
 
 const root = document.getElementById('popup');
 if (root) void init(root);
@@ -57,15 +62,10 @@ async function init(main: HTMLElement): Promise<void> {
     const label = document.createElement('span');
     label.className = 'label';
     label.textContent = LABELS[mode];
-    button.append(label);
-    if (!ENABLED_MODES.has(mode)) {
-      button.disabled = true;
-      button.title = `${LABELS[mode]} capture is ${DISABLED_HINT}`;
-      const hint = document.createElement('span');
-      hint.className = 'hint';
-      hint.textContent = DISABLED_HINT;
-      button.append(hint);
-    }
+    const hint = document.createElement('span');
+    hint.className = 'hint';
+    hint.textContent = HINTS[mode];
+    button.append(label, hint);
     buttons.set(mode, button);
     list.append(button);
   }
@@ -114,20 +114,21 @@ async function init(main: HTMLElement): Promise<void> {
     status.classList.add('warn');
   }
 
-  const visible = buttons.get('visible')!;
-  visible.addEventListener('click', () => {
-    if (tab?.id === undefined || tab.windowId === undefined) {
-      status.textContent = "Can't capture: no active tab.";
-      status.className = 'status error';
-      return;
-    }
-    void capture({ type: 'capture', mode: 'visible', tabId: tab.id, windowId: tab.windowId });
-  });
+  for (const [mode, button] of buttons) {
+    button.addEventListener('click', () => {
+      if (tab?.id === undefined || tab.windowId === undefined) {
+        status.textContent = "Can't capture: no active tab.";
+        status.className = 'status error';
+        return;
+      }
+      void capture({ type: 'capture', mode, tabId: tab.id, windowId: tab.windowId });
+    });
+  }
 
   async function capture(request: CaptureRequest): Promise<void> {
     for (const button of buttons.values()) button.disabled = true;
     status.className = 'status';
-    status.textContent = 'Capturing…';
+    status.textContent = request.mode === 'full' ? 'Capturing the whole page…' : 'Capturing…';
     let response: CaptureResponse;
     try {
       response = (await browser.runtime.sendMessage(request)) as CaptureResponse;
@@ -139,12 +140,13 @@ async function init(main: HTMLElement): Promise<void> {
       };
     }
     if (response.ok) {
-      status.textContent = 'Opened your capture page.';
+      status.textContent =
+        response.status === 'uploaded' ? 'Opened your capture page.' : 'Started — see the page.';
       window.close();
       return;
     }
     status.textContent = response.message;
     status.className = 'status error';
-    for (const [mode, button] of buttons) button.disabled = !ENABLED_MODES.has(mode);
+    for (const button of buttons.values()) button.disabled = false;
   }
 }

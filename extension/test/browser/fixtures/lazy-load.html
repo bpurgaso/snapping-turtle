@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>lazy load fixture</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+      }
+      .chunk {
+        height: 600px;
+        background: #ddd;
+        border-bottom: 2px solid #999;
+      }
+      #sentinel {
+        height: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="chunk">chunk 0</div>
+    <div class="chunk">chunk 1</div>
+    <div class="chunk">chunk 2</div>
+    <div class="chunk">chunk 3</div>
+    <div id="sentinel"></div>
+    <script>
+      // Infinite-scroll stand-in: each time the sentinel is visible, append two more chunks (up to 12).
+      let count = 4;
+      const sentinel = document.getElementById('sentinel');
+      new IntersectionObserver((entries) => {
+        if (!entries.some((e) => e.isIntersecting) || count >= 12) return;
+        for (let i = 0; i < 2; i++) {
+          const chunk = document.createElement('div');
+          chunk.className = 'chunk';
+          chunk.textContent = 'chunk ' + count++;
+          sentinel.before(chunk);
+        }
+      }).observe(sentinel);
+    </script>
+  </body>
+</html>

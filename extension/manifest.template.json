@@ -28,6 +28,14 @@
     "capture-visible": {
       "suggested_key": { "default": "Alt+Shift+S" },
       "description": "Capture the visible part of the current tab"
+    },
+    "capture-region": {
+      "suggested_key": { "default": "Alt+Shift+R" },
+      "description": "Select a region of the current tab to capture"
+    },
+    "capture-full": {
+      "suggested_key": { "default": "Alt+Shift+F" },
+      "description": "Capture the whole page of the current tab"
     }
   }
 }
