@@ -36,7 +36,7 @@ services:
       - '127.0.0.1:3100:3000'
 
   k6:
-    image: grafana/k6:1.3.0
+    image: grafana/k6:2.2.0
     profiles: [k6]
     networks: [web]
     volumes:
