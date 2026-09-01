@@ -32,7 +32,7 @@ jobs:
       DATABASE_URL: postgres://app:ci-only-password@127.0.0.1:5432/snapping_turtle_test
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v4 # version comes from package.json#packageManager
+      - uses: pnpm/action-setup@v6 # version comes from package.json#packageManager
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
