@@ -18,7 +18,8 @@
     "lint": "eslint .",
     "typecheck": "pnpm --filter @snapping-turtle/shared build && pnpm -r typecheck",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "loadtest": "bash loadtest/run.sh"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -29,5 +30,16 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.68.0",
     "vitest": "4.1.11"
+  },
+  "pnpm": {
+    "overrides": {
+      "canvas": "-"
+    },
+    "auditConfig": {
+      "ignoreCves": [
+        "CVE-2026-27013",
+        "CVE-2026-44311"
+      ]
+    }
   }
 }

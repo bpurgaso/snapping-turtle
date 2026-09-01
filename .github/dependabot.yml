@@ -1,0 +1,41 @@
+# Dependabot (PLAN.md §12 "Operational"): weekly, grouped so a review is one
+# PR per ecosystem rather than thirty. Every PR still has to pass the full
+# CI contract — including pnpm audit and the Trivy image scans — before it
+# is mergeable. Major bumps of security-sensitive runtime pieces are left
+# to a human on purpose (Fabric.js: renderer parity contract, PLAN §10;
+# sharp/argon2: native binaries; Fastify: the whole HTTP surface).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        dependency-type: development
+      runtime-minor-patch:
+        dependency-type: production
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: fabric
+        update-types: [version-update:semver-major]
+      - dependency-name: sharp
+        update-types: [version-update:semver-major]
+      - dependency-name: argon2
+        update-types: [version-update:semver-major]
+      - dependency-name: fastify
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+
+  - package-ecosystem: docker
+    directory: /deploy
+    schedule:
+      interval: weekly
+      day: monday

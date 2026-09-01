@@ -52,9 +52,17 @@ ENV NODE_ENV=production \
     FONTCONFIG_PATH=/app/server/fontconfig \
     PANGOCAIRO_BACKEND=fontconfig \
     XDG_CACHE_HOME=/tmp
+# Patch the base OS at build time, and drop the package managers the base
+# image bundles (npm, corepack, yarn): the runtime only ever runs `node`, and
+# npm's own dependency tree is the largest source of CVE noise in the image
+# (Trivy gates HIGH/CRITICAL in CI — deploy/.trivyignore holds the reviewed
+# exceptions).
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends fontconfig \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+           /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn*
 WORKDIR /app
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=prod-deps --chown=node:node /app/server/node_modules ./server/node_modules

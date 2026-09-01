@@ -1,0 +1,9 @@
+# Reviewed Trivy exceptions for the CI image scans (.github/workflows/ci.yml).
+# One CVE per line, each with the date, the image it applies to, why it does
+# not affect this deployment, and when to revisit. Anything not listed here
+# that is HIGH/CRITICAL with a fix available fails the build — the answer is
+# normally to rebuild (apt/apk upgrade at build time) or bump a base image,
+# not to add a line here. Keep this file short; docs/supply-chain.md explains
+# the review process.
+#
+# Format:  CVE-YYYY-NNNNN   # <date> <image>: <reason>; revisit <when>
