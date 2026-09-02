@@ -5,7 +5,8 @@
 #
 # The script brings up a dedicated compose project (fresh volumes, no
 # published ports, Caddy's internal CA, both hostnames as container aliases
-# so "DNS" for old and new point at one proxy), then:
+# so "DNS" for old and new point at one proxy) on the deployment's custom
+# port (PUBLIC_PORT, default 28443 — every URL below carries it), then:
 #
 #   1. deploys as OLD_HOST, seeds an admin, mints an API token and uploads a
 #      capture — a real https://OLD_HOST/s/<id> link exists;
@@ -21,11 +22,26 @@
 #
 #   deploy/test-domain-migration.sh            # reuse built images
 #   REBUILD=1 deploy/test-domain-migration.sh  # rebuild app + caddy first
+#   PUBLIC_PORT=8443 deploy/test-domain-migration.sh   # any other port
+#
+# What it deliberately does NOT rehearse: real certificate issuance. In
+# production both names get Let's Encrypt certificates through the ACME
+# DNS-01 challenge (Caddy + the Cloudflare plugin, a zone API token, no
+# inbound 80/443), which needs a real DNS zone and a real token — neither
+# exists on a laptop, so the rehearsal keeps Caddy's internal CA via
+# docker-compose.local.yml. The old-domain block it writes is shaped exactly
+# like deploy/caddy.d/old-domain.caddy.example (`import tls_dns`), which
+# Caddyfile.local resolves to `tls internal`. Everything else — the
+# one-variable change, the 308, the port in every link, rollback — is the
+# real procedure.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 OLD_HOST=${OLD_HOST:-old.shots.test}
 NEW_HOST=${NEW_HOST:-new.shots.test}
+PUBLIC_PORT=${PUBLIC_PORT:-28443}
+OLD=$OLD_HOST:$PUBLIC_PORT   # origins as users see them: every link carries the port
+NEW=$NEW_HOST:$PUBLIC_PORT
 PROJECT=snapping-turtle-migration
 CURL_IMAGE=curlimages/curl:8.21.0
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/st-migration.XXXXXX")
@@ -60,6 +76,17 @@ curl_in() {
   docker run --rm --network "${PROJECT}_web" -v "$WORK:/w" "$CURL_IMAGE" \
     -sS --cacert /w/root.crt "$@"
 }
+# Listening TCP/UDP ports inside the rehearsal's Caddy, excluding its
+# loopback-only admin endpoint (2019) and ephemeral ports (≥ 32768).
+listening_ports() {
+  "${COMPOSE[@]}" exec -T caddy sh -c '
+    for f in tcp tcp6; do awk "NR>1 && \$4==\"0A\" {print \"tcp\", \$2}" /proc/net/$f; done
+    for f in udp udp6; do awk "NR>1 && \$4==\"07\" {print \"udp\", \$2}" /proc/net/$f; done' |
+    while read -r proto addr; do
+      port=$((16#${addr##*:}))
+      [ "$port" -eq 2019 ] || [ "$port" -ge 32768 ] || echo "$proto:$port"
+    done | sort -u | tr '\n' ' ' | sed 's/ $//'
+}
 json_field() { # field  (flat string fields only)
   sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"
 }
@@ -67,6 +94,7 @@ json_field() { # field  (flat string fields only)
 write_env() { # public_host
   cat >"$WORK/.env" <<EOF
 PUBLIC_HOST=$1
+PUBLIC_PORT=$PUBLIC_PORT
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 APP_DB_PASSWORD=$(openssl rand -hex 24)
 SESSION_SECRET=$(openssl rand -base64 48)
@@ -103,26 +131,28 @@ PY
 
 echo "== 1. a capture shared from the old domain"
 login=$(curl_in -c /w/jar -H 'content-type: application/json' \
-  -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" "https://$OLD_HOST/api/v1/auth/login")
+  -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" "https://$OLD/api/v1/auth/login")
 csrf=$(printf '%s' "$login" | json_field csrfToken)
 [ -n "$csrf" ] || { echo "login failed: $login" >&2; exit 1; }
 token=$(curl_in -b /w/jar -H "x-csrf-token: $csrf" -H 'content-type: application/json' \
-  -d '{"name":"migration-rehearsal"}' "https://$OLD_HOST/api/v1/tokens" | json_field token)
+  -d '{"name":"migration-rehearsal"}' "https://$OLD/api/v1/tokens" | json_field token)
 [ -n "$token" ] || { echo "token creation failed" >&2; exit 1; }
 upload=$(curl_in -H "Authorization: Bearer $token" -F image=@/w/capture.png \
-  -F sourceUrl=https://example.org/page -F title=Rehearsal "https://$OLD_HOST/api/v1/captures")
+  -F sourceUrl=https://example.org/page -F title=Rehearsal "https://$OLD/api/v1/captures")
 page_url=$(printf '%s' "$upload" | json_field pageUrl)
-view_path=${page_url#https://$OLD_HOST}
+view_path=${page_url#https://$OLD}
 case "$view_path" in /s/*) ;; *) echo "unexpected pageUrl: $upload" >&2; exit 1 ;; esac
-echo "  shared link: https://$OLD_HOST${view_path:0:11}… (id truncated in output, CLAUDE.md rule 3)"
+echo "  shared link: https://$OLD${view_path:0:11}… (id truncated in output, CLAUDE.md rule 3)"
 assert_eq "old link serves 200 before migration" 200 "$(curl_in -o /dev/null -w '%{http_code}' "$page_url")"
 assert_eq "old image link serves image/png" image/png "$(curl_in -o /dev/null -w '%{content_type}' "$page_url/image.png")"
 
 echo "== 2. migrate per the runbook: redirect block + PUBLIC_HOST + up -d"
+# Same shape as deploy/caddy.d/old-domain.caddy.example: the old name on the
+# one published port, certificate via the tls_dns snippet (internal CA here).
 cat >"$WORK/sites.d/old-domain.caddy" <<EOF
-$OLD_HOST {
-	tls internal
-	redir https://{\$PUBLIC_HOST}{uri} 308
+$OLD_HOST:{\$PUBLIC_PORT} {
+	import tls_dns
+	redir https://{\$PUBLIC_HOST}:{\$PUBLIC_PORT}{uri} 308
 }
 EOF
 set_public_host "$NEW_HOST"
@@ -131,29 +161,31 @@ set_public_host "$NEW_HOST"
 echo "== 3. assertions"
 query='?from=chat&x=1%202&y=%2Fz'
 code_and_location=$(curl_in -o /dev/null -w '%{http_code} %{redirect_url}' "$page_url$query")
-assert_eq "old /s/<id>?query → 308 to the identical path+query on the new host" \
-  "308 https://$NEW_HOST$view_path$query" "$code_and_location"
+assert_eq "old /s/<id>?query → 308 to the identical path+query on the new host (port kept)" \
+  "308 https://$NEW$view_path$query" "$code_and_location"
 assert_eq "old /s/<id>/image.png → 308 to the new host" \
-  "308 https://$NEW_HOST$view_path/image.png" \
+  "308 https://$NEW$view_path/image.png" \
   "$(curl_in -o /dev/null -w '%{http_code} %{redirect_url}' "$page_url/image.png")"
 assert_eq "following the redirect serves the capture page on the new host" \
-  "200 https://$NEW_HOST$view_path" \
+  "200 https://$NEW$view_path" \
   "$(curl_in -L -o /dev/null -w '%{http_code} %{url_effective}' "$page_url")"
 assert_eq "new host serves the image directly" image/png \
-  "$(curl_in -o /dev/null -w '%{content_type}' "https://$NEW_HOST$view_path/image.png")"
+  "$(curl_in -o /dev/null -w '%{content_type}' "https://$NEW$view_path/image.png")"
 assert_eq "a never-existed id still 404s uniformly on the new host" 404 \
-  "$(curl_in -o /dev/null -w '%{http_code}' "https://$NEW_HOST/s/AAAAAAAAAAAAAAAAAAAAAAAAAAA")"
+  "$(curl_in -o /dev/null -w '%{http_code}' "https://$NEW/s/AAAAAAAAAAAAAAAAAAAAAAAAAAA")"
 assert_eq "certificates are live for both names (TLS handshake ok)" "200 308" \
-  "$(curl_in -o /dev/null -w '%{http_code} ' "https://$NEW_HOST/login")$(curl_in -o /dev/null -w '%{http_code}' "https://$OLD_HOST/login")"
+  "$(curl_in -o /dev/null -w '%{http_code} ' "https://$NEW/login")$(curl_in -o /dev/null -w '%{http_code}' "https://$OLD/login")"
 assert_eq "API calls to the old host redirect too (extensions must be rebuilt for the new default)" 308 \
-  "$(curl_in -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "https://$OLD_HOST/api/v1/ping")"
+  "$(curl_in -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "https://$OLD/api/v1/ping")"
 new_upload=$(curl_in -H "Authorization: Bearer $token" -F image=@/w/capture.png \
-  -F sourceUrl=https://example.org/page2 -F title=After "https://$NEW_HOST/api/v1/captures")
+  -F sourceUrl=https://example.org/page2 -F title=After "https://$NEW/api/v1/captures")
 new_page=$(printf '%s' "$new_upload" | json_field pageUrl)
-assert_eq "the app mints new links on the new host (PUBLIC_ORIGIN followed PUBLIC_HOST)" \
-  "https://$NEW_HOST/s/" "${new_page:0:$((${#NEW_HOST} + 11))}"
+assert_eq "the app mints new links on the new host, port included (PUBLIC_ORIGIN followed PUBLIC_HOST)" \
+  "https://$NEW/s/" "${new_page:0:$((${#NEW} + 11))}"
+assert_eq "nothing listens on 80 or 443 in the proxy (only PUBLIC_PORT, TCP + UDP)" \
+  "tcp:$PUBLIC_PORT udp:$PUBLIC_PORT" "$(listening_ports)"
 assert_eq "the old session cookie is not sent cross-host: /me on the new host is 401 until re-login" 401 \
-  "$(curl_in -b /w/jar -o /dev/null -w '%{http_code}' "https://$NEW_HOST/api/v1/auth/me")"
+  "$(curl_in -b /w/jar -o /dev/null -w '%{http_code}' "https://$NEW/api/v1/auth/me")"
 
 echo "== 4. rollback: remove the block, restore PUBLIC_HOST, up -d"
 rm "$WORK/sites.d/old-domain.caddy"
@@ -162,8 +194,8 @@ set_public_host "$OLD_HOST"
 assert_eq "old host serves the capture directly again" 200 \
   "$(curl_in -o /dev/null -w '%{http_code}' "$page_url")"
 rolled_back=$(curl_in -H "Authorization: Bearer $token" -F image=@/w/capture.png \
-  -F sourceUrl=https://example.org/page3 -F title=Rollback "https://$OLD_HOST/api/v1/captures" | json_field pageUrl)
-assert_eq "links are minted on the old host again" "https://$OLD_HOST/s/" "${rolled_back:0:$((${#OLD_HOST} + 11))}"
+  -F sourceUrl=https://example.org/page3 -F title=Rollback "https://$OLD/api/v1/captures" | json_field pageUrl)
+assert_eq "links are minted on the old host again" "https://$OLD/s/" "${rolled_back:0:$((${#OLD} + 11))}"
 
 echo
 echo "== domain migration rehearsal: $pass passed, $fail failed"
