@@ -19,7 +19,7 @@ pnpm --filter extension build:release
 
 Produces `extension/dist/snapping-turtle-chrome-<version>.zip` and
 `…-firefox-<version>.zip`, both stamped with `extension/package.json`'s
-version, both defaulting to `https://$PUBLIC_HOST`, both audited: manifests
+version, both defaulting to `https://$PUBLIC_HOST:$PUBLIC_PORT` (the port is part of the origin), both audited: manifests
 generated from `manifest.template.json` only, no `http://` or loopback
 origins outside the options page's help text, no debug logging, no source
 maps or stray files, zip identical to `dist/<target>/`, and addons-linter
@@ -194,12 +194,12 @@ AMO's automated validation and signature (usually one to a few minutes),
 downloads the signed `.xpi` into `dist/signed/`, copies it to
 `deploy/ext/snapping-turtle-firefox-<version>.xpi` and upserts
 `deploy/ext/updates.json` (sha256 of the file, `strict_min_version`). The
-app serves both at `https://$PUBLIC_HOST/ext/` immediately (compose mounts
+app serves both at `https://$PUBLIC_HOST:$PUBLIC_PORT/ext/` immediately (compose mounts
 `deploy/ext` read-only; no restart needed). Verify:
 
 ```sh
-curl -sS https://$PUBLIC_HOST/ext/updates.json | grep -E '"version"|update_link'
-curl -sSI https://$PUBLIC_HOST/ext/snapping-turtle-firefox-<version>.xpi | grep -i content-type
+curl -sS https://$PUBLIC_HOST:$PUBLIC_PORT/ext/updates.json | grep -E '"version"|update_link'
+curl -sSI https://$PUBLIC_HOST:$PUBLIC_PORT/ext/snapping-turtle-firefox-<version>.xpi | grep -i content-type
 #   → application/x-xpinstall
 ```
 
@@ -217,11 +217,11 @@ reason.
 
 ### Install and updates for users
 
-- First install: open `https://$PUBLIC_HOST/ext/snapping-turtle-firefox-<version>.xpi`
+- First install: open `https://$PUBLIC_HOST:$PUBLIC_PORT/ext/snapping-turtle-firefox-<version>.xpi`
   in Firefox → allow the site to install add-ons → confirm the permissions.
   Put that link on your `/account` page or in the message that hands over
   the one-time account link.
-- Updates: Firefox checks `update_url` (`https://$PUBLIC_HOST/ext/updates.json`)
+- Updates: Firefox checks `update_url` (`https://$PUBLIC_HOST:$PUBLIC_PORT/ext/updates.json`)
   about once a day and installs newer versions on its own. Publishing a
   version is therefore `build:release` + `sign:firefox`, nothing else.
 

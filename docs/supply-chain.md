@@ -71,8 +71,10 @@ surface).
 ## Pins
 
 - Caddy is built from an exact patch release with the rate-limit plugin
-  pinned to a commit (`deploy/Dockerfile.caddy`): the TLS terminator is the
-  most exposed piece and must not float.
+  pinned to a commit and the DNS-01 provider (`caddy-dns/cloudflare`)
+  pinned to a tag (`deploy/Dockerfile.caddy`): the TLS terminator holds the
+  zone API token and is the most exposed piece; neither module may float.
+  The scanned image is that xcaddy build.
 - Every action in `ci.yml` is pinned to a tag; Dependabot proposes bumps.
 - k6 and Trivy run as containers at exact versions; neither is an npm
   dependency.

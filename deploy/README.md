@@ -1,25 +1,28 @@
 # Deploying snapping-turtle
 
-Three services (PLAN.md §14): `caddy` (TLS, ACME, redirects, body limits), `app`
-(Fastify), `postgres`. Postgres is on an internal-only network; the app runs as
-the unprivileged `node` user with a read-only root filesystem, `no-new-privileges`
-and all capabilities dropped.
+Three services (PLAN.md §14): `caddy` (TLS via ACME DNS-01, body limits, the
+coarse rate cap), `app` (Fastify), `postgres`. Postgres is on an internal-only
+network; the app runs as the unprivileged `node` user with a read-only root
+filesystem, `no-new-privileges` and all capabilities dropped. The host
+publishes exactly one port, `PUBLIC_PORT` (28443 by default, TCP + UDP);
+nothing listens on 80 or 443.
 
 ## Production
 
 ```sh
 cp deploy/.env.example deploy/.env
-$EDITOR deploy/.env          # PUBLIC_HOST, POSTGRES_PASSWORD, SESSION_SECRET at minimum
+$EDITOR deploy/.env          # PUBLIC_HOST, CLOUDFLARE_API_TOKEN, POSTGRES_PASSWORD, SESSION_SECRET at minimum
 docker compose -f deploy/docker-compose.yml up -d --build
-docker compose -f deploy/docker-compose.yml ps    # wait for app: healthy
+docker compose -f deploy/docker-compose.yml ps    # wait for app: healthy; caddy shows only PUBLIC_PORT
+docker compose -f deploy/docker-compose.yml logs caddy | grep -E 'certificate obtained|error'
 ```
 
 Generate secrets rather than typing them: `openssl rand -base64 48` for
 `SESSION_SECRET`, `openssl rand -hex 24` for `POSTGRES_PASSWORD`.
 
-Caddy obtains and renews a Let's Encrypt certificate for `PUBLIC_HOST`; ports 80
-and 443 must be reachable from the internet. Migrations run automatically when
-the app starts. Create the first admin once:
+The firewall opens `PUBLIC_PORT` (TCP and UDP) and nothing else — not 80,
+not 443 (see "TLS" below for why neither is needed). Migrations run
+automatically when the app starts. Create the first admin once:
 
 ```sh
 docker compose -f deploy/docker-compose.yml run --rm app node dist/db/seed.js
@@ -28,19 +31,116 @@ docker compose -f deploy/docker-compose.yml run --rm app node dist/db/seed.js
 then remove `ADMIN_BOOTSTRAP_*` from `deploy/.env`. Re-running the seed never
 changes an existing user's password.
 
+## TLS: Let's Encrypt via DNS-01, one high port, no 80/443
+
+Caddy obtains and renews the certificate for `PUBLIC_HOST` with the ACME
+**DNS-01** challenge: instead of Let's Encrypt connecting *to* the host on
+port 80 (HTTP-01) or 443 (TLS-ALPN-01), Caddy proves control of the DNS zone
+by creating a `_acme-challenge` TXT record through the Cloudflare API and
+removing it afterwards. Consequences worth knowing:
+
+- **No inbound 80/443, ever.** Nothing binds them: the Caddyfile's
+  `auto_https disable_redirects` removes the HTTP→HTTPS redirect server that
+  would otherwise listen on :80, and Caddy's ACME client uses the DNS
+  solver *exclusively* once one is configured (certmagic registers no
+  HTTP-01/TLS-ALPN-01 solver in that case), so no challenge ever needs a
+  connection in. The compose file publishes `PUBLIC_PORT` only; the
+  migration rehearsal asserts nothing else listens.
+- **Renewal depends on the token staying valid.** Caddy renews ~30 days
+  before expiry using the same token, in the background, with no cron. If
+  the token is revoked, rotated in Cloudflare but not in `deploy/.env`, or
+  loses a permission, renewals fail quietly until the certificate expires —
+  the failures are in `docker compose logs caddy` (errors from the `tls.obtain`
+  logger naming the DNS challenge, the zone or the token). Treat "rotate the
+  token" as "update `deploy/.env` and `up -d` in the same change", and
+  keep the token's expiry unset or far out.
+- **The one published port is HTTP/1.1, HTTP/2 and HTTP/3** (`Alt-Svc:
+  h3=":28443"`), so both TCP and UDP for it are published.
+
+**Why a high port at all, and what it is not.** Moving off 443 keeps this
+service out of the way of anything else on the box or a shared IP, and
+combined with DNS-01 it takes two well-known listeners off the host — that
+is conflict avoidance and surface reduction. It is **not** a security
+control: mass scanners sweep all 65,535 ports and will find 28443 in the
+same pass as 443, so nothing in this design relies on the port being
+unknown. The defenses are the ones PLAN.md §6 and §12 describe — 160-bit
+capability URLs, byte-identical 404s, the per-IP ban ladder and the global
+breaker, strict headers — and they are identical on any port. 28443 was
+chosen because it is memorable and sits below Linux's default ephemeral
+port range (`net.ipv4.ip_local_port_range` starts at 32768), so no kernel
+port reservation is needed for the listener; any other free port below
+32768 works the same way — change `PUBLIC_PORT`, `up -d`, rebuild the
+extension.
+
+### Creating the Cloudflare API token (least privilege)
+
+In the Cloudflare dashboard: *My Profile → API Tokens → Create Token →
+Create Custom Token*:
+
+| Setting         | Value                                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Permissions     | **Zone → Zone → Read** and **Zone → DNS → Edit** (both; `DNS:Edit` alone fails the plugin's zone lookup, which needs `Zone:Read`) |
+| Zone Resources  | *Include → Specific zone → the one zone `PUBLIC_HOST` lives in* — not "All zones"                                               |
+| Client IP filtering | optional: the server's public IP, if it is static                                                                           |
+| TTL             | none, or far enough out that a renewal cannot silently miss it                                                                   |
+
+Copy the token once into `CLOUDFLARE_API_TOKEN` in `deploy/.env`. It is
+read only by Caddy, from its environment (`{env.CLOUDFLARE_API_TOKEN}` in
+the Caddyfile), never written to any file or log by anything in this repo
+(CLAUDE.md rules 3 and 12). A token with `Zone:Read` + `DNS:Edit` on one
+zone can rewrite that zone's records — that is the blast radius if the host
+is compromised; a dedicated zone for this service bounds it further.
+
+**The DNS record must be DNS-only (grey cloud).** `PUBLIC_HOST`'s A/AAAA
+record in Cloudflare must have the proxy switched **off**: Cloudflare's
+proxy only forwards a fixed list of ports (28443 is not one of them) and it
+terminates TLS with its own edge certificate, which cannot coexist with the
+origin-issued Let's Encrypt certificate the extension and browsers expect
+from this origin. Orange cloud = connection refused or a certificate for
+the wrong party; grey cloud = works. The DNS-01 challenge itself is
+unaffected either way.
+
+### Provider swap
+
+The DNS provider is a build argument plus one Caddyfile line. To move to
+another provider from the `caddy-dns` organisation (say `route53`,
+`digitalocean`, `hetzner`, …):
+
+1. `deploy/Dockerfile.caddy`: set `CADDY_DNS_MODULE` to
+   `github.com/caddy-dns/<provider>@<tag>` (pin a tag or commit, never
+   `@latest` — the TLS terminator is supply-chain surface), or pass
+   `--build-arg` at build time;
+2. `deploy/Caddyfile`, snippet `tls_dns`: `dns <provider> {env.<PROVIDER_TOKEN>}`
+   with whatever credential arguments that provider's README specifies;
+3. `deploy/docker-compose.yml`: pass the new variable into the `caddy`
+   service's environment and document it in `deploy/.env.example`;
+4. `docker compose ... up -d --build`, then confirm `certificate obtained`
+   in the Caddy log.
+
+Not done here, on purpose: a shared edge (one Caddy in front of several
+sites, or this service behind someone else's reverse proxy). That is a
+different answer to a different problem — the edge then owns certificates,
+ports and the client IP the guard keys on (`TRUST_PROXY`), and this
+compose file assumes it *is* the edge.
+
 ## Local / development without ACME
 
-Set `PUBLIC_HOST=localhost` in `deploy/.env` and run the same `up` command.
-Caddy treats `localhost` as an internal name and signs it with its own CA — no
-Let's Encrypt traffic, no public ports required. The site is at
-`https://localhost` (self-signed; `curl -k` or trust the CA below).
-
-For any other non-public hostname (a LAN name, `shots.test`, …) add the local
-override, which forces `tls internal`:
+Every local run — `localhost` included — uses the local override, which
+swaps in `Caddyfile.local` (same `PUBLIC_HOST:PUBLIC_PORT` listener, Caddy's
+internal CA instead of ACME, no Cloudflare token needed):
 
 ```sh
+# in deploy/.env: PUBLIC_HOST=localhost   (or a LAN name, shots.test, …)
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml up -d --build
 ```
+
+The site is then at `https://localhost:28443` (self-signed; `curl -k`, or
+trust the CA below). The override is required even for `localhost`: the
+production Caddyfile configures the DNS-01 issuer explicitly, and an
+explicit issuer overrides the internal-CA default Caddy would otherwise
+apply to local names — with the production file, `localhost` would try Let's
+Encrypt and fail. Nothing public is needed: no port has to be reachable
+from outside, and the stack still publishes only `PUBLIC_PORT`.
 
 To make browsers trust the internal CA, export its root and add it to your OS
 trust store:
@@ -186,19 +286,23 @@ completed at least one nightly backup that `verify-restore.sh` passes.
 ## Domain migration
 
 One variable: change `PUBLIC_HOST`, add the old-domain `redir 308` block in
-`deploy/caddy.d/` (copy the example), `docker compose ... up -d`, then
-`build:release` + re-sign/republish the extension so its baked-in default
-matches. The full procedure — DNS preconditions, verification, what users
-see, how long the redirect must live, rollback — is
+`deploy/caddy.d/` (copy the example — it listens on the same `PUBLIC_PORT`
+and gets its certificate through the same DNS-01 snippet), `docker compose
+... up -d`, then `build:release` + re-sign/republish the extension so its
+baked-in default matches. The precondition is that the API token can edit
+the new name's zone; no port opens or closes. The full procedure — DNS
+preconditions, verification, what users see, how long the redirect must
+live, rollback — is
 [`docs/runbooks/domain-migration.md`](../docs/runbooks/domain-migration.md),
 and `deploy/test-domain-migration.sh` rehearses it against a throwaway compose
-project (both hostnames, Caddy's internal CA) and asserts that shared
-`/s/<id>?query` links survive the redirect byte-for-byte. Run it before a
+project (both hostnames, the custom port, Caddy's internal CA standing in
+for DNS-01) and asserts that shared `/s/<id>?query` links survive the
+redirect byte-for-byte and that nothing listens on 80/443. Run it before a
 real migration.
 
 ## Extension distribution
 
-The app serves `deploy/ext/` read-only at `https://$PUBLIC_HOST/ext/`: the
+The app serves `deploy/ext/` read-only at `https://$PUBLIC_HOST:$PUBLIC_PORT/ext/`: the
 AMO-signed Firefox `.xpi` and the `updates.json` Firefox polls for updates
 (`pnpm --filter extension sign:firefox` writes both; see
 `extension/STORE_SUBMISSION.md`). Chrome installs come from the unlisted Web
@@ -206,8 +310,16 @@ Store listing and update through the store.
 
 ## Notes
 
-- Caddy runs as root inside its container (needed to bind 80/443 in the stock
-  image); the app and Postgres do not.
+- Caddy runs as root inside its container (the stock image's default; it
+  binds only `PUBLIC_PORT` and its loopback admin endpoint); the app and
+  Postgres do not.
+- `PUBLIC_ORIGIN` is derived by compose as `https://$PUBLIC_HOST:$PUBLIC_PORT`
+  and is the single source of every generated URL — page links, image links,
+  `/ext/updates.json`. The app refuses to boot if `PUBLIC_PORT` and the port
+  in `PUBLIC_ORIGIN` disagree (config drift fails loudly, like the image-pin
+  check in CI).
 - Resource limits are set via `deploy.resources.limits`; adjust per host.
-- Trivy scans the built app and backup images in CI (HIGH/CRITICAL fail the
-  build; reviewed exceptions live in `deploy/.trivyignore`).
+- Trivy scans the built app, backup and Caddy images in CI (HIGH/CRITICAL
+  fail the build; reviewed exceptions live in `deploy/.trivyignore`). The
+  Caddy image is the xcaddy build with the DNS and rate-limit plugins, so
+  the scanned binary is the one that runs.

@@ -1,6 +1,6 @@
 # deploy/ext — self-distributed Firefox artifacts
 
-The app serves this directory read-only at `https://$PUBLIC_HOST/ext/`
+The app serves this directory read-only at `https://$PUBLIC_HOST:$PUBLIC_PORT/ext/` (the port is part of every URL, PLAN.md §14)
 (PLAN.md §15, M8): `updates.json` (the Firefox manifest's `update_url`) and
 the signed `snapping-turtle-firefox-<version>.xpi` files it links to. Only
 those two file shapes are reachable; there is no listing.

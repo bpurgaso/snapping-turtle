@@ -10,8 +10,8 @@ a link back to the original page. Nothing goes to a third party.
 It is built defensively from day one — capability URLs with 160 bits of
 entropy, byte-identical 404s so nothing can be enumerated, per-IP bans and a
 global breaker, full attribution of every upload, an append-only admin audit
-log enforced by the database, strict CSP, automated TLS, retention with
-tombstones, nightly verified backups. Design: [PLAN.md](PLAN.md). Working
+log enforced by the database, strict CSP, automated TLS via DNS-01 with a
+single published port, retention with tombstones, nightly verified backups. Design: [PLAN.md](PLAN.md). Working
 rules: [CLAUDE.md](CLAUDE.md). All docs: [docs/README.md](docs/README.md).
 
 **Status:** v1 complete (milestones M0–M8, PLAN.md §16). What remains is
@@ -32,13 +32,21 @@ Accounts are required to upload; the admin creates them with one-time links
 
 ## Fresh deploy — from DNS to first capture
 
-You need a Linux box with Docker + Compose v2, ports 80/443 reachable from
-the internet, and a hostname. Node is only needed on the machine that builds
-the extension (below).
+You need a Linux box with Docker + Compose v2, a hostname in a Cloudflare
+DNS zone, and **one** inbound port open in the firewall: 28443 (TCP and UDP)
+— nothing on 80 or 443, since certificates come from Let's Encrypt via the
+DNS-01 challenge and never need an inbound connection. The port is
+conflict avoidance, not a defense: scanners sweep every port, and what
+protects captures is the 160-bit link plus the guard (PLAN.md §6, §12).
+Node is only needed on the machine that builds the extension (below).
 
-1. **DNS.** Create an A/AAAA record for your hostname (say `shots.example.com`)
-   pointing at the box. Wait until `dig +short shots.example.com` answers from
-   outside; Caddy needs it for the certificate.
+1. **DNS + API token.** Create an A/AAAA record for your hostname (say
+   `shots.example.com`) pointing at the box, **DNS-only (grey cloud)** —
+   Cloudflare's proxy neither forwards port 28443 nor coexists with the
+   origin's own certificate. Wait until `dig +short shots.example.com`
+   answers from outside. Then create a Cloudflare API token scoped to that
+   one zone with *Zone → Zone → Read* and *Zone → DNS → Edit* (both are
+   required; step-by-step in [deploy/README.md](deploy/README.md) "TLS").
 
 2. **Configure.**
 
@@ -48,22 +56,28 @@ the extension (below).
    $EDITOR deploy/.env
    ```
 
-   Set at least: `PUBLIC_HOST=shots.example.com`; `POSTGRES_PASSWORD` and
-   `APP_DB_PASSWORD` (`openssl rand -hex 24` each); `SESSION_SECRET`
-   (`openssl rand -base64 48`); `ADMIN_BOOTSTRAP_USER` / `_PASSWORD` for the
-   first admin (≥ 12 chars); and `EXTENSION_GECKO_ID=snapping-turtle@shots.example.com`
-   (the Firefox add-on id — pick it once, never change it). Every other
-   variable has a sane default and is documented in the file.
+   Set at least: `PUBLIC_HOST=shots.example.com`; `PUBLIC_PORT=28443` (the
+   one port you opened); `CLOUDFLARE_API_TOKEN` (the token from step 1 —
+   it lives only in this git-ignored file and Caddy's environment);
+   `POSTGRES_PASSWORD` and `APP_DB_PASSWORD` (`openssl rand -hex 24` each);
+   `SESSION_SECRET` (`openssl rand -base64 48`); `ADMIN_BOOTSTRAP_USER` /
+   `_PASSWORD` for the first admin (≥ 12 chars); and
+   `EXTENSION_GECKO_ID=snapping-turtle@shots.example.com` (the Firefox
+   add-on id — pick it once, never change it). Every other variable has a
+   sane default and is documented in the file. Every URL the service mints
+   carries the port (`https://shots.example.com:28443/…`).
 
 3. **Start.**
 
    ```sh
    docker compose -f deploy/docker-compose.yml up -d --build
-   docker compose -f deploy/docker-compose.yml ps        # wait for app: healthy
-   curl -sSI https://shots.example.com/login | head -1     # HTTP/2 200
+   docker compose -f deploy/docker-compose.yml ps        # wait for app: healthy; caddy publishes 28443 only
+   docker compose -f deploy/docker-compose.yml logs caddy | grep 'certificate obtained'
+   curl -sSI https://shots.example.com:28443/login | head -1     # HTTP/2 200
    ```
 
-   Caddy obtains the Let's Encrypt certificate on the first request;
+   Caddy obtains the Let's Encrypt certificate at startup through DNS-01
+   (a temporary `_acme-challenge` TXT record; typically under a minute);
    migrations run when the app starts. The nightly backup sidecar starts too
    (see day-2 below).
 
@@ -73,7 +87,7 @@ the extension (below).
    docker compose -f deploy/docker-compose.yml run --rm app node dist/db/seed.js
    ```
 
-5. **Get an API token.** Sign in at `https://shots.example.com/login`, open
+5. **Get an API token.** Sign in at `https://shots.example.com:28443/login`, open
    **Account**, create a token. It is shown once; the page also prints a
    ready-to-paste `curl` line if you want to test the upload path without the
    extension.
@@ -82,7 +96,7 @@ the extension (below).
    - _Published builds_ (after you have submitted them —
      [extension/STORE_SUBMISSION.md](extension/STORE_SUBMISSION.md)): the
      unlisted Chrome Web Store link, or for Firefox
-     `https://shots.example.com/ext/snapping-turtle-firefox-<version>.xpi`
+     `https://shots.example.com:28443/ext/snapping-turtle-firefox-<version>.xpi`
      (updates itself from `/ext/updates.json`).
    - _Your own build_, on a machine with Node 22 + pnpm (`corepack enable`):
 
@@ -112,7 +126,7 @@ the extension (below).
 
 Registration stays closed by default; the admin hands out accounts:
 
-1. `https://shots.example.com/admin` → **Users** → **Create user** → enter a
+1. `https://shots.example.com:28443/admin` → **Users** → **Create user** → enter a
    username → copy the one-time **set-password link** (valid 24 h, usable
    once; you never see or choose their password).
 2. Send the link over any channel. They open it, set a password and are
@@ -136,6 +150,7 @@ while, flip **Registration** on the admin page (also audited) and off again.
 | Prove the guard still trips under load                                                 | `pnpm loadtest` — [docs/loadtest.md](docs/loadtest.md)                                                                                                                               |
 | Upgrade the app                                                                        | `git pull && docker compose -f deploy/docker-compose.yml up -d --build` — patch bumps of the Postgres pin flow through Dependabot; **majors** follow the runbook in deploy/README.md |
 | Move to a new domain                                                                   | [docs/runbooks/domain-migration.md](docs/runbooks/domain-migration.md) — rehearse with `deploy/test-domain-migration.sh` first                                                       |
+| TLS: DNS-01, the single port, rotating the Cloudflare token, swapping providers        | [deploy/README.md](deploy/README.md) "TLS"                                                                                                                                           |
 | Ship an extension update                                                               | bump `extension/package.json`, `build:release`, then Web Store upload / `sign:firefox` — [extension/STORE_SUBMISSION.md](extension/STORE_SUBMISSION.md)                              |
 | Dependency and image scanning                                                          | [docs/supply-chain.md](docs/supply-chain.md) (CI: pnpm audit, Trivy, Dependabot)                                                                                                     |
 
@@ -155,9 +170,11 @@ PUBLIC_ORIGIN=http://localhost:3000 pnpm --filter extension build   # dev builds
 ```
 
 Plain `http://` is accepted only for localhost and only as the build-time
-default. For the full stack locally, `PUBLIC_HOST=localhost` makes Caddy use
-its internal CA — see deploy/README.md. The Playwright suites need Chromium
-once: `pnpm --filter web exec playwright install chromium`.
+default. For the full stack locally, `PUBLIC_HOST=localhost` plus the
+`docker-compose.local.yml` override gives you `https://localhost:28443`
+under Caddy's internal CA, no DNS token needed — see deploy/README.md. The
+Playwright suites need Chromium once:
+`pnpm --filter web exec playwright install chromium`.
 
 Uploading from a terminal, if you want to see the wire contract:
 
@@ -184,7 +201,7 @@ uploaded bytes.
 | `pnpm test:parity`                                                | Playwright: pages under production CSP; editor ↔ server render goldens                                            |
 | `pnpm lint && pnpm typecheck`                                     | must pass before commit                                                                                           |
 | `pnpm --filter extension build:chrome` / `build:firefox`          | dev builds → `extension/dist/`                                                                                    |
-| `pnpm --filter extension build:release`                           | audited production builds of both targets (needs `PUBLIC_HOST`/`PUBLIC_ORIGIN` + `EXTENSION_GECKO_ID`)            |
+| `pnpm --filter extension build:release`                           | audited production builds of both targets (needs `PUBLIC_HOST`+`PUBLIC_PORT`/`PUBLIC_ORIGIN` + `EXTENSION_GECKO_ID`) |
 | `pnpm --filter extension sign:firefox`                            | AMO signing (env credentials) → `deploy/ext/` `.xpi` + `updates.json`; `--xpi <file>` publishes a pre-signed file |
 | `pnpm --filter extension test:smoke`                              | Playwright: overlay/driver fixtures + the built Chrome extension (`build:chrome` first)                           |
 | `pnpm --filter server db:generate` / `db:migrate` / `db:seed`     | new migration / apply / bootstrap admin                                                                           |
