@@ -35,6 +35,17 @@ describe('firefox updates.json', () => {
     expect(updateLinkFor('https://h', '2.0')).toBe('https://h/ext/snapping-turtle-firefox-2.0.xpi');
   });
 
+  it('a ported PUBLIC_ORIGIN flows into update_link unchanged (PUBLIC_PORT, §14)', () => {
+    const ported = upsertUpdate(undefined, { ...release, publicOrigin: 'https://shots.real.net:28443' });
+    expect(ported.addons[release.id]!.updates[0]!.update_link).toBe(
+      'https://shots.real.net:28443/ext/snapping-turtle-firefox-0.1.0.xpi',
+    );
+    expect(updateLinkFor('https://shots.real.net:28443', '0.2.0')).toBe(
+      'https://shots.real.net:28443/ext/snapping-turtle-firefox-0.2.0.xpi',
+    );
+    expect(() => parseUpdatesManifest(JSON.stringify(ported))).not.toThrow();
+  });
+
   it('keeps earlier versions, replaces a re-signed same version, sorts ascending', () => {
     let m = upsertUpdate(undefined, { ...release, version: '0.2.0' });
     m = upsertUpdate(m, { ...release, version: '0.1.0' });

@@ -8,7 +8,8 @@
 # Inputs are repository *variables* (Settings → Secrets and variables →
 # Actions → Variables), not secrets — neither value is secret and both are
 # printed in the build log by design:
-#   PUBLIC_ORIGIN        https://<your PUBLIC_HOST>   (baked as the default server)
+#   PUBLIC_ORIGIN        https://<PUBLIC_HOST>:<PUBLIC_PORT>   (baked as the default server;
+#                        must equal what compose derives from deploy/.env, port included)
 #   EXTENSION_GECKO_ID   the pinned Firefox add-on id (must equal deploy/.env's)
 name: Release
 
@@ -31,7 +32,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Release inputs present (repository variables)
         run: |
-          [ -n "$PUBLIC_ORIGIN" ] || { echo "::error::set the repository variable PUBLIC_ORIGIN (https://<PUBLIC_HOST>)"; exit 1; }
+          [ -n "$PUBLIC_ORIGIN" ] || { echo "::error::set the repository variable PUBLIC_ORIGIN (https://<PUBLIC_HOST>:<PUBLIC_PORT>)"; exit 1; }
           [ -n "$EXTENSION_GECKO_ID" ] || { echo "::error::set the repository variable EXTENSION_GECKO_ID (same value as deploy/.env)"; exit 1; }
       - name: Tag matches extension/package.json version
         run: |

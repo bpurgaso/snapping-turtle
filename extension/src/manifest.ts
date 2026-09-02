@@ -104,7 +104,10 @@ export function buildManifest(target: Target, opts: BuildManifestOptions): Manif
   const base = {
     ...structuredClone(opts.template),
     version: opts.version,
-    // Firefox: no port in the pattern (see hostPattern); Chrome keeps it.
+    // The port of PUBLIC_ORIGIN needs no manifest change of its own:
+    // hostPattern keeps it for Chrome (which honours explicit ports) and drops
+    // it for Firefox (whose matcher ignores ports), and the template's
+    // port-less optional_host_permissions pattern matches every port in both.
     host_permissions: [hostPattern(origin.origin, target)],
   };
 

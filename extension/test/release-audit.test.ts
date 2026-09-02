@@ -33,6 +33,23 @@ describe('checkReleaseInputs', () => {
     ).toEqual([]);
   });
 
+  it('accepts a ported production origin and still refuses loopback/placeholder ones with a port', () => {
+    const ported = { ...inputs, publicOrigin: 'https://shots.example-deploy.net:28443' };
+    expect(checkReleaseInputs(ported)).toEqual([]);
+    expect(checkReleaseInputs({ ...inputs, publicOrigin: 'https://localhost:28443' })).toEqual([
+      expect.stringMatching(/loopback/),
+    ]);
+    expect(checkReleaseInputs({ ...inputs, publicOrigin: 'https://127.0.0.1:28443' })).toEqual([
+      expect.stringMatching(/loopback/),
+    ]);
+    expect(
+      checkReleaseInputs({ ...inputs, publicOrigin: 'https://shots.example.com:28443' }),
+    ).toEqual([expect.stringMatching(/placeholder/)]);
+    expect(checkReleaseInputs({ ...inputs, publicOrigin: 'http://shots.real.net:28443' })).toEqual([
+      expect.stringMatching(/must be https/),
+    ]);
+  });
+
   it('refuses http, loopback, the placeholder host and a missing or malformed gecko id', () => {
     expect(checkReleaseInputs({ ...inputs, publicOrigin: 'http://shots.real.net' })).toEqual([
       expect.stringMatching(/must be https/),
@@ -58,6 +75,24 @@ describe('auditReleaseFiles', () => {
     it(`${target}: a template-built bundle with the origin baked is clean`, () => {
       const files = cleanFiles(target);
       expect(auditReleaseFiles({ target, files, zip: files, template, inputs })).toEqual([]);
+    });
+
+    it(`${target}: a ported origin (PUBLIC_PORT) bakes and audits clean, manifest included`, () => {
+      const ported = { ...inputs, publicOrigin: 'https://shots.example-deploy.net:28443' };
+      const manifest = buildManifest(target, { template, ...ported });
+      const files = new Map(cleanFiles(target));
+      files.set('manifest.json', enc.encode(JSON.stringify(manifest, null, 2) + '\n'));
+      files.set('background.js', enc.encode(`const o="${ported.publicOrigin}";fetch(o);`));
+      expect(auditReleaseFiles({ target, files, zip: files, template, inputs: ported })).toEqual([]);
+      expect(manifest.host_permissions).toEqual([
+        target === 'chrome'
+          ? 'https://shots.example-deploy.net:28443/*'
+          : 'https://shots.example-deploy.net/*',
+      ]);
+      // The same bundle audited against port-less inputs is a mismatch, not a pass.
+      expect(auditReleaseFiles({ target, files, template, inputs })).toEqual(
+        expect.arrayContaining([expect.stringMatching(/manifest.json differs/)]),
+      );
     });
   }
 

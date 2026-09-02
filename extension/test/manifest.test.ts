@@ -34,6 +34,11 @@ describe('buildManifest', () => {
     expect(dev.browser_specific_settings?.gecko.update_url).toBeUndefined();
     // Chrome updates through the Web Store: no update_url anywhere in its manifest.
     expect(JSON.stringify(buildManifest('chrome', opts))).not.toContain('update_url');
+    // A deployment on PUBLIC_PORT inherits it: update_url derives from the origin.
+    expect(
+      buildManifest('firefox', { ...opts, publicOrigin: 'https://shots.example.com:28443' })
+        .browser_specific_settings?.gecko.update_url,
+    ).toBe('https://shots.example.com:28443/ext/updates.json');
   });
 
   it('firefox: declares AMO data-collection categories truthfully', () => {

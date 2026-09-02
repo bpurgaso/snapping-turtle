@@ -20,6 +20,17 @@ describe('parseServerOrigin (fails closed)', () => {
     expect(ok('https://shots.example.com:443')).toBe('https://shots.example.com');
   });
 
+  it('accepts the deployment default port (PUBLIC_PORT=28443) exactly as typed or pasted', () => {
+    // What the options page sees when a user enters the server address by hand.
+    expect(ok('https://shots.example.com:28443')).toBe('https://shots.example.com:28443');
+    expect(ok('  https://Shots.Example.com:28443/  ')).toBe('https://shots.example.com:28443');
+    expect(ok('https://localhost:28443')).toBe('https://localhost:28443');
+    expect(ok('https://192.168.1.10:28443')).toBe('https://192.168.1.10:28443');
+    expect(reason('https://shots.example.com:28443/s/abc')).toMatch(/bare origin/);
+    expect(reason('https://shots.example.com:99999')).toMatch(/Not a valid URL/);
+    expect(reason('https://shots.example.com:port')).toMatch(/Not a valid URL/);
+  });
+
   it('allows plain http only for loopback hosts', () => {
     expect(ok('http://localhost:3000')).toBe('http://localhost:3000');
     expect(ok('http://127.0.0.1:3000/')).toBe('http://127.0.0.1:3000');
@@ -54,6 +65,7 @@ describe('parseServerOrigin (fails closed)', () => {
     expect(hostPattern('https://shots.example.com:8443', 'chrome')).toBe(
       'https://shots.example.com:8443/*',
     );
+    expect(hostPattern('https://shots.example.com:28443')).toBe('https://shots.example.com:28443/*');
   });
 
   it('drops the port for Firefox, whose matcher ignores ports (bug 1468162)', () => {
@@ -64,5 +76,8 @@ describe('parseServerOrigin (fails closed)', () => {
       'https://shots.example.com/*',
     );
     expect(hostPattern('https://shots.example.com', 'firefox')).toBe('https://shots.example.com/*');
+    expect(hostPattern('https://shots.example.com:28443', 'firefox')).toBe(
+      'https://shots.example.com/*',
+    );
   });
 });
