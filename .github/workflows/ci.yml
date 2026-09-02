@@ -80,6 +80,8 @@ jobs:
           - image: backup
             context: deploy
             dockerfile: deploy/Dockerfile.backup
+          # The xcaddy build with the DNS-01 provider and rate-limit plugins —
+          # the TLS terminator that holds the zone API token (PLAN.md §14).
           - image: caddy
             context: deploy
             dockerfile: deploy/Dockerfile.caddy

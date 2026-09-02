@@ -1,17 +1,35 @@
-# Caddy with the per-IP rate-limit plugin (PLAN.md §12). Default Caddy builds
-# carry no request-rate module, so the coarse outer cap needs xcaddy and
-# github.com/mholt/caddy-ratelimit — pinned, never @latest: the proxy
-# terminates TLS and an unpinned third-party module there is supply-chain
-# surface. The app guard remains the enforcement layer; this only sheds
-# dumb floods before they reach Node.
+# Caddy built with xcaddy and two plugins (PLAN.md §12, §14):
+#
+#   - github.com/caddy-dns/cloudflare — the ACME DNS-01 challenge provider.
+#     Certificates are issued and renewed by proving control of the DNS zone
+#     through the provider's API, so the host needs no inbound 80/443 at
+#     all and the only published port is PUBLIC_PORT. Swapping providers is
+#     a one-arg rebuild: --build-arg CADDY_DNS_MODULE=github.com/caddy-dns/<provider>@<version>
+#     plus the matching `dns <provider>` line in deploy/Caddyfile (the
+#     provider's own credential env var replaces CLOUDFLARE_API_TOKEN).
+#   - github.com/mholt/caddy-ratelimit — the coarse per-IP request cap.
+#     Default Caddy builds carry no request-rate module.
+#
+# Both are pinned (a tag or a commit, never @latest): the proxy terminates
+# TLS and holds the DNS API token, so an unpinned third-party module here is
+# supply-chain surface. The app guard remains the enforcement layer; the
+# rate limit only sheds dumb floods before they reach Node.
 
-# Exact patch release, not a floating minor: what Trivy scanned is what runs.
+# Exact patch release for both the builder and the runtime image, not a
+# floating minor: what Trivy scanned in CI is what runs.
 ARG CADDY_VERSION=2.11.4
+# DNS-01 provider module. Zone → Zone → Read plus Zone → DNS → Edit on the
+# one zone is the least privilege the Cloudflare plugin works with
+# (deploy/README.md "TLS").
+ARG CADDY_DNS_MODULE=github.com/caddy-dns/cloudflare@v0.2.4
+
 FROM caddy:${CADDY_VERSION}-builder AS builder
+ARG CADDY_DNS_MODULE
 # The --replace lines bump Go modules Caddy 2.11.4 still pins at versions
 # with fixed HIGH/CRITICAL CVEs (Trivy gates the built binary in CI). Drop
 # them once a Caddy release carries these or newer.
 RUN xcaddy build \
+    --with "${CADDY_DNS_MODULE}" \
     --with github.com/mholt/caddy-ratelimit@5625512f24f6f59d6f64fb3aafe5eecff0b286db \
     --replace golang.org/x/crypto=golang.org/x/crypto@v0.55.0 \
     --replace golang.org/x/net=golang.org/x/net@v0.58.0 \

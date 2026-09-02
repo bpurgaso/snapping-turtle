@@ -1,7 +1,10 @@
 # Override for local / LAN runs with any hostname and no ACME:
 #   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml up -d --build
-# Swaps in Caddyfile.local (tls internal). Not needed when PUBLIC_HOST=localhost —
-# Caddy already uses its internal CA for localhost.
+# Swaps in Caddyfile.local (tls internal, same PUBLIC_HOST:PUBLIC_PORT
+# listener). Required for every local run, `localhost` included: the
+# production Caddyfile configures the DNS-01 issuer explicitly, and an explicit
+# issuer overrides the internal-CA default Caddy would otherwise apply to
+# local names. No CLOUDFLARE_API_TOKEN is needed here.
 services:
   caddy:
     volumes:

@@ -1,6 +1,9 @@
-# Local/LAN variant: identical to Caddyfile but forces Caddy's internal CA so
-# any hostname works without ACME. Mounted by docker-compose.local.yml.
+# Local/LAN variant: the same listener on PUBLIC_HOST:PUBLIC_PORT, but with
+# Caddy's internal CA instead of ACME DNS-01, so any hostname works without a
+# DNS zone or a provider token. Mounted by docker-compose.local.yml; also what
+# the domain-migration rehearsal and the README walkthrough run against.
 {
+	auto_https disable_redirects
 	servers {
 		timeouts {
 			read_header 10s
@@ -9,6 +12,13 @@
 		}
 	}
 	order rate_limit before basic_auth
+}
+
+# Same snippet name as the main Caddyfile, so an old-domain block written
+# per deploy/caddy.d/old-domain.caddy.example works unchanged in local
+# rehearsals — here it means the internal CA.
+(tls_dns) {
+	tls internal
 }
 
 (site) {
@@ -34,8 +44,8 @@
 	}
 }
 
-{$PUBLIC_HOST} {
-	tls internal
+{$PUBLIC_HOST}:{$PUBLIC_PORT} {
+	import tls_dns
 	import site
 }
 

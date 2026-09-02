@@ -1,8 +1,25 @@
-# Site block per PLAN.md §14: automatic HTTPS for PUBLIC_HOST.
-# When PUBLIC_HOST is `localhost`, Caddy issues from its internal CA instead of
-# Let's Encrypt — no ACME needed for local runs. For any other non-public
-# hostname use docker-compose.local.yml, which swaps in Caddyfile.local.
+# Site block per PLAN.md §14: automatic HTTPS for PUBLIC_HOST on PUBLIC_PORT
+# with certificates issued through the ACME DNS-01 challenge (Cloudflare).
+#
+# Network posture: the host publishes exactly one port (PUBLIC_PORT, TCP for
+# HTTP/1.1+2, UDP for HTTP/3) and nothing listens on 80 or 443. DNS-01 proves
+# control of the zone through the provider API, so issuance and renewal
+# never need an inbound connection from Let's Encrypt; `auto_https
+# disable_redirects` removes the HTTP→HTTPS redirect server that would
+# otherwise bind :80. certmagic uses the DNS solver *exclusively* when one is
+# configured, so no HTTP-01 / TLS-ALPN-01 attempt is ever made.
+#
+# The non-standard port is conflict avoidance and surface reduction, not a
+# defence: mass scanners sweep every port, and the protections remain the
+# 160-bit capability URLs, the guard and the security headers (PLAN.md §6,
+# §12). Nothing here relies on the port being unknown.
+#
+# For local runs (localhost, a LAN name, shots.test, …) use
+# docker-compose.local.yml, which swaps in Caddyfile.local: same listener,
+# Caddy's internal CA instead of ACME, no DNS token needed.
 {
+	# No :80 listener at all (DNS-01 needs none; nothing else may bind it).
+	auto_https disable_redirects
 	servers {
 		# Cap slow-loris style connections before they reach the app.
 		timeouts {
@@ -16,7 +33,19 @@
 	order rate_limit before basic_auth
 }
 
-# Snippets must be defined before the site block that imports them.
+# Snippets must be defined before the site blocks that import them.
+
+# DNS-01 issuance. The token is read from the container environment by Caddy
+# itself (never written into this file, never logged — CLAUDE.md rules 3 and
+# 12). Renewal depends on this token staying valid: revoke it and the next
+# renewal fails ~30 days before expiry, visible in Caddy's logs. Provider
+# swap: rebuild the image with CADDY_DNS_MODULE and change this one line.
+(tls_dns) {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+}
+
 (site) {
 	encode zstd gzip
 
@@ -49,7 +78,11 @@
 	}
 }
 
-{$PUBLIC_HOST} {
+# The explicit port makes Caddy listen there instead of :443. PUBLIC_ORIGIN
+# (compose derives it as https://PUBLIC_HOST:PUBLIC_PORT) is what every
+# generated link carries; the app refuses to boot if the two disagree.
+{$PUBLIC_HOST}:{$PUBLIC_PORT} {
+	import tls_dns
 	import site
 }
 

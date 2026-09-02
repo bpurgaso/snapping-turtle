@@ -28,6 +28,9 @@ services:
     environment:
       TRUST_PROXY: 'true'
       PUBLIC_ORIGIN: http://app:3000
+      # k6 reaches the app directly; keep the port pin consistent with the
+      # origin or the app refuses to boot (config drift check, PLAN.md §14).
+      PUBLIC_PORT: '3000'
       LOG_LEVEL: info
       RATE_BREAKER_COOLDOWN_SECONDS: ${LOADTEST_BREAKER_COOLDOWN_SECONDS:-30}
       ADMIN_BOOTSTRAP_USER: loadtest-admin

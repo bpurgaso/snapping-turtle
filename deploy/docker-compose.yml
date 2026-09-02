@@ -11,12 +11,21 @@ services:
       dockerfile: Dockerfile.caddy
     image: snapping-turtle/caddy:local
     restart: unless-stopped
+    # The one inbound port (PLAN.md §14): TCP for HTTP/1.1 and HTTP/2, UDP for
+    # HTTP/3. Nothing is published on 80 or 443 and nothing may be — TLS is
+    # issued via DNS-01, which needs no inbound connection, and the Caddyfile
+    # disables the :80 redirect server. Not a defence (scanners sweep every
+    # port); conflict avoidance and surface reduction only.
     ports:
-      - '80:80'
-      - '443:443'
-      - '443:443/udp'
+      - '${PUBLIC_PORT:-28443}:${PUBLIC_PORT:-28443}'
+      - '${PUBLIC_PORT:-28443}:${PUBLIC_PORT:-28443}/udp'
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in deploy/.env}
+      PUBLIC_PORT: ${PUBLIC_PORT:-28443}
+      # Read by Caddy from its environment for the DNS-01 challenge; it is
+      # never placed in the Caddyfile or in any log (CLAUDE.md rules 3, 12).
+      # Empty under docker-compose.local.yml (internal CA, no ACME).
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-30}
       CADDY_RATE_PER_IP_PER_MIN: ${CADDY_RATE_PER_IP_PER_MIN:-300}
     volumes:
@@ -50,7 +59,11 @@ services:
       # aim guard bans at other people's IPs.
       TRUST_PROXY: ${TRUST_PROXY:-172.28.101.0/24}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      PUBLIC_ORIGIN: https://${PUBLIC_HOST:?set PUBLIC_HOST in deploy/.env}
+      # The single source of truth for every generated URL (page links, image
+      # links, /ext/updates.json). Derived here so it always carries the
+      # published port; the app refuses to boot if PUBLIC_PORT disagrees.
+      PUBLIC_ORIGIN: https://${PUBLIC_HOST:?set PUBLIC_HOST in deploy/.env}:${PUBLIC_PORT:-28443}
+      PUBLIC_PORT: ${PUBLIC_PORT:-28443}
       # Runtime role (rule 7): st_app has no UPDATE/DELETE grant on audit_log.
       DATABASE_URL: postgres://st_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:-snapping_turtle}
       # Privileged role: owns the schema; used only for migrations at boot and
