@@ -37,6 +37,13 @@ export const ConfigSchema = Type.Object({
    */
   trustProxy: Type.Union([Type.Boolean(), Type.Array(Type.String({ minLength: 1 }))]),
   publicOrigin: Type.String({ pattern: '^https?://[^/\\s]+$' }),
+  /**
+   * The port the deployment publishes (PLAN.md §14). Optional; when set it
+   * must equal the effective port of PUBLIC_ORIGIN, so a Caddy listener and
+   * the links the app mints can never silently disagree — config drift
+   * fails at boot, like the image-pin check fails CI.
+   */
+  publicPort: Type.Optional(Type.Integer({ minimum: 1, maximum: 65535 })),
   databaseUrl: Type.String({ pattern: '^postgres(ql)?://' }),
   /** Signs session cookies and derives CSRF tokens; rotating it logs everyone out. */
   sessionSecret: Type.String({ minLength: 32 }),
@@ -99,6 +106,18 @@ function trustProxyOf(env: Env, fallback: boolean): boolean | string[] {
     .filter((s) => s.length > 0);
 }
 
+/** The port an origin actually uses: explicit, else the scheme default (443 / 80). */
+export function effectivePort(origin: string): number | undefined {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return undefined;
+  }
+  if (url.port !== '') return Number(url.port);
+  return url.protocol === 'https:' ? 443 : url.protocol === 'http:' ? 80 : undefined;
+}
+
 /** Comma-separated integer list, e.g. RATE_BAN_LADDER_MINUTES=15,60,1440. */
 function intList(env: Env, key: string, fallback: readonly number[]): number[] {
   const raw = env[key];
@@ -126,6 +145,7 @@ export function loadConfig(env: Env = process.env): Config {
     logLevel: env['LOG_LEVEL'] ?? (nodeEnv === 'production' ? 'info' : 'debug'),
     trustProxy: trustProxyOf(env, nodeEnv === 'production'),
     publicOrigin: (env['PUBLIC_ORIGIN'] ?? 'http://localhost:3000').replace(/\/+$/, ''),
+    ...(env['PUBLIC_PORT'] ? { publicPort: int(env, 'PUBLIC_PORT', 0) } : {}),
     databaseUrl: env['DATABASE_URL'] ?? '',
     sessionSecret: env['SESSION_SECRET'] ?? '',
     sessionTtlDays: int(env, 'SESSION_TTL_DAYS', 30),
@@ -180,6 +200,15 @@ export function loadConfig(env: Env = process.env): Config {
   const errors = Value.Errors(ConfigSchema, candidate).map(
     (e) => `${e.instancePath.replace(/^\//, '').replace(/\//g, '.') || '(root)'}: ${e.message}`,
   );
+  if (candidate.publicPort !== undefined) {
+    const originPort = effectivePort(candidate.publicOrigin);
+    if (originPort !== candidate.publicPort) {
+      errors.push(
+        `PUBLIC_PORT (${candidate.publicPort}) does not match the port of PUBLIC_ORIGIN` +
+          ` (${originPort ?? 'unparseable'}); every generated link derives from PUBLIC_ORIGIN, so it must carry the published port explicitly`,
+      );
+    }
+  }
   if (candidate.retentionDefaultDays > candidate.retentionMaxDaysUser) {
     errors.push('RETENTION_DEFAULT_DAYS must not exceed RETENTION_MAX_DAYS_USER');
   }

@@ -5,7 +5,7 @@ import {
   TOMBSTONE_RETENTION_DAYS,
 } from '@snapping-turtle/shared';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from '../../src/config.js';
+import { ConfigError, effectivePort, loadConfig } from '../../src/config.js';
 
 const minimal = {
   DATABASE_URL: 'postgres://app:pw@localhost:5432/app',
@@ -46,6 +46,44 @@ describe('loadConfig', () => {
     expect(cfg.publicOrigin).toBe('https://shots.example.com');
     expect(cfg.rate.invalidLookupBudget).toBe(3);
     expect(cfg.trustProxy).toBe(true);
+  });
+
+  it('keeps an explicit port in PUBLIC_ORIGIN — every generated URL derives from it', () => {
+    const cfg = loadConfig({ ...minimal, PUBLIC_ORIGIN: 'https://shots.example.com:28443/' });
+    expect(cfg.publicOrigin).toBe('https://shots.example.com:28443');
+    expect(cfg.publicPort).toBeUndefined();
+  });
+
+  describe('PUBLIC_PORT must agree with PUBLIC_ORIGIN (config drift fails loudly, §14)', () => {
+    it('accepts a matching explicit port and the scheme default', () => {
+      expect(
+        loadConfig({ ...minimal, PUBLIC_ORIGIN: 'https://shots.example.com:28443', PUBLIC_PORT: '28443' })
+          .publicPort,
+      ).toBe(28443);
+      expect(
+        loadConfig({ ...minimal, PUBLIC_ORIGIN: 'https://shots.example.com', PUBLIC_PORT: '443' })
+          .publicPort,
+      ).toBe(443);
+      expect(
+        loadConfig({ ...minimal, PUBLIC_ORIGIN: 'http://localhost:3000', PUBLIC_PORT: '3000' })
+          .publicPort,
+      ).toBe(3000);
+      expect(effectivePort('http://app:3000')).toBe(3000);
+      expect(effectivePort('http://app')).toBe(80);
+      expect(effectivePort('not a url')).toBeUndefined();
+    });
+
+    it('refuses to boot when the origin carries a different port, or none', () => {
+      expect(() =>
+        loadConfig({ ...minimal, PUBLIC_ORIGIN: 'https://shots.example.com:8443', PUBLIC_PORT: '28443' }),
+      ).toThrow(/PUBLIC_PORT \(28443\) does not match the port of PUBLIC_ORIGIN \(8443\)/);
+      // Compose publishes 28443 but the origin is port-less: links would say :443.
+      expect(() =>
+        loadConfig({ ...minimal, PUBLIC_ORIGIN: 'https://shots.example.com', PUBLIC_PORT: '28443' }),
+      ).toThrow(/PUBLIC_PORT \(28443\) does not match the port of PUBLIC_ORIGIN \(443\)/);
+      expect(() => loadConfig({ ...minimal, PUBLIC_PORT: 'high' })).toThrow(/PUBLIC_PORT must be an integer/);
+      expect(() => loadConfig({ ...minimal, PUBLIC_PORT: '70000' })).toThrow(/publicPort/);
+    });
   });
 
   it('refuses to start without a database URL or a strong session secret', () => {
