@@ -47,6 +47,37 @@ writeFileSync(join(extDir, 'snapping-turtle-firefox-evil.xpi'), 'x');
 mkdirSync(join(extDir, 'sub'));
 writeFileSync(join(extDir, 'sub', 'updates.json'), '{}');
 
+/** Manifest text for the given versions (each with a file unless listed in `missing`). */
+function publish(dir: string, versions: string[], missing: string[] = []): void {
+  mkdirSync(dir, { recursive: true });
+  const updates = versions.map((version) => ({
+    version,
+    update_link: `https://shots.test/ext/snapping-turtle-firefox-${version}.xpi`,
+    update_hash: `sha256:${sha256}`,
+    applications: { gecko: { strict_min_version: '140.0' } },
+  }));
+  writeFileSync(
+    join(dir, 'updates.json'),
+    JSON.stringify({ addons: { 'snapping-turtle@shots.test': { updates } } }),
+  );
+  for (const version of versions) {
+    if (!missing.includes(version)) {
+      writeFileSync(join(dir, `snapping-turtle-firefox-${version}.xpi`), `xpi ${version}`);
+    }
+  }
+}
+// Several versions, deliberately out of order in the file: the newest must win.
+const multiDir = mkdtempSync(join(tmpdir(), 'st-ext-multi-'));
+publish(multiDir, ['0.9.0', '0.10.0', '0.2.0']);
+// The manifest names a version whose .xpi never landed (a half-finished publish).
+const danglingDir = mkdtempSync(join(tmpdir(), 'st-ext-dangling-'));
+publish(danglingDir, ['0.1.0', '0.2.0'], ['0.2.0']);
+// A manifest that does not parse.
+const brokenDir = mkdtempSync(join(tmpdir(), 'st-ext-broken-'));
+writeFileSync(join(brokenDir, 'updates.json'), '{"addons": "nope"');
+// A directory with no manifest at all (EXT_DIR mounted, nothing signed yet).
+const emptyDir = mkdtempSync(join(tmpdir(), 'st-ext-empty-'));
+
 const { db } = createDb('postgres://unused:unused@127.0.0.1:1/unused', { max: 1 });
 
 function appFor(extDirValue: string): Promise<FastifyInstance> {
@@ -143,5 +174,58 @@ describe('/ext/ self-distribution route', () => {
     const res = await bare.inject({ method: 'GET', url: '/ext/updates.json' });
     expect(res.statusCode).toBe(404);
     expect((await bare.inject({ method: 'GET', url: '/healthz' })).statusCode).toBe(200);
+  });
+});
+
+describe('GET /ext/firefox-latest — the stable install link (E2)', () => {
+  it('redirects to the one published .xpi, same-origin, and the target serves', async () => {
+    const res = await app.inject({ method: 'GET', url: '/ext/firefox-latest' });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['location']).toBe(`/ext/${xpiName}`);
+    expect(res.headers['cache-control']).toBe('public, max-age=300');
+    expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
+    const xpi = await app.inject({ method: 'GET', url: String(res.headers['location']) });
+    expect(xpi.statusCode).toBe(200);
+    expect(xpi.headers['content-type']).toBe('application/x-xpinstall');
+    expect(xpi.rawPayload.equals(xpiBytes)).toBe(true);
+  });
+
+  it('resolves the highest version numerically, not the last entry in the file', async () => {
+    const multi = await appFor(multiDir);
+    try {
+      const res = await multi.inject({ method: 'GET', url: '/ext/firefox-latest' });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers['location']).toBe('/ext/snapping-turtle-firefox-0.10.0.xpi');
+      const xpi = await multi.inject({ method: 'GET', url: String(res.headers['location']) });
+      expect(xpi.body).toBe('xpi 0.10.0');
+    } finally {
+      await multi.close();
+    }
+  });
+
+  it('is 404 before anything is published: no EXT_DIR, no manifest, a broken one, or a dangling entry', async () => {
+    for (const [name, dir] of [
+      ['missing dir', join(extDir, 'does-not-exist')],
+      ['empty dir', emptyDir],
+      ['broken manifest', brokenDir],
+      ['dangling entry', danglingDir],
+    ] as const) {
+      const a = await appFor(dir);
+      try {
+        const res = await a.inject({ method: 'GET', url: '/ext/firefox-latest' });
+        expect(res.statusCode, name).toBe(404);
+        expect(res.headers['location'], name).toBeUndefined();
+        expect(res.headers['cache-control'], name).toBe('private, no-store');
+      } finally {
+        await a.close();
+      }
+    }
+  });
+
+  it('is read-only like the rest of /ext/', async () => {
+    for (const method of ['POST', 'PUT', 'DELETE', 'PATCH'] as const) {
+      const res = await app.inject({ method, url: '/ext/firefox-latest' });
+      expect([404, 405]).toContain(res.statusCode);
+    }
   });
 });

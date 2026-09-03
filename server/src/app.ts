@@ -12,6 +12,7 @@ import { LoginThrottle } from './auth/throttle.js';
 import type { Config } from './config.js';
 import type { Db } from './db/client.js';
 import { registerErrorHandler, HttpError } from './errors.js';
+import { EXT_XPI_PATH, resolveLatestFirefoxXpi } from './ext-updates.js';
 import { Guard, sendGuardBlocked } from './guard.js';
 import type { PageAssets } from './html.js';
 import { FlatRenderer } from './images/flat.js';
@@ -308,9 +309,6 @@ async function registerWeb(app: App, config: Config): Promise<void> {
   }
 }
 
-/** Exactly the two file shapes sign:firefox publishes; nothing else in EXT_DIR is reachable. */
-const EXT_XPI_PATH = /^\/snapping-turtle-firefox-\d+(\.\d+){0,3}\.xpi$/;
-
 /**
  * Public, secret-free static route for the self-distributed Firefox build
  * (PLAN.md §15, M8): `/ext/updates.json` — the manifest's `update_url` —
@@ -321,6 +319,18 @@ const EXT_XPI_PATH = /^\/snapping-turtle-firefox-\d+(\.\d+){0,3}\.xpi$/;
  * Firefox polls once a day and a new release must land within minutes.
  */
 async function registerExtensionDistribution(app: App, config: Config): Promise<void> {
+  // The stable install link (E2): resolved from updates.json on every request
+  // so the home page never rots as versions ship. Registered whether or not
+  // EXT_DIR exists yet — before anything is published it is a plain 404, and
+  // the home page shows "not yet published" instead of linking here.
+  app.get(`${EXT_ROUTE_PREFIX}firefox-latest`, async (req, reply) => {
+    const target = resolveLatestFirefoxXpi(config.extDir, (reason) =>
+      req.log.warn({ reason }, 'firefox-latest: updates.json unusable'),
+    );
+    if (!target) throw new HttpError(404, 'not_found', 'no Firefox build is published');
+    return reply.header('Cache-Control', 'public, max-age=300').redirect(target, 302);
+  });
+
   if (!existsSync(config.extDir)) {
     app.log.info(
       { extDir: config.extDir },
