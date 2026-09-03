@@ -10,5 +10,7 @@ those two file shapes are reachable; there is no listing.
 are AMO-signed build output, not source. Nothing in here is secret — Firefox
 verifies the signature and the sha256 recorded in `updates.json`.
 
-Users install the extension once from the `.xpi` link; Firefox then checks
+Users install the extension once from the home page's **Install for
+Firefox** button — `/ext/firefox-latest`, a redirect to the newest `.xpi`
+named in `updates.json`, resolved on every request — and Firefox then checks
 `updates.json` daily and installs newer versions on its own.

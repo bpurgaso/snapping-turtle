@@ -305,8 +305,14 @@ real migration.
 The app serves `deploy/ext/` read-only at `https://$PUBLIC_HOST:$PUBLIC_PORT/ext/`: the
 AMO-signed Firefox `.xpi` and the `updates.json` Firefox polls for updates
 (`pnpm --filter extension sign:firefox` writes both; see
-`extension/STORE_SUBMISSION.md`). Chrome installs come from the unlisted Web
-Store listing and update through the store.
+`extension/STORE_SUBMISSION.md`). `GET /ext/firefox-latest` redirects to the
+newest `.xpi` named in `updates.json` (resolved on every request, a plain 404
+until one is published), and the home page's **Install for Firefox** button
+links it — so publishing a new version is `sign:firefox` and nothing else.
+Chrome installs come from the unlisted Web Store listing and update through
+the store; once the listing is approved put its URL in `CHROME_EXTENSION_URL`
+in `deploy/.env` and `docker compose up -d` — the home page's Chrome card
+flips from "coming soon" to an install button. Both cards always render.
 
 ## Notes
 

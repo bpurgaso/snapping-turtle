@@ -94,10 +94,12 @@ Node is only needed on the machine that builds the extension (below).
 
 6. **Install the extension.** Two ways:
    - _Published builds_ (after you have submitted them —
-     [extension/STORE_SUBMISSION.md](extension/STORE_SUBMISSION.md)): the
-     unlisted Chrome Web Store link, or for Firefox
-     `https://shots.example.com:28443/ext/snapping-turtle-firefox-<version>.xpi`
-     (updates itself from `/ext/updates.json`).
+     [extension/STORE_SUBMISSION.md](extension/STORE_SUBMISSION.md)): open
+     `https://shots.example.com:28443/` — the home page offers **Install for
+     Firefox** (a stable link, `/ext/firefox-latest`, that always resolves to
+     the newest signed `.xpi`; Firefox then updates itself from
+     `/ext/updates.json`) and **Install for Chrome** once `CHROME_EXTENSION_URL`
+     in `deploy/.env` points at the unlisted Web Store listing.
    - _Your own build_, on a machine with Node 22 + pnpm (`corepack enable`):
 
      ```sh

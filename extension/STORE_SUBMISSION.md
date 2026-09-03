@@ -59,8 +59,11 @@ release. Signing stays local.
    throwaway user on your server via the admin panel's one-time link and
    share it with a token (revoke both afterwards).
 8. When published, copy the item URL
-   (`https://chromewebstore.google.com/detail/<id>`) into the README's
-   install section and hand it to users.
+   (`https://chromewebstore.google.com/detail/<id>`) into `deploy/.env` as
+   `CHROME_EXTENSION_URL` and `docker compose up -d`: the home page's Chrome
+   card turns from "coming soon" into **Install for Chrome**. Unlisted items
+   never appear in store search, so that direct link is the only way in —
+   the home page is where users find it.
 
 ### Listing copy (draft — edit freely, keep it truthful)
 
