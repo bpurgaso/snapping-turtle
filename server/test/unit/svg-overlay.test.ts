@@ -1,6 +1,7 @@
 import {
   ANNOTATION_STYLE as S,
   ANNOTATION_TEXT_LAYOUT as T,
+  annotationSizes,
   type Shape,
   type TextShape,
 } from '@snapping-turtle/shared';
@@ -9,6 +10,9 @@ import { buildOverlaySvg, escapeXml } from '../../src/images/svg-overlay.js';
 
 const overlay = (shapes: Shape[], width = 480, height = 360): string =>
   buildOverlaySvg({ shapes }, { width, height });
+
+/** The sizes the default 480 px-wide test overlay draws with (floor of the §9 curve: scale 0.75). */
+const Z = annotationSizes(480);
 
 const text = (t: string, extra: Partial<TextShape> = {}): TextShape => ({
   id: 't1',
@@ -61,7 +65,7 @@ describe('annotation text is data, never markup (CLAUDE.md rule 5)', () => {
 
 describe('rect geometry', () => {
   it('draws white-under-red at Fabric’s stroke-inclusive position', () => {
-    const outer = S.strokeWidth + 2 * S.outline;
+    const outer = Z.outerStrokeWidth;
     const svg = overlay([{ id: 'r', type: 'rect', x: 96, y: 72, w: 240, h: 150 }]);
     const rects = svg.match(/<rect [^>]+>/g)!;
     expect(rects).toHaveLength(2);
@@ -76,13 +80,29 @@ describe('rect geometry', () => {
     expect(rects[0]).toContain(`stroke="${S.white}"`);
     expect(rects[0]).toContain(`stroke-width="${outer}"`);
     expect(rects[1]).toContain(`stroke="${S.red}"`);
-    expect(rects[1]).toContain(`stroke-width="${S.strokeWidth}"`);
+    expect(rects[1]).toContain(`stroke-width="${Z.strokeWidth}"`);
+  });
+
+  it('takes every size from annotationSizes(width): floor, reference and ceiling', () => {
+    const rect: Shape = { id: 'r', type: 'rect', x: 10, y: 10, w: 50, h: 40 };
+    for (const width of [300, 1280, 3200, 10_000]) {
+      const z = annotationSizes(width);
+      const [white, red] = overlay([rect], width, 200).match(/<rect [^>]+>/g)!;
+      expect(white).toContain(`stroke-width="${z.outerStrokeWidth}"`);
+      expect(red).toContain(`stroke-width="${z.strokeWidth}"`);
+      expect(red).toContain(`x="${10 + z.outerStrokeWidth / 2}"`);
+    }
+    // Concretely: 3 px red on a 300 px crop, 4 px at 1,280, 24 px at the 10,000 px cap.
+    expect(overlay([rect], 300, 200)).toContain('stroke-width="3"/>');
+    expect(overlay([rect], 1280, 200)).toContain('stroke-width="4"/>');
+    expect(overlay([rect], 10_000, 200)).toContain('stroke-width="24"/>');
   });
 });
 
 describe('arrow geometry', () => {
   it('shortens the shaft to the head base and clamps short heads', () => {
-    // Horizontal arrow of length 20: head = min(22, 12) = 12.
+    // Horizontal arrow of length 20: head = min(16.5 at this width, 12) = 12.
+    expect(Z.arrowHeadLength).toBe(16.5);
     const svg = overlay([{ id: 'a', type: 'arrow', x1: 100, y1: 50, x2: 120, y2: 50 }]);
     const lines = svg.match(/<line [^>]+>/g)!;
     expect(lines).toHaveLength(2);
@@ -90,7 +110,7 @@ describe('arrow geometry', () => {
     const paths = svg.match(/<path [^>]+>/g)!;
     expect(paths).toHaveLength(2);
     expect(paths[0]).toContain(`fill="${S.white}"`);
-    expect(paths[0]).toContain(`stroke-width="${2 * S.outline}"`);
+    expect(paths[0]).toContain(`stroke-width="${2 * Z.outline}"`);
     expect(paths[1]).toContain(`fill="${S.red}"`);
     expect(paths[1]).not.toContain('stroke=');
     // Canvas draw order: white shaft, white head, red shaft, red head.
@@ -103,10 +123,14 @@ describe('arrow geometry', () => {
   });
 
   it('places head corners perpendicular to the shaft', () => {
-    const hw = S.arrowHeadWidth / 2;
+    const hw = Z.arrowHeadWidth / 2;
+    const base = 200 - Z.arrowHeadLength;
     const svg = overlay([{ id: 'a', type: 'arrow', x1: 0, y1: 100, x2: 200, y2: 100 }]);
-    // Full-length head: base at x2 - 22 = 178, corners at y ± 9.
-    expect(svg).toContain(`M 200 100 L 178 ${100 - hw} L 178 ${100 + hw} Z`);
+    // Full-length head: base at x2 - headLength (183.5 at 480 px), corners at y ± 6.75.
+    expect(svg).toContain(`M 200 100 L ${base} ${100 - hw} L ${base} ${100 + hw} Z`);
+    // At the 1,280 px reference the pre-E1 numbers come back exactly: 178 and ± 9.
+    const ref = overlay([{ id: 'a', type: 'arrow', x1: 0, y1: 100, x2: 200, y2: 100 }], 1280, 360);
+    expect(ref).toContain('M 200 100 L 178 91 L 178 109 Z');
   });
 });
 
@@ -114,12 +138,21 @@ describe('text geometry', () => {
   it('derives the baseline from the shared Fabric metrics', () => {
     const fs = 28;
     const svg = overlay([text('hello', { fontSize: fs })]);
-    const baseline = 60 + S.textStrokeWidth / 2 + fs * T.fontSizeMult * (1 - T.fontSizeFraction);
+    const baseline = 60 + Z.textStrokeWidth / 2 + fs * T.fontSizeMult * (1 - T.fontSizeFraction);
     expect(svg).toContain(`y="${Math.round(baseline * 100) / 100}"`);
-    expect(svg).toContain(`x="${40 + S.textStrokeWidth / 2}"`);
+    expect(svg).toContain(`x="${40 + Z.textStrokeWidth / 2}"`);
     expect(svg).toContain('style="paint-order: stroke"');
     expect(svg).toContain('xml:space="preserve"');
-    expect(svg).toContain(`stroke-width="${S.textStrokeWidth}"`);
+    expect(svg).toContain(`stroke-width="${Z.textStrokeWidth}"`);
+  });
+
+  it('keeps the stored fontSize absolute; only the white underlay follows the width', () => {
+    // Schema v1: fontSize is pixels as persisted, at every capture width.
+    for (const width of [300, 1280, 10_000]) {
+      const svg = overlay([text('hi', { fontSize: 28 })], width, 200);
+      expect(svg).toContain('font-size="28"');
+      expect(svg).toContain(`stroke-width="${annotationSizes(width).textStrokeWidth}"`);
+    }
   });
 
   it('advances lines by fontSize · mult · lineHeight and skips empty lines', () => {
@@ -127,7 +160,7 @@ describe('text geometry', () => {
     const svg = overlay([text('a\n\nb', { fontSize: fs })]);
     const els = svg.match(/<text [^>]+>/g)!;
     expect(els).toHaveLength(2); // the blank middle line renders nothing
-    const first = 60 + S.textStrokeWidth / 2 + fs * T.fontSizeMult * (1 - T.fontSizeFraction);
+    const first = 60 + Z.textStrokeWidth / 2 + fs * T.fontSizeMult * (1 - T.fontSizeFraction);
     const advance = fs * T.fontSizeMult * T.lineHeight;
     expect(els[0]).toContain(`y="${Math.round(first * 100) / 100}"`);
     expect(els[1]).toContain(`y="${Math.round((first + 2 * advance) * 100) / 100}"`);

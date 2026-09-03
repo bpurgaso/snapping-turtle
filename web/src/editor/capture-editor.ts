@@ -1,7 +1,8 @@
 import { ANNOTATION_SCHEMA_VERSION } from '@snapping-turtle/shared/constants';
 import {
-  ANNOTATION_STYLE,
+  annotationSizes,
   type AnnotationDocument,
+  type AnnotationSizes,
   type Shape,
 } from '@snapping-turtle/shared/annotations';
 import { RETENTION_CHOICES_DAYS } from '@snapping-turtle/shared/api';
@@ -62,12 +63,15 @@ export class CaptureEditor {
     attrs: { role: 'status', 'aria-live': 'polite' },
   });
   private readonly toolButtons = new Map<Tool, HTMLButtonElement>();
+  /** Drawing sizes for this capture's width (§9 adaptive sizing) — computed once, shared by every object. */
+  private readonly sizes: AnnotationSizes;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly opts: EditorOptions,
   ) {
     this.rev = opts.doc.rev;
+    this.sizes = annotationSizes(opts.width);
   }
 
   async mount(): Promise<void> {
@@ -172,7 +176,9 @@ export class CaptureEditor {
     if (this.tool === 'select') return;
     const p = this.canvas.getScenePoint(o.e);
     if (this.tool === 'text') {
-      const t = makeText('', { left: p.x, top: p.y, fontSize: ANNOTATION_STYLE.defaultFontSize });
+      // New text starts at the width-derived default; from here on the shape's
+      // fontSize is absolute and user resizes store absolute pixels (schema v1).
+      const t = makeText('', { left: p.x, top: p.y, fontSize: this.sizes.defaultFontSize }, this.sizes);
       setShapeId(t, newShapeId());
       this.wireText(t);
       this.canvas.add(t);
@@ -183,8 +189,8 @@ export class CaptureEditor {
     }
     const obj: FabricObject =
       this.tool === 'rect'
-        ? new AnnoRect({ left: p.x, top: p.y, width: 1, height: 1 })
-        : new AnnoArrow(p.x, p.y, p.x + 1, p.y + 1);
+        ? new AnnoRect({ left: p.x, top: p.y, width: 1, height: 1 }, this.sizes)
+        : new AnnoArrow(p.x, p.y, p.x + 1, p.y + 1, this.sizes);
     setShapeId(obj, newShapeId());
     this.canvas.add(obj);
     this.drawing = { origin: { x: p.x, y: p.y }, obj };
@@ -281,7 +287,7 @@ export class CaptureEditor {
   private loadDoc(doc: AnnotationDocument): void {
     this.canvas.remove(...this.canvas.getObjects());
     for (const s of doc.shapes) {
-      const obj = objectFromShape(s);
+      const obj = objectFromShape(s, this.sizes);
       if (obj instanceof IText) this.wireText(obj);
       this.canvas.add(obj);
     }

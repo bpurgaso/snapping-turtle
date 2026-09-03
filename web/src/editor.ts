@@ -1,6 +1,6 @@
 import './capture.css';
 import './editor.css';
-import { ANNOTATION_STYLE, type AnnotationDocument } from '@snapping-turtle/shared/annotations';
+import { annotationSizes, type AnnotationDocument } from '@snapping-turtle/shared/annotations';
 import { annotations, currentSession } from './api.js';
 import { wireCopyButtons } from './copy.js';
 import { CaptureEditor } from './editor/capture-editor.js';
@@ -37,7 +37,7 @@ async function init(root: HTMLElement): Promise<void> {
   // Fabric measures text in the annotation font; load it before mounting so
   // glyph metrics match the server renderer's from the first frame (§10).
   try {
-    await document.fonts.load(`${ANNOTATION_STYLE.defaultFontSize}px Inter`);
+    await document.fonts.load(`${annotationSizes(width).defaultFontSize}px Inter`);
   } catch {
     /* font API unavailable: system fallback still renders */
   }

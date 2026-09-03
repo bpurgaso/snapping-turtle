@@ -148,8 +148,11 @@ describe('validateAnnotationDocument', () => {
     expect(res).toEqual({ ok: false, reason: 'shape a2 is outside the image bounds' });
   });
 
-  it('exposes coherent style and size constants for both renderers', () => {
-    expect(ANNOTATION_STYLE.strokeWidth + 2 * ANNOTATION_STYLE.outline).toBe(8);
+  it('exposes coherent style constants for both renderers', () => {
+    // Sizes are no longer constants (see annotation-sizes.test.ts); only the
+    // colors and the pinned font family stay fixed.
+    expect(ANNOTATION_STYLE.red).toMatch(/^#[0-9a-f]{6}$/);
+    expect(ANNOTATION_STYLE.fontFamily.startsWith('Inter')).toBe(true);
     expect(MAX_ANNOTATION_DOC_BYTES).toBeGreaterThan(1024 * 1024);
   });
 });

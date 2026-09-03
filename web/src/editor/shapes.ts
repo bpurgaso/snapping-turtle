@@ -2,7 +2,9 @@ import {
   ANNOTATION_LIMITS,
   ANNOTATION_STYLE as S,
   ANNOTATION_TEXT_LAYOUT,
+  annotationSizes,
   stripAnnotationControlChars,
+  type AnnotationSizes,
   type Shape,
 } from '@snapping-turtle/shared/annotations';
 import { Control, FabricObject, IText, Point, Rect, util } from 'fabric';
@@ -11,13 +13,17 @@ import { arrowToShape, newShapeId, rectToShape, textToShape } from './model.js';
 /**
  * Fabric objects for the three annotation shapes (§9). Every shape draws the
  * red-with-white-outline double stroke from ANNOTATION_STYLE — white first at
- * strokeWidth + 2·outline, red on top — which M4's SVG renderer reproduces.
+ * the outer width, red on top — which the SVG renderer reproduces.
+ * Every size is an `AnnotationSizes` from `annotationSizes(captureWidth)` in
+ * shared/ (§9 adaptive sizing): the editor computes it once per capture and
+ * hands it to each object, exactly as the server does per render. No literal
+ * size lives here (shared/test/style-literals.test.ts).
  * Rotation is disabled everywhere: the schema has no rotation and the flat
  * renderer must be able to reproduce exactly what the editor can produce.
  */
 
-/** Full width of the white underlay stroke. */
-const OUTER = S.strokeWidth + 2 * S.outline;
+export { annotationSizes };
+export type { AnnotationSizes };
 
 const idStore = new WeakMap<FabricObject, string>();
 
@@ -35,15 +41,21 @@ export function ensureShapeId(obj: FabricObject): string {
 }
 
 export class AnnoRect extends Rect {
-  constructor(options: { left: number; top: number; width: number; height: number }) {
+  readonly sizes: AnnotationSizes;
+
+  constructor(
+    options: { left: number; top: number; width: number; height: number },
+    sizes: AnnotationSizes,
+  ) {
     super({
       ...options,
       fill: '',
       stroke: S.red,
-      strokeWidth: OUTER, // fabric pads its cache and selection box by this
+      strokeWidth: sizes.outerStrokeWidth, // fabric pads its cache and selection box by this
       lockRotation: true,
       lockScalingFlip: true,
     });
+    this.sizes = sizes;
     this.setControlsVisibility({ mtr: false });
   }
 
@@ -53,10 +65,10 @@ export class AnnoRect extends Rect {
     ctx.rect(-this.width / 2, -this.height / 2, this.width, this.height);
     ctx.lineJoin = 'round';
     ctx.strokeStyle = S.white;
-    ctx.lineWidth = OUTER;
+    ctx.lineWidth = this.sizes.outerStrokeWidth;
     ctx.stroke();
     ctx.strokeStyle = S.red;
-    ctx.lineWidth = S.strokeWidth;
+    ctx.lineWidth = this.sizes.strokeWidth;
     ctx.stroke();
     ctx.restore();
   }
@@ -73,20 +85,22 @@ export class AnnoArrow extends FabricObject {
   ry1 = 0;
   rx2 = 0;
   ry2 = 0;
+  readonly sizes: AnnotationSizes;
 
-  constructor(x1: number, y1: number, x2: number, y2: number) {
+  constructor(x1: number, y1: number, x2: number, y2: number, sizes: AnnotationSizes) {
     super({
       originX: 'center',
       originY: 'center',
       fill: '',
       stroke: S.red,
-      strokeWidth: OUTER,
+      strokeWidth: sizes.outerStrokeWidth,
       lockScalingX: true,
       lockScalingY: true,
       lockRotation: true,
       hasBorders: false,
       perPixelTargetFind: true,
     });
+    this.sizes = sizes;
     this.controls = { p1: endpointControl(1), p2: endpointControl(2) };
     this.setEndpoints(x1, y1, x2, y2);
   }
@@ -98,7 +112,7 @@ export class AnnoArrow extends FabricObject {
     this.ry1 = y1 - cy;
     this.rx2 = x2 - cx;
     this.ry2 = y2 - cy;
-    const pad = S.arrowHeadWidth + OUTER;
+    const pad = this.sizes.arrowHeadWidth + this.sizes.outerStrokeWidth;
     this.set({
       left: cx,
       top: cy,
@@ -116,8 +130,8 @@ export class AnnoArrow extends FabricObject {
 
   override _render(ctx: CanvasRenderingContext2D): void {
     ctx.save();
-    this.drawArrow(ctx, S.white, OUTER, 2 * S.outline);
-    this.drawArrow(ctx, S.red, S.strokeWidth, 0);
+    this.drawArrow(ctx, S.white, this.sizes.outerStrokeWidth, 2 * this.sizes.outline);
+    this.drawArrow(ctx, S.red, this.sizes.strokeWidth, 0);
     ctx.restore();
   }
 
@@ -133,10 +147,10 @@ export class AnnoArrow extends FabricObject {
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len;
     const uy = dy / len;
-    const headLen = Math.min(S.arrowHeadLength, len * 0.6);
+    const headLen = Math.min(this.sizes.arrowHeadLength, len * 0.6);
     const bx = rx2 - ux * headLen;
     const by = ry2 - uy * headLen;
-    const hw = S.arrowHeadWidth / 2;
+    const hw = this.sizes.arrowHeadWidth / 2;
 
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
@@ -162,6 +176,14 @@ export class AnnoArrow extends FabricObject {
   }
 }
 
+/**
+ * The arrow's endpoint handles are editor chrome drawn in screen pixels
+ * (Fabric hands controls viewport coordinates), not annotation geometry: the
+ * server never renders them and they must stay the same size on screen at
+ * every zoom, so they deliberately do not follow the adaptive curve.
+ */
+const ENDPOINT_HANDLE = { radiusPx: 6, ringPx: 2 } as const;
+
 function endpointControl(which: 1 | 2): Control {
   return new Control({
     actionName: 'moveEndpoint',
@@ -181,10 +203,10 @@ function endpointControl(which: 1 | 2): Control {
     render(ctx, left, top) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(left, top, 6, 0, 2 * Math.PI);
+      ctx.arc(left, top, ENDPOINT_HANDLE.radiusPx, 0, 2 * Math.PI);
       ctx.fillStyle = S.white;
       ctx.strokeStyle = S.red;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = ENDPOINT_HANDLE.ringPx;
       ctx.fill();
       ctx.stroke();
       ctx.restore();
@@ -192,17 +214,23 @@ function endpointControl(which: 1 | 2): Control {
   });
 }
 
-/** IText in the shared style; resizing scales the font (normalised on modify). */
+/**
+ * IText in the shared style; resizing scales the font (normalised on modify).
+ * `fontSize` is the shape's own absolute value (schema v1) — the caller picks
+ * `sizes.defaultFontSize` for newly placed text; only the white underlay
+ * stroke follows the capture width.
+ */
 export function makeText(
   text: string,
   opts: { left: number; top: number; fontSize: number },
+  sizes: AnnotationSizes,
 ): IText {
   const t = new IText(text, {
     ...opts,
     fontFamily: S.fontFamily,
     fill: S.red,
     stroke: S.white,
-    strokeWidth: S.textStrokeWidth,
+    strokeWidth: sizes.textStrokeWidth,
     paintFirst: 'stroke',
     lineHeight: ANNOTATION_TEXT_LAYOUT.lineHeight,
     lockRotation: true,
@@ -268,20 +296,20 @@ export function shapeOf(obj: FabricObject): Shape | null {
 }
 
 /** Schema shape -> canvas object (the load half of the round trip). */
-export function objectFromShape(s: Shape): FabricObject {
+export function objectFromShape(s: Shape, sizes: AnnotationSizes): FabricObject {
   switch (s.type) {
     case 'rect': {
-      const r = new AnnoRect({ left: s.x, top: s.y, width: s.w, height: s.h });
+      const r = new AnnoRect({ left: s.x, top: s.y, width: s.w, height: s.h }, sizes);
       setShapeId(r, s.id);
       return r;
     }
     case 'arrow': {
-      const a = new AnnoArrow(s.x1, s.y1, s.x2, s.y2);
+      const a = new AnnoArrow(s.x1, s.y1, s.x2, s.y2, sizes);
       setShapeId(a, s.id);
       return a;
     }
     case 'text': {
-      const t = makeText(s.text, { left: s.x, top: s.y, fontSize: s.fontSize });
+      const t = makeText(s.text, { left: s.x, top: s.y, fontSize: s.fontSize }, sizes);
       setShapeId(t, s.id);
       return t;
     }

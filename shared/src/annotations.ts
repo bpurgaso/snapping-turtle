@@ -96,25 +96,19 @@ export function emptyAnnotationDocument(): AnnotationDocument {
 
 /**
  * The red-with-white-outline double-stroke style, defined once so the Fabric
- * editor (web/) and the M4 SVG renderer (server/) cannot drift. The white
- * pass is drawn first at `strokeWidth + 2 * outline`, then red at
- * `strokeWidth` on top - leaving `outline` px of white visible on each side.
- * Text draws a white stroke under a red fill (`paintFirst: 'stroke'` /
- * SVG `paint-order: stroke`).
+ * editor (web/) and the SVG renderer (server/) cannot drift. The white pass is
+ * drawn first at `strokeWidth + 2 * outline`, then red at `strokeWidth` on
+ * top - leaving `outline` px of white visible on each side. Text draws a
+ * white stroke under a red fill (`paintFirst: 'stroke'` / SVG
+ * `paint-order: stroke`).
+ *
+ * Colors and the font are fixed; every *size* is a function of the capture's
+ * width — see `annotationSizes()` below. Nothing outside shared/ may carry a
+ * literal stroke or font size (shared/test/style-literals.test.ts enforces it).
  */
 export const ANNOTATION_STYLE = {
   red: '#e03131',
   white: '#ffffff',
-  /** Red stroke width for rect and arrow shafts, in image pixels. */
-  strokeWidth: 4,
-  /** Visible white rim on each side of a red stroke. */
-  outline: 2,
-  /** Arrowhead: filled triangle, tip at (x2, y2). */
-  arrowHeadLength: 22,
-  arrowHeadWidth: 18,
-  /** White stroke under the red text fill. */
-  textStrokeWidth: 4,
-  defaultFontSize: 28,
   /**
    * Both renderers resolve this to the single pinned font file vendored at
    * `shared/fonts/Inter-Regular.ttf` (v4.1, SIL OFL): the editor via
@@ -122,6 +116,107 @@ export const ANNOTATION_STYLE = {
    */
   fontFamily: 'Inter, system-ui, sans-serif',
 } as const;
+
+/**
+ * Adaptive sizing (§9, E1): annotation sizes scale with the capture's width
+ * so they keep the same apparent size on everything from a 300 px region
+ * crop to a 10,000 px retina full-page capture. Width alone drives it —
+ * viewing is fit-to-width, so width-proportional means constant apparent
+ * size, and a tall page must not get giant strokes. Each size is
+ *
+ *     size(width) = clamp(k · width, min, max)
+ *
+ * with k = base / referenceWidth, min = base · minScale, max = base · maxScale;
+ * i.e. one scale factor `clamp(width / referenceWidth, minScale, maxScale)`
+ * multiplies every base size. `base` is what a 1,280 px capture gets (the
+ * pre-E1 fixed values, so the reference width renders exactly as before).
+ * The floor engages below `minScale · referenceWidth` = 960 px — small crops
+ * display at natural size and keep legible strokes; the ceiling engages above
+ * `maxScale · referenceWidth` = 7,680 px so extreme widths stop growing.
+ * The persisted document never stores any of these: stored `fontSize` stays
+ * absolute pixels; only the default for *newly placed* text derives from
+ * width. Changing anything here changes the drawn output of an unchanged
+ * document: bump RENDER_VERSION and regenerate the parity goldens.
+ */
+export const ANNOTATION_SIZE_CURVE = {
+  referenceWidth: 1280,
+  minScale: 0.75,
+  maxScale: 6,
+  /** Sizes at `referenceWidth`, in image pixels. */
+  base: {
+    /** Red stroke width for rect and arrow shafts. */
+    strokeWidth: 4,
+    /** Visible white rim on each side of a red stroke. */
+    outline: 2,
+    /** Arrowhead: filled triangle, tip at (x2, y2). */
+    arrowHeadLength: 22,
+    arrowHeadWidth: 18,
+    /** White stroke under the red text fill. */
+    textStrokeWidth: 4,
+    /** Font size given to newly placed text (stored absolute thereafter). */
+    defaultFontSize: 28,
+  },
+} as const;
+
+export type AnnotationSizeName = keyof typeof ANNOTATION_SIZE_CURVE.base;
+
+/** The concrete sizes both renderers draw with for one capture width. */
+export interface AnnotationSizes extends Record<AnnotationSizeName, number> {
+  /** Full width of the white underlay stroke: strokeWidth + 2 · outline. */
+  outerStrokeWidth: number;
+}
+
+const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * The scale factor applied to every base size for a capture `width` px wide:
+ * `clamp(width / referenceWidth, minScale, maxScale)`. Exported so the curve
+ * can be documented and tested at its boundaries.
+ */
+export function annotationScale(width: number): number {
+  if (!Number.isFinite(width) || width <= 0) throw new Error('annotation scale needs a positive width');
+  const c = ANNOTATION_SIZE_CURVE;
+  return clamp(width / c.referenceWidth, c.minScale, c.maxScale);
+}
+
+/** `clamp(k · width, min, max)` parameters for one size — the curve in the form PLAN.md §9 tabulates. */
+export function annotationSizeCurve(name: AnnotationSizeName): { k: number; min: number; max: number } {
+  const c = ANNOTATION_SIZE_CURVE;
+  const base = c.base[name];
+  return { k: base / c.referenceWidth, min: base * c.minScale, max: base * c.maxScale };
+}
+
+/**
+ * Every drawing size for a capture of the given width, rounded to the schema's
+ * two-decimal precision so the Fabric canvas and the SVG overlay receive the
+ * identical numbers. Pure and cheap; call it once per capture, not per shape.
+ */
+export function annotationSizes(width: number): AnnotationSizes {
+  const s = annotationScale(width);
+  const b = ANNOTATION_SIZE_CURVE.base;
+  const strokeWidth = round2(b.strokeWidth * s);
+  const outline = round2(b.outline * s);
+  return {
+    strokeWidth,
+    outline,
+    outerStrokeWidth: round2(strokeWidth + 2 * outline),
+    arrowHeadLength: round2(b.arrowHeadLength * s),
+    arrowHeadWidth: round2(b.arrowHeadWidth * s),
+    textStrokeWidth: round2(b.textStrokeWidth * s),
+    defaultFontSize: round2(b.defaultFontSize * s),
+  };
+}
+
+/**
+ * Version of the flat renderer's *output* for an unchanged document (§10).
+ * The flat cache is valid only while the stored render version equals this
+ * constant, so bumping it lazily re-renders every capture on its next view
+ * with no mass job. Bump it whenever the drawn result of a document changes
+ * without the document changing: a size-curve retune, a color, the font,
+ * a geometry fix. Rows rendered before versioning existed carry 0.
+ */
+export const RENDER_VERSION = 1;
 
 /**
  * Fabric.js text-layout constants, pinned here so the M4 SVG renderer can
