@@ -1,6 +1,6 @@
 import type { ParityFixture } from '@snapping-turtle/shared/parity-fixtures';
 import { StaticCanvas } from 'fabric';
-import { objectFromShape } from '../../../src/editor/shapes.js';
+import { annotationSizes, objectFromShape } from '../../../src/editor/shapes.js';
 
 /**
  * Browser half of the render-parity harness (§10): renders a fixture with the
@@ -10,11 +10,24 @@ import { objectFromShape } from '../../../src/editor/shapes.js';
  * injected into about:blank; never part of the shipped bundle.
  */
 
-async function ensureFont(fontDataUrl: string): Promise<void> {
-  if (document.fonts.check('16px Inter')) return;
-  const face = new FontFace('Inter', `url(${fontDataUrl})`);
-  await face.load();
-  document.fonts.add(face);
+let interLoaded: Promise<void> | null = null;
+
+/**
+ * Register the vendored Inter once per page. Deliberately not guarded by
+ * `document.fonts.check('16px Inter')`: that returns true when *no* face named
+ * Inter is registered at all (nothing would block rendering), so the M4
+ * harness skipped the load and measured every fixture in Chromium's fallback
+ * font — text ran ~11% narrower than the server's Inter and the whole-image
+ * tolerance hid it (found and fixed in E1, PLAN.md §10).
+ */
+function ensureFont(fontDataUrl: string): Promise<void> {
+  interLoaded ??= (async () => {
+    const face = new FontFace('Inter', `url(${fontDataUrl})`);
+    await face.load();
+    document.fonts.add(face);
+    await document.fonts.load('16px Inter');
+  })();
+  return interLoaded;
 }
 
 async function render(fixture: ParityFixture, fontDataUrl: string): Promise<string> {
@@ -29,7 +42,9 @@ async function render(fixture: ParityFixture, fontDataUrl: string): Promise<stri
     renderOnAddRemove: false,
   });
   try {
-    for (const shape of fixture.shapes) canvas.add(objectFromShape(shape));
+    // The same per-width sizes the editor computes for a capture (§9 E1).
+    const sizes = annotationSizes(fixture.width);
+    for (const shape of fixture.shapes) canvas.add(objectFromShape(shape, sizes));
     canvas.renderAll();
     return canvas.toDataURL({ format: 'png', multiplier: 1, enableRetinaScaling: false });
   } finally {

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
+import { measuredStrokeBand } from '../helpers/measure.js';
 import { renderFixturePng } from '../helpers/render-fixture.js';
 
 /**
@@ -23,6 +24,15 @@ describe('flat renderer goldens', () => {
   for (const fixture of PARITY_FIXTURES) {
     it(`matches golden: ${fixture.name}`, async () => {
       const rendered = await renderFixturePng(fixture);
+      // Clamp proof (§9 E1): the rect fixtures promise a stroke band of
+      // exactly annotationSizes(width).outerStrokeWidth pixels — 6 on the
+      // 300 px floor, 48 on the 10,000 px ceiling — measured on real pixels.
+      const band = measuredStrokeBand(PNG.sync.read(rendered), fixture);
+      if (band) {
+        expect(band.px, `${fixture.name}: stroke band ${band.px}px, expected ${band.expected}px`).toBe(
+          band.expected,
+        );
+      }
       const goldenPath = `${goldenDir}${fixture.name}.png`;
       if (update || !existsSync(goldenPath)) {
         mkdirSync(goldenDir, { recursive: true });
