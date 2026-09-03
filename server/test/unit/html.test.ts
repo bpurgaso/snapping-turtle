@@ -68,6 +68,54 @@ describe('renderCapturePage (§7)', () => {
     expect(out).toContain('<link rel="stylesheet" href="/assets/capture-abc.css" />');
   });
 
+  describe('link-preview tags (E3)', () => {
+    it('emits Open Graph + Twitter card tags with absolute URLs and the row dimensions', () => {
+      const out = renderCapturePage({ ...base, title: 'Plain title' });
+      for (const tag of [
+        '<meta property="og:type" content="website" />',
+        '<meta property="og:site_name" content="snapping-turtle" />',
+        '<meta property="og:title" content="Plain title" />',
+        '<meta property="og:description" content="Annotated screenshot" />',
+        `<meta property="og:url" content="${base.pageUrl}" />`,
+        `<meta property="og:image" content="${base.imageUrl}" />`,
+        '<meta property="og:image:type" content="image/png" />',
+        '<meta property="og:image:width" content="800" />',
+        '<meta property="og:image:height" content="600" />',
+        '<meta name="twitter:card" content="summary_large_image" />',
+      ]) {
+        expect(out).toContain(tag);
+      }
+      // The tags live in <head>, before any script.
+      expect(out.indexOf('og:image')).toBeLessThan(out.indexOf('</head>'));
+    });
+
+    it('escapes a hostile title inside the attribute (rule 5) — checked on the raw HTML', () => {
+      const hostile = `Q&A "quoted" <b>bold</b> 'single' &amp; \u0022done`;
+      const out = renderCapturePage({ ...base, title: hostile });
+      expect(out).toContain(
+        '<meta property="og:title" content="Q&amp;A &quot;quoted&quot; &lt;b&gt;bold&lt;/b&gt; &#39;single&#39; &amp;amp; &quot;done" />',
+      );
+      // Neither the raw text nor a way out of the attribute survives anywhere.
+      expect(out).not.toContain(hostile);
+      expect(out).not.toContain('<b>bold');
+      expect(out).not.toMatch(/content="[^"]*"[^>]*"[^>]*\/>/); // no stray quote in a content value
+      const contents = [...out.matchAll(/content="([^"]*)"/g)].map((m) => m[1] as string);
+      for (const value of contents) {
+        expect(value).not.toMatch(/[<>"]/);
+        expect(value).not.toMatch(/&(?!(amp|lt|gt|quot|#39);)/); // only our named escapes
+      }
+    });
+
+    it('falls back to the source host, then a generic word, for an empty title', () => {
+      expect(renderCapturePage({ ...base, title: '' })).toContain(
+        '<meta property="og:title" content="example.com" />',
+      );
+      expect(renderCapturePage({ ...base, title: '', sourceUrl: 'not a url' })).toContain(
+        '<meta property="og:title" content="Capture" />',
+      );
+    });
+  });
+
   it('renders without a bundle (buttons degrade to read-only inputs)', () => {
     const out = renderCapturePage({ ...base, assets: { css: [] } });
     expect(out).not.toContain('<script');
@@ -134,5 +182,9 @@ describe('NOT_FOUND_HTML', () => {
   it('is a fixed generic body with no dynamic content', () => {
     expect(NOT_FOUND_HTML).toContain('Not found');
     expect(NOT_FOUND_HTML).not.toMatch(/\$\{/);
+  });
+
+  it('carries no link-preview tags (E3 leaves the uniform 404 untouched)', () => {
+    expect(NOT_FOUND_HTML).not.toMatch(/og:|twitter:|<meta property/);
   });
 });

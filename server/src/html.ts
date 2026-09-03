@@ -95,6 +95,27 @@ function stage(m: CapturePageModel, title: string): RawHtml {
   </div>`);
 }
 
+/**
+ * Link-preview tags for a live capture page (E3, PLAN.md §6/§7): Open Graph
+ * plus the Twitter card type Discord uses to pick its large-image layout.
+ * Every URL is absolute and derives from PUBLIC_ORIGIN (port included). The
+ * title is user-influenced text landing in attributes — the template escapes
+ * it like everything else (CLAUDE.md rule 5). Nothing here reaches the
+ * uniform 404: NOT_FOUND_HTML is a fixed string with no tags.
+ */
+function previewTags(m: CapturePageModel, title: string): RawHtml {
+  return raw(html`<meta property="og:type" content="website" />
+        <meta property="og:site_name" content="snapping-turtle" />
+        <meta property="og:title" content="${title}" />
+        <meta property="og:description" content="Annotated screenshot" />
+        <meta property="og:url" content="${m.pageUrl}" />
+        <meta property="og:image" content="${m.imageUrl}" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:width" content="${m.width}" />
+        <meta property="og:image:height" content="${m.height}" />
+        <meta name="twitter:card" content="summary_large_image" />`);
+}
+
 /** The view-only capture page (§7). Owner tooling arrives in M3. */
 export function renderCapturePage(m: CapturePageModel): string {
   // Defence in depth: ingest already enforced http(s); never emit anything else as an href.
@@ -115,6 +136,7 @@ export function renderCapturePage(m: CapturePageModel): string {
         <meta name="robots" content="noindex, nofollow" />
         <meta name="referrer" content="no-referrer" />
         <title>${title} · snapping-turtle</title>
+        ${previewTags(m, title)}
         ${assetTags(m.assets)}
       </head>
       <body class="capture">
