@@ -61,6 +61,8 @@ export const CAPTURE_UPLOAD_FIELDS = {
 export const EXT_ROUTE_PREFIX = '/ext/';
 /** Firefox update manifest name under EXT_ROUTE_PREFIX (the manifest's `update_url`). */
 export const EXT_UPDATES_MANIFEST = 'updates.json';
+/** Stable install link under EXT_ROUTE_PREFIX: redirects to the newest .xpi in updates.json (E2). */
+export const EXT_FIREFOX_LATEST = 'firefox-latest';
 /** Signed Firefox artifact name for a version; also what updates.json links to. */
 export function firefoxXpiFilename(version: string): string {
   return `snapping-turtle-firefox-${version}.xpi`;

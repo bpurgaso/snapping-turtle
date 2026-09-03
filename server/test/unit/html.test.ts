@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { escapeHtml, html, NOT_FOUND_HTML, raw, renderCapturePage } from '../../src/html.js';
+import {
+  escapeHtml,
+  html,
+  NOT_FOUND_HTML,
+  raw,
+  renderCapturePage,
+  renderHomePage,
+} from '../../src/html.js';
 
 describe('html escaping (CLAUDE.md rule 5)', () => {
   it('escapes the five significant characters', () => {
@@ -65,6 +72,61 @@ describe('renderCapturePage (§7)', () => {
     const out = renderCapturePage({ ...base, assets: { css: [] } });
     expect(out).not.toContain('<script');
     expect(out).toContain('readonly');
+  });
+});
+
+describe('renderHomePage (E2)', () => {
+  const assets = { js: '/assets/home-abc.js', css: ['/assets/home-abc.css'] };
+
+  it('always renders both install cards, the description and the sign-in link', () => {
+    for (const model of [
+      { assets },
+      { assets, firefoxInstallHref: '/ext/firefox-latest' },
+      { assets, chromeExtensionUrl: 'https://chromewebstore.google.com/detail/abc' },
+    ]) {
+      const out = renderHomePage(model);
+      expect(out).toContain('<h1>snapping-turtle</h1>');
+      expect(out).toContain('data-browser="firefox"');
+      expect(out).toContain('data-browser="chrome"');
+      expect(out).toContain('href="/login"');
+      expect(out).toMatch(/<p class="tagline">/);
+    }
+  });
+
+  it('links the stable Firefox redirect when published, says so when not', () => {
+    const published = renderHomePage({ assets, firefoxInstallHref: '/ext/firefox-latest' });
+    expect(published).toContain('href="/ext/firefox-latest"');
+    expect(published).not.toContain('Not yet published');
+    const bare = renderHomePage({ assets });
+    expect(bare).toContain('Not yet published');
+    expect(bare).not.toContain('firefox-latest');
+  });
+
+  it('links the Chrome listing when configured, says coming soon when not', () => {
+    const live = renderHomePage({ assets, chromeExtensionUrl: 'https://chromewebstore.google.com/detail/abc' });
+    expect(live).toMatch(
+      /<a class="button" href="https:\/\/chromewebstore\.google\.com\/detail\/abc" rel="noopener noreferrer"/,
+    );
+    expect(live).not.toContain('Coming soon');
+    const bare = renderHomePage({ assets });
+    expect(bare).toContain('Coming soon');
+    expect(bare).not.toContain('chromewebstore');
+  });
+
+  it('escapes the configured Chrome URL like any other attribute value', () => {
+    const out = renderHomePage({ assets, chromeExtensionUrl: 'https://x.test/a?b=1&c="2"<s>' });
+    expect(out).toContain('href="https://x.test/a?b=1&amp;c=&quot;2&quot;&lt;s&gt;"');
+    expect(out).not.toContain('<s>');
+  });
+
+  it('contains no inline script or style (CSP rule 6) and renders without a bundle', () => {
+    const out = renderHomePage({ assets, firefoxInstallHref: '/ext/firefox-latest' });
+    expect(out).not.toMatch(/<script(?![^>]*\bsrc=)/);
+    expect(out).not.toMatch(/<style\b/);
+    expect(out).not.toMatch(/\sstyle=/);
+    expect(out).not.toMatch(/\son[a-z]+=/i);
+    expect(out).toContain('<script type="module" src="/assets/home-abc.js"></script>');
+    expect(renderHomePage({ assets: { css: [] } })).not.toContain('<script');
   });
 });
 

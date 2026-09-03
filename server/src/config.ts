@@ -51,6 +51,13 @@ export const ConfigSchema = Type.Object({
   webDistDir: Type.String({ minLength: 1 }),
   /** Signed Firefox .xpi files + updates.json, served read-only at /ext/ (§15, M8). */
   extDir: Type.String({ minLength: 1 }),
+  /**
+   * The Chrome Web Store listing, once it exists (E2). The listing is
+   * unlisted — store search cannot find it — so the home page needs the
+   * direct link; unset, the Chrome install card says "coming soon". https
+   * only: it lands in an href.
+   */
+  chromeExtensionUrl: Type.Optional(Type.String({ pattern: '^https://[^\\s]+$' })),
   /** Re-encoded originals live here as {shard}/{id}.png (§12). The server chooses every path. */
   imagesDir: Type.String({ minLength: 1 }),
   maxUploadMb: Type.Integer({ minimum: 1, maximum: 1024 }),
@@ -151,6 +158,9 @@ export function loadConfig(env: Env = process.env): Config {
     sessionTtlDays: int(env, 'SESSION_TTL_DAYS', 30),
     webDistDir: env['WEB_DIST_DIR'] ?? defaultWebDist,
     extDir: env['EXT_DIR'] ?? defaultExtDir,
+    ...(env['CHROME_EXTENSION_URL']?.trim()
+      ? { chromeExtensionUrl: env['CHROME_EXTENSION_URL'].trim() }
+      : {}),
     imagesDir: env['IMAGES_DIR'] ?? defaultImagesDir,
     maxUploadMb: int(env, 'MAX_UPLOAD_MB', MAX_UPLOAD_MB),
     retentionDefaultDays: int(env, 'RETENTION_DEFAULT_DAYS', RETENTION_DEFAULT_DAYS),

@@ -7,10 +7,11 @@ import { defineConfig } from 'vite';
  * and stylesheet links, which is what keeps that policy satisfiable; the test
  * in test/csp.test.ts fails the build if an inline script or style sneaks in.
  *
- * Pages: index/login/signup/account are static HTML entries the server serves
- * as-is. `src/capture.ts` is a script-only entry: the capture page itself is
- * rendered by the server (it carries per-capture data), which locates the
- * hashed files through the manifest.
+ * Pages: login/signup/account/reset/admin are static HTML entries the server
+ * serves as-is. `src/home.ts`, `src/capture.ts` and `src/editor.ts` are
+ * script-only entries: those pages are rendered by the server (the home page
+ * reflects what is published and configured, the capture page carries
+ * per-capture data), which locates the hashed files through the manifest.
  */
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
@@ -24,12 +25,12 @@ export default defineConfig({
     manifest: true,
     rollupOptions: {
       input: {
-        index: here('index.html'),
         login: here('login.html'),
         signup: here('signup.html'),
         account: here('account.html'),
         reset: here('reset.html'),
         admin: here('admin.html'),
+        home: here('src/home.ts'),
         capture: here('src/capture.ts'),
         editor: here('src/editor.ts'),
       },

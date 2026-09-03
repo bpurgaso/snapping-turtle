@@ -90,6 +90,9 @@ services:
       # Signed Firefox .xpi + updates.json, published by
       # `pnpm --filter extension sign:firefox` into deploy/ext (§15, M8).
       EXT_DIR: /data/ext
+      # The unlisted Chrome Web Store listing, once approved (E2): the home
+      # page's Chrome install button. Empty = "coming soon".
+      CHROME_EXTENSION_URL: ${CHROME_EXTENSION_URL:-}
       # Only consumed by `docker compose run --rm app node dist/db/seed.js`.
       ADMIN_BOOTSTRAP_USER: ${ADMIN_BOOTSTRAP_USER:-}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}

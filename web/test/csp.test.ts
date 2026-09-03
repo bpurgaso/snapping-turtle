@@ -11,7 +11,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * silently blocked by browsers, so this test fails the build first.
  */
 const webRoot = fileURLToPath(new URL('..', import.meta.url));
-const PAGES = ['index.html', 'login.html', 'signup.html', 'account.html'];
+const PAGES = ['login.html', 'signup.html', 'account.html', 'admin.html', 'reset.html'];
 let outDir: string;
 const html: Record<string, string> = {};
 
@@ -54,11 +54,11 @@ describe.each(PAGES)('built %s is CSP-clean', (page) => {
 describe('build layout the server relies on', () => {
   it('emits hashed assets', () => {
     const assets = readdirSync(join(outDir, 'assets'));
-    expect(assets.some((f) => /^index-[\w-]+\.js$/.test(f))).toBe(true);
+    expect(assets.some((f) => /^login-[\w-]+\.js$/.test(f))).toBe(true);
     expect(assets.some((f) => /\.css$/.test(f))).toBe(true);
   });
 
-  it('writes a manifest resolving capture and editor entries to script + css', () => {
+  it('writes a manifest resolving the home, capture and editor entries to script + css', () => {
     const manifestPath = join(outDir, '.vite', 'manifest.json');
     expect(existsSync(manifestPath)).toBe(true);
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<
@@ -73,6 +73,11 @@ describe('build layout the server relies on', () => {
       if (!chunk) return [];
       return [...(chunk.imports ?? []).flatMap((i) => cssOf(i, seen)), ...(chunk.css ?? [])];
     };
+    // The home page is server-rendered (E2); its entry carries the shared stylesheet.
+    const home = manifest['src/home.ts'];
+    expect(home?.file).toMatch(/^assets\/home-[\w-]+\.js$/);
+    expect(existsSync(join(outDir, home!.file))).toBe(true);
+    expect(cssOf('src/home.ts').some((f) => f.endsWith('.css'))).toBe(true);
     const capture = manifest['src/capture.ts'];
     expect(capture?.file).toMatch(/^assets\/capture-[\w-]+\.js$/);
     expect(existsSync(join(outDir, capture!.file))).toBe(true);

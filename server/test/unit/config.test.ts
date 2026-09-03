@@ -86,6 +86,19 @@ describe('loadConfig', () => {
     });
   });
 
+  it('reads CHROME_EXTENSION_URL only as an https URL; blank means unset (E2)', () => {
+    expect(loadConfig(minimal).chromeExtensionUrl).toBeUndefined();
+    expect(loadConfig({ ...minimal, CHROME_EXTENSION_URL: '' }).chromeExtensionUrl).toBeUndefined();
+    expect(loadConfig({ ...minimal, CHROME_EXTENSION_URL: '   ' }).chromeExtensionUrl).toBeUndefined();
+    expect(
+      loadConfig({ ...minimal, CHROME_EXTENSION_URL: ' https://chromewebstore.google.com/detail/abc ' })
+        .chromeExtensionUrl,
+    ).toBe('https://chromewebstore.google.com/detail/abc');
+    for (const bad of ['http://chromewebstore.google.com/detail/abc', 'javascript:alert(1)', 'abc']) {
+      expect(() => loadConfig({ ...minimal, CHROME_EXTENSION_URL: bad }), bad).toThrow(ConfigError);
+    }
+  });
+
   it('refuses to start without a database URL or a strong session secret', () => {
     expect(() => loadConfig({})).toThrow(ConfigError);
     expect(() => loadConfig({ ...minimal, SESSION_SECRET: 'short' })).toThrow(/sessionSecret/);

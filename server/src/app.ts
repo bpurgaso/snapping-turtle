@@ -2,7 +2,12 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
-import { EXT_ROUTE_PREFIX, EXT_UPDATES_MANIFEST, HealthzResponse } from '@snapping-turtle/shared';
+import {
+  EXT_FIREFOX_LATEST,
+  EXT_ROUTE_PREFIX,
+  EXT_UPDATES_MANIFEST,
+  HealthzResponse,
+} from '@snapping-turtle/shared';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,7 +19,7 @@ import type { Db } from './db/client.js';
 import { registerErrorHandler, HttpError } from './errors.js';
 import { EXT_XPI_PATH, resolveLatestFirefoxXpi } from './ext-updates.js';
 import { Guard, sendGuardBlocked } from './guard.js';
-import type { PageAssets } from './html.js';
+import { renderHomePage, type PageAssets } from './html.js';
 import { FlatRenderer } from './images/flat.js';
 import { ImageStore } from './images/storage.js';
 import { redactSecretPath } from './log.js';
@@ -256,9 +261,11 @@ function assetLoader(config: Config, entry: string): () => PageAssets {
   return () => cached;
 }
 
-/** Static HTML pages from web/dist plus hashed assets under /assets/. */
+/** The stable Firefox install redirect (E2), same-origin. */
+const FIREFOX_LATEST_PATH = `${EXT_ROUTE_PREFIX}${EXT_FIREFOX_LATEST}`;
+
+/** Static HTML pages from web/dist plus hashed assets under /assets/. The home page is rendered, not static. */
 const PAGES: ReadonlyArray<[route: string, file: string]> = [
-  ['/', 'index.html'],
   ['/login', 'login.html'],
   ['/signup', 'signup.html'],
   ['/account', 'account.html'],
@@ -267,12 +274,34 @@ const PAGES: ReadonlyArray<[route: string, file: string]> = [
   ['/admin', 'admin.html'],
 ];
 
+/**
+ * The home page (E2) is server-rendered: its install section depends on what
+ * is published (updates.json, read per request) and configured
+ * (CHROME_EXTENSION_URL), and like the capture page it renders with or
+ * without the bundle — the bundle only adds the stylesheet and the optional
+ * browser emphasis.
+ */
+function registerHome(app: App, config: Config): void {
+  const homeAssets = assetLoader(config, 'src/home.ts');
+  app.get('/', async (req, reply) => {
+    const published = resolveLatestFirefoxXpi(config.extDir, (reason) =>
+      req.log.warn({ reason }, 'home page: updates.json unusable; showing Firefox as unpublished'),
+    );
+    const page = renderHomePage({
+      ...(published ? { firefoxInstallHref: FIREFOX_LATEST_PATH } : {}),
+      ...(config.chromeExtensionUrl ? { chromeExtensionUrl: config.chromeExtensionUrl } : {}),
+      assets: homeAssets(),
+    });
+    return reply.type('text/html; charset=utf-8').send(page);
+  });
+}
+
 /** Serve the Vite bundle from web/dist: pages → their HTML, `/assets/*` → hashed files. */
 async function registerWeb(app: App, config: Config): Promise<void> {
-  const indexPath = join(config.webDistDir, 'index.html');
-  const assetsDir = join(config.webDistDir, 'assets');
+  registerHome(app, config);
 
-  if (!existsSync(indexPath)) {
+  const built = PAGES.some(([, file]) => existsSync(join(config.webDistDir, file)));
+  if (!built) {
     app.log.warn({ webDistDir: config.webDistDir }, 'web bundle not built; pages will return 503');
     for (const [route] of PAGES) {
       app.get(route, async (_req, reply) =>
@@ -282,10 +311,8 @@ async function registerWeb(app: App, config: Config): Promise<void> {
           .send('web bundle not built — run `pnpm --filter web build`\n'),
       );
     }
-    return;
   }
-
-  for (const [route, file] of PAGES) {
+  for (const [route, file] of built ? PAGES : []) {
     const path = join(config.webDistDir, file);
     if (!existsSync(path)) continue;
     const cached = config.nodeEnv === 'production' ? readFileSync(path, 'utf8') : undefined;
@@ -294,6 +321,10 @@ async function registerWeb(app: App, config: Config): Promise<void> {
     );
   }
 
+  // Hashed assets are independent of the pages: the server-rendered home and
+  // capture pages link them through the manifest whether or not a static
+  // page exists.
+  const assetsDir = join(config.webDistDir, 'assets');
   if (existsSync(assetsDir)) {
     await app.register(fastifyStatic, {
       root: assetsDir,
@@ -323,7 +354,7 @@ async function registerExtensionDistribution(app: App, config: Config): Promise<
   // so the home page never rots as versions ship. Registered whether or not
   // EXT_DIR exists yet — before anything is published it is a plain 404, and
   // the home page shows "not yet published" instead of linking here.
-  app.get(`${EXT_ROUTE_PREFIX}firefox-latest`, async (req, reply) => {
+  app.get(FIREFOX_LATEST_PATH, async (req, reply) => {
     const target = resolveLatestFirefoxXpi(config.extDir, (reason) =>
       req.log.warn({ reason }, 'firefox-latest: updates.json unusable'),
     );

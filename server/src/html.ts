@@ -150,6 +150,86 @@ export function renderCapturePage(m: CapturePageModel): string {
     </html> `;
 }
 
+/** What the home page's install section has to offer (E2). */
+export interface HomePageModel {
+  /**
+   * Same-origin path of the stable Firefox install redirect, or undefined
+   * until a signed build is published — the card then says so instead of
+   * linking a dead download.
+   */
+  firefoxInstallHref?: string;
+  /** The unlisted Chrome Web Store listing (CHROME_EXTENSION_URL), or undefined until it exists. */
+  chromeExtensionUrl?: string;
+  assets: PageAssets;
+}
+
+/**
+ * Both install cards always render (E2): a visitor on either browser sees
+ * both options, and a wrong user-agent guess by the optional client script
+ * can only add emphasis, never hide one. Each card is either a real install
+ * link or an honest "not yet" — never a button that 404s.
+ */
+function installCards(m: HomePageModel): RawHtml {
+  const firefox = m.firefoxInstallHref
+    ? html`<a class="button" href="${m.firefoxInstallHref}">Install for Firefox</a>
+          <p class="hint">
+            Firefox asks once to allow installs from this site. Updates arrive automatically.
+          </p>`
+    : html`<p class="unavailable">Not yet published</p>
+          <p class="hint">The signed Firefox build has not been uploaded to this server yet.</p>`;
+  const chrome = m.chromeExtensionUrl
+    ? html`<a class="button" href="${m.chromeExtensionUrl}" rel="noopener noreferrer"
+            >Install for Chrome</a
+          >
+          <p class="hint">Opens the Chrome Web Store listing.</p>`
+    : html`<p class="unavailable">Coming soon</p>
+          <p class="hint">The Chrome Web Store listing is not live yet.</p>`;
+  return raw(html`<div class="browsers">
+        <article class="browser" data-browser="firefox">
+          <h3>Firefox</h3>
+          ${raw(firefox)}
+        </article>
+        <article class="browser" data-browser="chrome">
+          <h3>Chrome</h3>
+          ${raw(chrome)}
+        </article>
+      </div>`);
+}
+
+/** The home page (E2): name, one line, install cards, the way in. Server-rendered so it needs no bundle. */
+export function renderHomePage(m: HomePageModel): string {
+  return html`<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="robots" content="noindex, nofollow" />
+        <title>snapping-turtle</title>
+        ${assetTags(m.assets)}
+      </head>
+      <body class="home">
+        <main>
+          <h1>snapping-turtle</h1>
+          <p class="tagline">
+            Capture a tab, annotate it, and share it at a private link on this server.
+          </p>
+          <section class="install" aria-labelledby="install-heading">
+            <h2 id="install-heading">Install the extension</h2>
+            ${installCards(m)}
+            <p class="hint">
+              After installing, create an API token on your account page and paste it into the
+              extension's settings.
+            </p>
+          </section>
+          <nav class="nav">
+            <a href="/login">Sign in</a>
+            <a href="/account">Account</a>
+          </nav>
+        </main>
+      </body>
+    </html> `;
+}
+
 /**
  * The single not-found body for every miss under /s/* (§6, CLAUDE.md rule 2).
  * Byte-identical for never-existed, expired, deleted and malformed ids.
