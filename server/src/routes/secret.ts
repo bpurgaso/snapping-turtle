@@ -1,3 +1,4 @@
+import { RENDER_VERSION } from '@snapping-turtle/shared';
 import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { randomInt } from 'node:crypto';
@@ -32,6 +33,14 @@ export interface SecretRouteDeps {
 }
 
 const NOT_FOUND_BYTES = Buffer.from(NOT_FOUND_HTML, 'utf8');
+
+/**
+ * Validator for the flat image (§10): the bytes served for a capture are a
+ * function of the annotation revision *and* the renderer version, so both
+ * are in the tag — otherwise a client holding a pre-E1 render would revalidate
+ * to 304 forever and never see the adaptive sizing.
+ */
+export const flatEtag = (annotationsRev: number): string => `"r${annotationsRev}-v${RENDER_VERSION}"`;
 
 /**
  * Uniform not-found (§6, CLAUDE.md rule 2): one status, one header set, one
@@ -94,6 +103,7 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
         retentionUntil: captures.retentionUntil,
         annotationsRev: captures.annotationsRev,
         flatRev: captures.flatRev,
+        flatRenderVersion: captures.flatRenderVersion,
         /** Cheap emptiness check without pulling the (up to 8 MB) document. */
         shapeCount: sql<number>`jsonb_array_length(${captures.annotations} -> 'shapes')`,
       })
@@ -148,8 +158,8 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
       });
 
       // The flat render (§10): the URL is stable while its content follows the
-      // annotations, so the ETag derives from annotations_rev and clients
-      // revalidate cheaply (`private, no-cache`). Zero-annotation captures
+      // annotations, so the ETag derives from annotations_rev (and the
+      // renderer version) and clients revalidate cheaply (`private, no-cache`). Zero-annotation captures
       // serve the re-encoded original untouched — exactly what M1 served.
       s.get<{ Params: { viewId: string } }>('/:viewId/image.png', async (req, reply) => {
         const row = await findLive(req.params.viewId);
@@ -157,7 +167,7 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
 
         const cacheHeaders = (rev: number) =>
           reply
-            .header('ETag', `"r${rev}"`)
+            .header('ETag', flatEtag(rev))
             .header('Cache-Control', 'private, no-cache')
             .header('X-Content-Type-Options', 'nosniff');
 
@@ -178,14 +188,19 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
         };
 
         // A revalidation of the current revision needs no file (or render).
-        if (ifNoneMatchHits(req.headers['if-none-match'], `"r${row.annotationsRev}"`)) {
+        if (ifNoneMatchHits(req.headers['if-none-match'], flatEtag(row.annotationsRev))) {
           return cacheHeaders(row.annotationsRev).code(304).send();
         }
 
+        // The cache is current only when it holds this revision *and* was
+        // drawn by this renderer version; a pre-E1 file (version 0) or one from
+        // an older RENDER_VERSION re-renders lazily here, viewer by viewer.
+        const cacheCurrent =
+          row.flatRev === row.annotationsRev && row.flatRenderVersion === RENDER_VERSION;
         let sent =
           row.shapeCount === 0
             ? await sendFile(row.annotationsRev, 'original')
-            : row.flatRev === row.annotationsRev
+            : cacheCurrent
               ? await sendFile(row.annotationsRev, 'flat')
               : false;
 

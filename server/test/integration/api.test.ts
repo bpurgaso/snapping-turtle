@@ -26,6 +26,7 @@ import { seedAdmin } from '../../src/db/seed-admin.js';
 import { NOT_FOUND_HTML } from '../../src/html.js';
 import { sha256Hex } from '../../src/ids.js';
 import { ImageStore } from '../../src/images/storage.js';
+import { flatEtag } from '../../src/routes/secret.js';
 import { PurgeJob } from '../../src/jobs/purge.js';
 import type { App } from '../../src/types.js';
 import { craftPngBomb, makeJpegWithExif, makePng, SVG_BYTES } from '../helpers/images.js';
@@ -750,7 +751,7 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
     expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
     // M4: the flat URL revalidates by annotations revision (0 for a fresh capture).
     expect(res.headers['cache-control']).toBe('private, no-cache');
-    expect(res.headers['etag']).toBe('"r0"');
+    expect(res.headers['etag']).toBe(flatEtag(0)); // "r0-v<RENDER_VERSION>" (§10)
     const stored = readFileSync(store.pathFor(captureId));
     expect(Number(res.headers['content-length'])).toBe(stored.length);
     expect(res.rawPayload.equals(stored)).toBe(true);

@@ -1,4 +1,4 @@
-import { MAX_IMAGE_PIXELS } from '@snapping-turtle/shared';
+import { MAX_IMAGE_PIXELS, RENDER_VERSION } from '@snapping-turtle/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import sharp from 'sharp';
@@ -11,9 +11,12 @@ import { buildOverlaySvg } from './svg-overlay.js';
 /**
  * Flat-render pipeline (PLAN.md §10): rasterize the SVG overlay onto the
  * re-encoded original with sharp and cache the result as one file per capture,
- * overwritten in place. `flat_rev` records which revision the file holds; the
- * route serves the cache while `flat_rev === annotations_rev` and calls
- * `ensure()` otherwise. No `view_id` ever enters this module — renders are
+ * overwritten in place. `flat_rev` records which revision the file holds and
+ * `flat_render_version` which RENDER_VERSION drew it; the route serves the
+ * cache while both are current (`flat_rev === annotations_rev` and
+ * `flat_render_version === RENDER_VERSION`) and calls `ensure()` otherwise —
+ * so a renderer change (E1's adaptive sizing) re-renders every capture lazily
+ * on its next view through this same gate, with no mass job. No `view_id` ever enters this module — renders are
  * keyed and logged by internal capture id only (CLAUDE.md rule 3).
  */
 
@@ -145,15 +148,15 @@ export class FlatRenderer {
       if (isMissingInput(err)) return null;
       throw err;
     }
-    // File first, then the revision marker: flat_rev never claims a render
-    // that is not on disk, and a crash in between just re-renders next time.
+    // File first, then the markers: flat_rev never claims a render that is
+    // not on disk, and a crash in between just re-renders next time.
     await this.store.write(captureId, png, 'flat');
     await this.db
       .update(captures)
-      .set({ flatRev: rev })
+      .set({ flatRev: rev, flatRenderVersion: RENDER_VERSION })
       .where(and(eq(captures.id, captureId), eq(captures.annotationsRev, rev)));
     this.log?.info(
-      { captureId, rev, ms: Date.now() - startedAt, bytes: png.length },
+      { captureId, rev, renderVersion: RENDER_VERSION, ms: Date.now() - startedAt, bytes: png.length },
       'flat render complete',
     );
     return { rev, empty: false };

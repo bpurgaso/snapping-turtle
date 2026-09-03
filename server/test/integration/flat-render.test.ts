@@ -1,6 +1,7 @@
 import {
   ANNOTATION_SCHEMA_VERSION,
   CSRF_HEADER,
+  RENDER_VERSION,
   type AnnotationDocument,
   type Shape,
 } from '@snapping-turtle/shared';
@@ -19,13 +20,14 @@ import { captures } from '../../src/db/schema.js';
 import { seedAdmin } from '../../src/db/seed-admin.js';
 import { FlatRenderer, type EnsureResult } from '../../src/images/flat.js';
 import { ImageStore } from '../../src/images/storage.js';
+import { flatEtag } from '../../src/routes/secret.js';
 import type { App } from '../../src/types.js';
 import { makePng } from '../helpers/images.js';
 
 /**
  * M4 flat renderer over HTTP (§10): the unchanged image.png URL now serves
  * the composite, cached one-file-per-capture and keyed by flat_rev, with
- * rev-derived ETags and single-flight render coalescing. Requires
+ * rev+renderer-version ETags and single-flight render coalescing. Requires
  * DATABASE_URL pointing at a throwaway database (schema is reset).
  */
 const databaseUrl = process.env['DATABASE_URL'];
@@ -207,10 +209,11 @@ const SHAPES: Shape[] = [
 ];
 
 describe('GET /s/:viewId/image.png (§10)', () => {
-  it('zero annotations: serves the original untouched, revalidatable at "r0"', async () => {
+  it('zero annotations: serves the original untouched, revalidatable at rev 0', async () => {
     const res = await app.inject({ method: 'GET', url: imagePath() });
     expect(res.statusCode).toBe(200);
-    expect(res.headers['etag']).toBe('"r0"');
+    expect(res.headers['etag']).toBe(flatEtag(0));
+    expect(res.headers['etag']).toBe(`"r0-v${RENDER_VERSION}"`);
     expect(res.headers['cache-control']).toBe('private, no-cache');
     expect(res.rawPayload.equals(originalBytes)).toBe(true);
     expect(existsSync(store.pathFor(captureId, 'flat'))).toBe(false); // no pointless composite
@@ -218,10 +221,10 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     const cached = await app.inject({
       method: 'GET',
       url: imagePath(),
-      headers: { 'if-none-match': '"r0"' },
+      headers: { 'if-none-match': flatEtag(0) },
     });
     expect(cached.statusCode).toBe(304);
-    expect(cached.headers['etag']).toBe('"r0"');
+    expect(cached.headers['etag']).toBe(flatEtag(0));
     expect(cached.body).toBe('');
   });
 
@@ -231,7 +234,7 @@ describe('GET /s/:viewId/image.png (§10)', () => {
 
     const res = await app.inject({ method: 'GET', url: imagePath() });
     expect(res.statusCode).toBe(200);
-    expect(res.headers['etag']).toBe('"r1"');
+    expect(res.headers['etag']).toBe(flatEtag(1));
     expect(res.headers['content-type']).toBe('image/png');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.rawPayload.equals(originalBytes)).toBe(false); // annotations are visible
@@ -247,10 +250,11 @@ describe('GET /s/:viewId/image.png (§10)', () => {
       const i = (y * WIDTH + x) * raw.info.channels;
       return [raw.data[i]!, raw.data[i + 1]!, raw.data[i + 2]!];
     };
-    // The rect's top edge path sits at y = 30+4 = 34: red core covers 32–36,
-    // the white underlay ring shows at 30–32 and 36–38. Probe both bands.
-    expect(px(104, 34)).toEqual([224, 49, 49]); // #e03131
-    expect(px(104, 31)).toEqual([255, 255, 255]);
+    // A 300 px capture sits on the §9 floor (outer 6, red 3): the rect's top
+    // edge path is at y = 30+3 = 33, red core covers 31.5–34.5, the white
+    // underlay ring shows at 30–31.5 and 34.5–36. Probe both bands.
+    expect(px(104, 33)).toEqual([224, 49, 49]); // #e03131
+    expect(px(104, 30)).toEqual([255, 255, 255]);
     // Somewhere in the text's glyph box (x 60…, first baseline ≈ 153 for a
     // 24 px shape at y=130) there are white outline pixels.
     let hasWhite = false;
@@ -263,10 +267,11 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     expect(hasWhite).toBe(true);
 
     const [row] = await handle.db
-      .select({ flatRev: captures.flatRev })
+      .select({ flatRev: captures.flatRev, flatRenderVersion: captures.flatRenderVersion })
       .from(captures)
       .where(eq(captures.id, captureId));
     expect(row!.flatRev).toBe(1);
+    expect(row!.flatRenderVersion).toBe(RENDER_VERSION);
     expect(existsSync(store.pathFor(captureId, 'flat'))).toBe(true);
     expect(readFileSync(store.pathFor(captureId, 'flat')).equals(res.rawPayload)).toBe(true);
   });
@@ -289,10 +294,56 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     const revalidated = await app.inject({
       method: 'GET',
       url: imagePath(),
-      headers: { 'if-none-match': '"r1"' },
+      headers: { 'if-none-match': flatEtag(1) },
     });
     expect(revalidated.statusCode).toBe(304);
     expect(renderer.gate.started).toBe(started);
+  });
+
+  it('a cache stamped with an older RENDER_VERSION re-renders despite matching revs (§10)', async () => {
+    // Simulate a pre-E1 row: flat_rev is current but the file was drawn by
+    // renderer version 0 (the migration default). Plant a sentinel to prove
+    // the route did not serve it.
+    const sentinel = await sharp({
+      create: { width: 5, height: 5, channels: 3, background: { r: 9, g: 8, b: 7 } },
+    })
+      .png()
+      .toBuffer();
+    await store.write(captureId, sentinel, 'flat');
+    await handle.db
+      .update(captures)
+      .set({ flatRenderVersion: RENDER_VERSION - 1 })
+      .where(eq(captures.id, captureId));
+    const started = renderer.gate.started;
+
+    // A client holding the old render's tag must not get a 304 either: the
+    // renderer version is part of the validator.
+    const oldTag = `"r${rev}-v${RENDER_VERSION - 1}"`;
+    const res = await app.inject({
+      method: 'GET',
+      url: imagePath(),
+      headers: { 'if-none-match': oldTag },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['etag']).toBe(flatEtag(rev));
+    expect(res.rawPayload.equals(sentinel)).toBe(false);
+    expect(renderer.gate.started).toBe(started + 1); // exactly one lazy re-render
+    const meta = await sharp(res.rawPayload).metadata();
+    expect([meta.width, meta.height]).toEqual([WIDTH, HEIGHT]);
+
+    const [row] = await handle.db
+      .select({ flatRev: captures.flatRev, flatRenderVersion: captures.flatRenderVersion })
+      .from(captures)
+      .where(eq(captures.id, captureId));
+    expect(row!.flatRev).toBe(rev);
+    expect(row!.flatRenderVersion).toBe(RENDER_VERSION); // re-stamped
+    expect(readFileSync(store.pathFor(captureId, 'flat')).equals(res.rawPayload)).toBe(true);
+
+    // And now it is current again: served from cache, no render.
+    const again = await app.inject({ method: 'GET', url: imagePath() });
+    expect(again.statusCode).toBe(200);
+    expect(again.rawPayload.equals(res.rawPayload)).toBe(true);
+    expect(renderer.gate.started).toBe(started + 1);
   });
 
   it('a stale ETag misses and a fresh save re-renders over the old cache file', async () => {
@@ -300,10 +351,10 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     const res = await app.inject({
       method: 'GET',
       url: imagePath(),
-      headers: { 'if-none-match': '"r1"' },
+      headers: { 'if-none-match': flatEtag(1) },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.headers['etag']).toBe('"r2"');
+    expect(res.headers['etag']).toBe(flatEtag(2));
     const [row] = await handle.db
       .select({ flatRev: captures.flatRev })
       .from(captures)
@@ -317,7 +368,7 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     const res = await app.inject({
       method: 'GET',
       url: imagePath(),
-      headers: { 'if-none-match': `"r${rev}"` },
+      headers: { 'if-none-match': flatEtag(rev) },
     });
     expect(res.statusCode).toBe(304);
     expect(renderer.gate.started).toBe(started); // no render for a 304
@@ -344,7 +395,7 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     const responses = await burst;
     for (const res of responses) {
       expect(res.statusCode).toBe(200);
-      expect(res.headers['etag']).toBe(`"r${rev}"`);
+      expect(res.headers['etag']).toBe(flatEtag(rev));
       expect(res.rawPayload.equals(responses[0]!.rawPayload)).toBe(true);
     }
     expect(renderer.gate.started).toBe(started + 1);
@@ -359,7 +410,7 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     await putAnnotations([]);
     const res = await app.inject({ method: 'GET', url: imagePath() });
     expect(res.statusCode).toBe(200);
-    expect(res.headers['etag']).toBe(`"r${rev}"`);
+    expect(res.headers['etag']).toBe(flatEtag(rev));
     expect(res.rawPayload.equals(originalBytes)).toBe(true);
   });
 

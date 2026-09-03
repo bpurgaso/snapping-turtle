@@ -97,6 +97,10 @@ export const captures = pgTable(
       .$defaultFn(() => emptyAnnotationDocument()),
     annotationsRev: integer('annotations_rev').notNull().default(0),
     flatRev: integer('flat_rev').notNull().default(0),
+    /** RENDER_VERSION the cached flat file was drawn with (§10). The cache is
+     *  valid only while this equals the current constant *and* flat_rev is
+     *  current; 0 = rendered before versioning (pre-E1), always stale. */
+    flatRenderVersion: integer('flat_render_version').notNull().default(0),
   },
   (t) => [
     index('captures_owner_id_idx').on(t.ownerId),
