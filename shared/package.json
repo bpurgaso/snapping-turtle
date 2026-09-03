@@ -2,7 +2,7 @@
   "name": "@snapping-turtle/shared",
   "version": "0.0.0",
   "private": true,
-  "description": "Annotation schema, API types and cross-cutting constants — the single source of truth",
+  "description": "Annotation schema, API types and cross-cutting constants \u2014 the single source of truth",
   "type": "module",
   "exports": {
     ".": {
@@ -24,6 +24,10 @@
     "./parity-fixtures": {
       "types": "./dist/parity-fixtures.d.ts",
       "default": "./dist/parity-fixtures.js"
+    },
+    "./firefox-updates": {
+      "types": "./dist/firefox-updates.d.ts",
+      "default": "./dist/firefox-updates.js"
     }
   },
   "files": [
