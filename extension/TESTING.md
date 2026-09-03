@@ -1,4 +1,4 @@
-# Extension manual test checklist (M2 + M6)
+# Extension manual test checklist (M2 + M6 + E1)
 
 What automation covers and what a human must still do.
 
@@ -173,6 +173,21 @@ blog); the server's own `/s/<id>` page of a previous tall capture.
   pinned `EXTENSION_GECKO_ID`, and a Firefox `update_url` pointing at the
   server's `/ext/updates.json`. Load them the same way for a final check
   before submitting (`extension/STORE_SUBMISSION.md`).
+
+## 8. Annotation legibility across capture sizes (E1, needs a real gesture)
+
+Annotation sizes scale with the capture's width (PLAN.md §9): a full-page
+retina capture and a small region crop should both read comfortably. This
+exercises server + web only; the extension is unchanged and simply produces
+the two captures.
+
+| #   | Check                                                                                                                                                                                                                                                                                   | Chrome     | Firefox    |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------- |
+| 8.1 | **Full page**: on a 2× display capture a long page full-page (`Alt+Shift+F`; ≥ 2,500 px wide image). In the editor draw a rectangle, an arrow and a text; strokes look about as thick on screen as they do on an ordinary visible capture, and the default text is readable without zooming | unverified | unverified |
+| 8.2 | **Region crop**: on the same page capture a ~300 px-wide region (`Alt+Shift+R`). Draw the same three shapes; strokes are thin (3 px) but crisp and the default text (21 px) fits the crop                                                                                                | unverified | unverified |
+| 8.3 | **Logged-out view**: open both links in a private window. The full page shows fit-to-width and the annotations are legible at that zoom; the crop shows at natural size and the annotations are legible there. The flat image matches what the editor showed (same thickness, same text size) | unverified | unverified |
+| 8.4 | Resize a text on the full-page capture with its corner handle, then reload as the owner and logged-out: the resized size is what was saved (absolute pixels), not the default                                                                                                          | unverified | unverified |
+| 8.5 | Select an arrow on the full-page capture: the endpoint handles are the usual small circles on screen, not scaled with the image                                                                                                                                                      | unverified | unverified |
 
 ## Running the live-server Playwright checks yourself
 

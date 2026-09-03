@@ -44,6 +44,23 @@ DATABASE_URL=… ST_PERF_FIXTURE=/tmp/tall.png [ST_PERF_DPR=2] \
 ¹ measured 2.0–2.1 s including a deliberate 1 s settle wait; navigation +
 canvas + image response is ≈ 1 s.
 
+## E1 re-check (2026-09-02, adaptive sizing)
+
+Same fixture, same method, after annotation sizes became width-derived (a
+4,680 px capture draws at scale 3.66: 14.6 px red strokes, 29 px outer band).
+Derived sizes change nothing measurable — the cost is the background blit,
+not the strokes:
+
+| Metric                          | dpr 1 (M3 → E1)            | dpr 2 (M3 → E1)              |
+|---------------------------------|----------------------------|------------------------------|
+| Page load → interactive editor  | ~1.0 s → 1.4 s¹            | ~1.1 s → 1.7 s¹              |
+| Draw rectangle, avg / p95 frame | 8.2 / 9.3 → 8.1 / 10.1 ms  | 9.5 / 9.8 → 8.5 / 10.3 ms    |
+| Drag rectangle, avg / p95 frame | 14.1 / 25.1 → 14.0 / 25.2 ms | 51.1 / 100.3 → 48.5 / 100.7 ms |
+| JS heap after load / drag       | 2.9 / 5.0 → 3.0 / 5.1 MB   | 2.9 / 4.3 → 3.1 / 4.5 MB     |
+
+¹ includes the 1 s settle wait, as in M3; the M3 row above quoted the figure
+with that wait subtracted.
+
 ## Reading the numbers
 
 - **Draw is cheap everywhere** — creating a shape only repaints the upper
