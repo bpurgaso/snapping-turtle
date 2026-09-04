@@ -58,7 +58,8 @@ export interface EditorPageModel {
 
 export interface CapturePageModel {
   title: string;
-  sourceUrl: string;
+  /** null = no source page (a desktop capture, M9): the link is omitted (§7). */
+  sourceUrl: string | null;
   pageUrl: string;
   imageUrl: string;
   width: number;
@@ -116,13 +117,25 @@ function previewTags(m: CapturePageModel, title: string): RawHtml {
         <meta name="twitter:card" content="summary_large_image" />`);
 }
 
+/** The "Open original page" link (§7); absent when the capture has no source page (M9). */
+function sourceLink(sourceUrl: string): RawHtml {
+  // Defence in depth: ingest already enforced http(s); never emit anything else as an href.
+  const href = /^https?:\/\//i.test(sourceUrl) ? sourceUrl : '';
+  return raw(html`<a
+    class="source"
+    href="${href}"
+    rel="noopener noreferrer"
+    referrerpolicy="no-referrer"
+    target="_blank"
+    >Open original page<span aria-hidden="true"> ↗</span></a
+  >`);
+}
+
 /** The view-only capture page (§7). Owner tooling arrives in M3. */
 export function renderCapturePage(m: CapturePageModel): string {
-  // Defence in depth: ingest already enforced http(s); never emit anything else as an href.
-  const sourceHref = /^https?:\/\//i.test(m.sourceUrl) ? m.sourceUrl : '';
   let host = '';
   try {
-    host = new URL(m.sourceUrl).host;
+    if (m.sourceUrl !== null) host = new URL(m.sourceUrl).host;
   } catch {
     /* unreachable after ingest validation; leave host blank */
   }
@@ -142,14 +155,7 @@ export function renderCapturePage(m: CapturePageModel): string {
       <body class="capture">
         <header class="bar">
           <h1 class="title">${title}</h1>
-          <a
-            class="source"
-            href="${sourceHref}"
-            rel="noopener noreferrer"
-            referrerpolicy="no-referrer"
-            target="_blank"
-            >Open original page<span aria-hidden="true"> ↗</span></a
-          >
+          ${m.sourceUrl === null ? '' : sourceLink(m.sourceUrl)}
           <div class="links">
             <label class="link">
               <span>Page link</span>

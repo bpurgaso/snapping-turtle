@@ -33,15 +33,17 @@ const UploadBody = Type.Object(
     // A file part arrives as a Buffer; a text part named "image" would be a string
     // and is rejected in the handler. Files are never trusted by declared type.
     [CAPTURE_UPLOAD_FIELDS.image]: Type.Any(),
-    [CAPTURE_UPLOAD_FIELDS.sourceUrl]: Type.String({ minLength: 1, maxLength: FIELD_MAX }),
+    // Optional since M9 (§8): desktop captures have no source page. When sent it must validate.
+    [CAPTURE_UPLOAD_FIELDS.sourceUrl]: Type.Optional(Type.String({ maxLength: FIELD_MAX })),
     [CAPTURE_UPLOAD_FIELDS.title]: Type.Optional(Type.String({ maxLength: FIELD_MAX })),
   },
   { additionalProperties: false },
 );
 
-/** http(s) only, length-capped, normalised (§12). */
-export function validateSourceUrl(raw: string): string {
-  const trimmed = raw.trim();
+/** http(s) only, length-capped, normalised (§12). Absent or blank → null (M9). */
+export function validateSourceUrl(raw: string | undefined): string | null {
+  const trimmed = raw?.trim() ?? '';
+  if (trimmed === '') return null;
   if (trimmed.length > MAX_SOURCE_URL_LENGTH) {
     throw new HttpError(400, 'invalid_source_url', 'sourceUrl is too long');
   }

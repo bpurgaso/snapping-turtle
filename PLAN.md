@@ -70,7 +70,7 @@ The extension, editor, and server share one package for the annotation schema an
 |---|---|---|
 | `users` | id, username, password_hash, role (`user`/`admin`), disabled_at, created_at | First admin bootstrapped by a seed command reading env vars |
 | `api_tokens` | id, user_id, name, token_hash (sha256), created_at, last_used_at, revoked_at | Plaintext shown once at creation; scoped to upload only |
-| `captures` | id, view_id (unique, secret), owner_id, source_url, page_title, width, height, bytes, sha256, upload_ip, upload_token_id, created_at, retention_until (nullable = indefinite), deleted_at, annotations (jsonb), annotations_rev, flat_rev | `view_id` is the only public identifier; sha256 supports dedup checks and abuse tracking |
+| `captures` | id, view_id (unique, secret), owner_id, source_url (nullable since M9), page_title, width, height, bytes, sha256, upload_ip, upload_token_id, created_at, retention_until (nullable = indefinite), deleted_at, annotations (jsonb), annotations_rev, flat_rev | `view_id` is the only public identifier; sha256 supports dedup checks and abuse tracking |
 | `sessions` | token_hash (sha256, PK), user_id, created_at, expires_at, last_seen_at | Server-side browser sessions (added in M1): revocable on disable/reset; the cookie carries the random token, only its hash is stored |
 | `settings` | key, value | e.g. `registration_enabled` — runtime-togglable by admin |
 | `audit_log` | id, at, actor_user_id, action, target_type, target_id, detail (jsonb), ip | Append-only; the app role has no UPDATE/DELETE grant on it |
@@ -78,6 +78,8 @@ The extension, editor, and server share one package for the annotation schema an
 | `account_links` | id, user_id, purpose (`setup`/`reset`), token_hash (sha256), expires_at, consumed_at, created_by, created_at | Admin-issued one-time set-password links (§11): 24 h expiry, consumed on first use, raw token shown to the admin exactly once (M5) |
 
 Deleting a capture removes the image files immediately but leaves a tombstone row (owner, source_url, sha256, timestamps) for 90 days to support trust-and-safety follow-up; the purge job hard-deletes tombstones after that.
+
+*M9 (2026-09-03):* `source_url` is nullable. The always-present source link (§7) was browser-capture-specific by construction — a tab always has a URL — and the native Linux client (§15a) captures a screen, a window or a region that has none. Browser uploads keep sending it; a NULL means "no source page", never "unknown".
 
 ## 6. Identifiers and link secrecy
 
@@ -93,9 +95,9 @@ Routes: `GET /s/{viewId}` (page) and `GET /s/{viewId}/image.png` (flat render). 
 
 ## 7. The capture page
 
-Every capture page shows, for all visitors: the annotated image (flat render for non-owners, live canvas for the owner), a prominent **"Open original page"** link to `source_url`, and two copy buttons — **copy page link** and **copy image link** (the flat PNG URL). For the owner it additionally shows the editor toolbar, a retention selector (30/90/180/365 days), and delete. Admins viewing any capture also see the **"Keep indefinitely"** checkbox (writes `retention_until = NULL`, audit-logged).
+Every capture page shows, for all visitors: the annotated image (flat render for non-owners, live canvas for the owner), a prominent **"Open original page"** link to `source_url` when the capture has one (every browser capture does; a desktop capture from the Linux client has none and the link is omitted — M9), and two copy buttons — **copy page link** and **copy image link** (the flat PNG URL). For the owner it additionally shows the editor toolbar, a retention selector (30/90/180/365 days), and delete. Admins viewing any capture also see the **"Keep indefinitely"** checkbox (writes `retention_until = NULL`, audit-logged).
 
-Captures of internal tools embed internal URLs in `source_url`, visible to anyone with the link. The spec requires the link be present, so v1 always shows it; an owner-side "hide source link" toggle is deferred backlog (§17).
+Captures of internal tools embed internal URLs in `source_url`, visible to anyone with the link. The spec requires the link be present, so v1 always shows it; an owner-side "hide source link" toggle is deferred backlog (§17). *M9:* the requirement was always about browser captures — the link is "the feature's second half" only when there is a page to go back to. A source-less capture renders the same page minus the anchor (same headers, same preview tags with the title alone as `og:title`, same copy buttons); it is not a third response shape, and the uniform 404 is untouched.
 
 Since E3 every live capture page — the view-only render and the owner's editor variant alike — also carries link-preview tags in `<head>` (Open Graph plus the Twitter card type), so a pasted link unfurls with its annotated image in Discord-style previews; the title is escaped as attribute data like everything else on the page (`server/src/html.ts`, `previewTags`). The rationale and the boundaries are recorded in §6.
 
@@ -119,7 +121,7 @@ Since E3 every live capture page — the view-only render and the owner's editor
 | `GET /ext/firefox-latest` | none | 302 to the newest `.xpi` named in `updates.json`, resolved per request (E2); plain 404 until one is published |
 | `GET /healthz` | internal only | Compose healthcheck |
 
-All state-changing browser routes require a CSRF token (double-submit) on top of SameSite: the token is an HMAC of the session, delivered in a readable `st_csrf` cookie and by `/me`, and must be echoed in `x-csrf-token`. One deliberate variant (M3): the editor's unload save uses `sendBeacon`, which cannot set headers, so `POST /api/v1/captures/:viewId/annotations` accepts a `text/plain` body of `{ csrfToken, document }` and verifies the same token from the body — semantics otherwise identical to the PUT. Token-authenticated upload is exempt (no cookie ambient authority) and, conversely, never accepts a cookie as authentication. Upload is `multipart/form-data` with fields `image`, `sourceUrl`, `title` (names in `shared/` `CAPTURE_UPLOAD_FIELDS`).
+All state-changing browser routes require a CSRF token (double-submit) on top of SameSite: the token is an HMAC of the session, delivered in a readable `st_csrf` cookie and by `/me`, and must be echoed in `x-csrf-token`. One deliberate variant (M3): the editor's unload save uses `sendBeacon`, which cannot set headers, so `POST /api/v1/captures/:viewId/annotations` accepts a `text/plain` body of `{ csrfToken, document }` and verifies the same token from the body — semantics otherwise identical to the PUT. Token-authenticated upload is exempt (no cookie ambient authority) and, conversely, never accepts a cookie as authentication. Upload is `multipart/form-data` with fields `image`, `sourceUrl`, `title` (names in `shared/` `CAPTURE_UPLOAD_FIELDS`). Since M9 `sourceUrl` is optional — absent or blank stores NULL; when present it is validated exactly as before (http(s), length-capped, normalised).
 
 ## 9. Annotation editor
 

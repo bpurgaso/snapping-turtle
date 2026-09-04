@@ -585,6 +585,30 @@ describe('POST /api/v1/captures (§8, §12)', () => {
     expect(tok!.lastUsedAt?.toISOString()).toBe(clock.toISOString());
   });
 
+  it('stores a capture with no source page (M9 desktop client): absent or blank sourceUrl → NULL', async () => {
+    const absent = await upload(token.token, png, { title: 'Full screen 2026-09-03 21:14' });
+    expect(absent.statusCode).toBe(201);
+    const [row] = await handle.db
+      .select()
+      .from(captures)
+      .where(eq(captures.viewId, viewIdOf(absent.json().pageUrl)));
+    expect(row!.sourceUrl).toBeNull();
+    expect(row!.pageTitle).toBe('Full screen 2026-09-03 21:14');
+    expect(row!.uploadTokenId).toBe(token.id);
+
+    const blank = await upload(token.token, png, { sourceUrl: '   ', title: 'blank' });
+    expect(blank.statusCode).toBe(201);
+    const [row2] = await handle.db
+      .select({ sourceUrl: captures.sourceUrl })
+      .from(captures)
+      .where(eq(captures.viewId, viewIdOf(blank.json().pageUrl)));
+    expect(row2!.sourceUrl).toBeNull();
+    // A present value is still validated exactly as before.
+    const bad = await upload(token.token, png, { sourceUrl: 'ftp://example.com/x' });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().code).toBe('invalid_source_url');
+  });
+
   it('re-encodes: an EXIF-laden JPEG is stored as a PNG with no metadata', async () => {
     const jpeg = await makeJpegWithExif(50, 40);
     expect((await sharp(jpeg).metadata()).exif).toBeInstanceOf(Buffer);
@@ -608,6 +632,7 @@ describe('POST /api/v1/captures (§8, §12)', () => {
   });
 
   it('rejects SVG (415), oversized bodies (413) and over-dimension images (422)', async () => {
+    const persistedBefore = (await handle.db.select().from(captures)).length;
     const svg = await upload(token.token, SVG_BYTES);
     expect(svg.statusCode).toBe(415);
     expect(svg.json().code).toBe('unsupported_media_type');
@@ -628,16 +653,13 @@ describe('POST /api/v1/captures (§8, §12)', () => {
     expect(bomb.json().code).toBe('image_too_large');
 
     const before = await handle.db.select().from(captures);
-    expect(before).toHaveLength(2); // nothing in this test was persisted
+    expect(before).toHaveLength(persistedBefore); // nothing in this test was persisted
   });
 
   it('validates sourceUrl and title fields', async () => {
     const js = await upload(token.token, png, { sourceUrl: 'javascript:alert(1)' });
     expect(js.statusCode).toBe(400);
     expect(js.json().code).toBe('invalid_source_url');
-    const missing = await upload(token.token, png, {});
-    expect(missing.statusCode).toBe(400);
-    expect(missing.json().code).toBe('validation');
     const long = await upload(token.token, png, {
       sourceUrl: `https://example.com/${'a'.repeat(3000)}`,
     });
@@ -739,6 +761,40 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
     expect(res.body).toContain(`src="${imageUrl}"`);
     expect(res.body).toContain('<script type="module" src="/assets/capture-h4sh.js"></script>');
     expect(res.body).not.toMatch(/<script(?![^>]*\bsrc=)/);
+  });
+
+  it('renders a source-less capture (M9) without the source link; everything else identical', async () => {
+    const alice = await login(ALICE);
+    const t = await createToken(alice, 'no-source');
+    const up = await upload(t.token, await makePng(300, 200), { title: 'Window 2026-09-03' });
+    expect(up.statusCode).toBe(201);
+    const res = await app.inject({ method: 'GET', url: path(up.json().pageUrl) });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+    expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    expect(res.body).not.toContain('Open original page');
+    expect(res.body).not.toContain('class="source"');
+    expect(res.body).toContain('<meta property="og:title" content="Window 2026-09-03" />');
+    expect(res.body).toContain(`data-copy="${up.json().pageUrl}"`);
+    expect(res.body).toContain(`data-copy="${up.json().imageUrl}"`);
+    expect(res.body).toContain(`src="${up.json().imageUrl}"`);
+    const img = await app.inject({ method: 'GET', url: path(up.json().imageUrl) });
+    expect(img.statusCode).toBe(200);
+    expect(img.headers['content-type']).toBe('image/png');
+    // The admin listing reports the missing source as null, never as a string.
+    const admin = await login(ADMIN);
+    const [owner] = await handle.db.select().from(users).where(eq(users.username, 'alice'));
+    const list = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/captures?userId=${owner!.id}`,
+      headers: { cookie: admin.cookie },
+    });
+    expect(list.statusCode).toBe(200);
+    const entry = list
+      .json()
+      .captures.find((c: { pageUrl: string }) => c.pageUrl === up.json().pageUrl);
+    expect(entry).toMatchObject({ sourceUrl: null, pageTitle: 'Window 2026-09-03' });
   });
 
   it('serves the re-encoded original as image/png with nosniff and inline disposition', async () => {

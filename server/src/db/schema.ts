@@ -74,7 +74,10 @@ export const captures = pgTable(
     ownerId: integer('owner_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
-    sourceUrl: text('source_url').notNull(),
+    /** Page the capture came from (§7). NULL since M9: native desktop
+     *  captures have no source page — the link requirement was specific to
+     *  browser captures by construction. Browser uploads always set it. */
+    sourceUrl: text('source_url'),
     pageTitle: text('page_title').notNull().default(''),
     width: integer('width').notNull(),
     height: integer('height').notNull(),

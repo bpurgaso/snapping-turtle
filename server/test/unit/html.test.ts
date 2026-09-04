@@ -52,6 +52,19 @@ describe('renderCapturePage (§7)', () => {
     expect(out).toContain('height="600"');
   });
 
+  it('omits the source link entirely for a capture without a source page (M9)', () => {
+    const out = renderCapturePage({ ...base, sourceUrl: null });
+    expect(out).not.toContain('Open original page');
+    expect(out).not.toContain('class="source"');
+    expect(out).toContain(`data-copy="${base.pageUrl}"`);
+    expect(out).toContain(`data-copy="${base.imageUrl}"`);
+    expect(out).toContain('<meta property="og:image"');
+    // No host to fall back to: the title is the generic word.
+    expect(renderCapturePage({ ...base, title: '', sourceUrl: null })).toContain(
+      '<meta property="og:title" content="Capture" />',
+    );
+  });
+
   it('never emits a non-http(s) href even if a bad URL reached it', () => {
     const out = renderCapturePage({ ...base, sourceUrl: 'javascript:alert(1)' });
     expect(out).not.toContain('javascript:');
@@ -151,7 +164,10 @@ describe('renderHomePage (E2)', () => {
   });
 
   it('links the Chrome listing when configured, says coming soon when not', () => {
-    const live = renderHomePage({ assets, chromeExtensionUrl: 'https://chromewebstore.google.com/detail/abc' });
+    const live = renderHomePage({
+      assets,
+      chromeExtensionUrl: 'https://chromewebstore.google.com/detail/abc',
+    });
     expect(live).toMatch(
       /<a class="button" href="https:\/\/chromewebstore\.google\.com\/detail\/abc" rel="noopener noreferrer"/,
     );

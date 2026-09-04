@@ -48,7 +48,8 @@ export const CAPTURE_TILE_INTERVAL_MS = 600;
 export const CAPTURE_UPLOAD_FIELDS = {
   /** PNG or JPEG bytes; the server sniffs magic bytes and ignores the declared type. */
   image: 'image',
-  /** Absolute http(s) URL of the captured page. Required. */
+  /** Absolute http(s) URL of the captured page. Optional since M9 (desktop
+   *  captures have none); browser captures always send it. Blank = absent. */
   sourceUrl: 'sourceUrl',
   /** Page title; optional, truncated to MAX_PAGE_TITLE_LENGTH. */
   title: 'title',

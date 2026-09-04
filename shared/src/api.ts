@@ -242,7 +242,8 @@ export const AdminCaptureSummary = Type.Object(
     id: Type.Integer(),
     /** The capability URL — admins are trusted with it; audit rows are not. */
     pageUrl: Type.String(),
-    sourceUrl: Type.String(),
+    /** null = a desktop capture with no source page (M9). */
+    sourceUrl: Type.Union([Type.String(), Type.Null()]),
     pageTitle: Type.String(),
     width: Type.Integer(),
     height: Type.Integer(),
