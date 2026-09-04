@@ -86,7 +86,7 @@ jobs:
       # Same split as the CI job: prerequisites from Fedora, the compiler
       # from rust-toolchain.toml via scripts/toolchain.sh.
       - name: Build prerequisites from the Fedora 44 repositories
-        run: dnf -y -q install rpm-build gcc git-core github-cli
+        run: dnf -y -q install rpm-build gcc git-core gh
       - name: Toolchain pinned by client-linux/rust-toolchain.toml
         run: client-linux/scripts/toolchain.sh
       - name: Tests pass with the release identities baked in
