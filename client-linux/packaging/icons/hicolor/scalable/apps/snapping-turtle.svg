@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- snapping-turtle app icon: a turtle shell with a camera-shutter eye. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="shell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4caf50"/>
+      <stop offset="1" stop-color="#2e7d32"/>
+    </linearGradient>
+  </defs>
+  <!-- legs -->
+  <ellipse cx="30" cy="92" rx="13" ry="9" fill="#33691e"/>
+  <ellipse cx="98" cy="92" rx="13" ry="9" fill="#33691e"/>
+  <!-- head -->
+  <circle cx="106" cy="62" r="14" fill="#558b2f"/>
+  <circle cx="111" cy="58" r="3" fill="#1b5e20"/>
+  <!-- shell -->
+  <path d="M18 80 C18 44 38 26 64 26 C90 26 110 44 110 80 Z" fill="url(#shell)" stroke="#1b5e20" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M40 80 L48 48 L80 48 L88 80" fill="none" stroke="#1b5e20" stroke-width="3" opacity="0.7"/>
+  <!-- shutter eye -->
+  <circle cx="64" cy="62" r="17" fill="#ffffff" stroke="#1b5e20" stroke-width="4"/>
+  <circle cx="64" cy="62" r="8" fill="#d32f2f"/>
+  <circle cx="61" cy="59" r="2.5" fill="#ffffff"/>
+</svg>

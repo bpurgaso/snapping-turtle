@@ -1,0 +1,50 @@
+# snapping-turtle native Linux capture client (PLAN.md §15a, M9). The repo's
+# one non-TypeScript component — see CLAUDE.md "Engineering conventions" for
+# why Rust: ashpd is the maintained first-class portal binding, the output is
+# a single dependency-light binary, and nothing here touches the renderer
+# code where the shared-types rule matters.
+#
+# Every runtime dependency carries a one-line justification, the same
+# discipline npm dependencies get (CLAUDE.md "Dependencies are attack surface").
+[package]
+name = "snapping-turtle"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+description = "Native Linux capture client for snapping-turtle: XDG portal + KWin ScreenShot2, tray, upload"
+publish = false
+
+[[bin]]
+name = "snapping-turtle"
+path = "src/main.rs"
+
+[dependencies]
+# The maintained first-class XDG Desktop Portal binding: Screenshot, OpenURI,
+# Notification, GlobalShortcuts, Background and the host-app Registry.
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "screenshot", "open_uri", "notification", "global_shortcuts", "background"] }
+# The DBus stack ashpd is built on; used directly for KWin's
+# org.kde.KWin.ScreenShot2 and for the single-instance control interface.
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+# The async runtime ashpd, zbus and reqwest need — one runtime, not two.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+# StreamExt for portal signal streams (already in the tree through zbus).
+futures-util = { version = "0.3", default-features = false }
+# Pure-Rust StatusNotifierItem (tray icon + menu) over the same zbus; no libdbus, no GTK.
+ksni = { version = "0.3", default-features = false, features = ["tokio"] }
+# HTTPS upload: rustls through the platform verifier (system trust store — the
+# real Let's Encrypt cert on the nonstandard port), multipart for the upload form.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "multipart"] }
+# Secret Service / portal keyring client for the API token; shares zbus and ashpd.
+oo7 = { version = "0.6", default-features = false, features = ["tokio", "native_crypto"] }
+# The config file and the upload response.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Pure-Rust PNG: encodes KWin's raw pixel buffer, decodes the embedded tray icon.
+png = "0.18"
+# pipe2 for KWin's pixel pipe, localtime_r for capture titles, termios for no-echo token entry.
+libc = "0.2"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

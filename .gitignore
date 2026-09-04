@@ -31,3 +31,6 @@ blob-report/
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# client-linux (Rust)
+client-linux/target/

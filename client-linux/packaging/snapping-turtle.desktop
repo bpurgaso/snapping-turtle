@@ -1,0 +1,36 @@
+[Desktop Entry]
+Type=Application
+Name=snapping-turtle
+GenericName=Screenshot uploader
+Comment=Capture your screen, upload it, annotate it in the browser
+# Exec must be the absolute path of the installed binary, and this file must be
+# the one installed next to it. KWin authorises org.kde.KWin.ScreenShot2
+# callers by resolving the caller's /proc/<pid>/exe and looking for an
+# installed desktop file whose Exec's first word canonicalises to that path,
+# then reading X-KDE-DBUS-Restricted-Interfaces from it (kwin
+# src/utils/serviceutils.h, fetchRestrictedDBusInterfacesFromPid). A binary
+# at any other path — a build directory, /usr/local — is refused with
+# NoAuthorized and the client silently falls back to the portal for full
+# screen and window capture. The package installs this file as
+# <CLIENT_APP_ID>.desktop: the file name is the app id the portal sees when
+# the launcher starts us (client-linux/src/app_id.rs).
+Exec=/usr/bin/snapping-turtle
+Icon=snapping-turtle
+Terminal=false
+Categories=Utility;Graphics;
+Keywords=screenshot;capture;annotate;upload;
+StartupNotify=false
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+Actions=capture-full;capture-region;capture-window;
+
+[Desktop Action capture-full]
+Name=Capture full screen
+Exec=/usr/bin/snapping-turtle --capture full
+
+[Desktop Action capture-region]
+Name=Capture region…
+Exec=/usr/bin/snapping-turtle --capture region
+
+[Desktop Action capture-window]
+Name=Capture window…
+Exec=/usr/bin/snapping-turtle --capture window

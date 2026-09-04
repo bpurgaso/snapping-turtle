@@ -111,3 +111,73 @@ jobs:
           exit-code: '1'
           trivyignores: deploy/.trivyignore
           format: table
+
+  # The native Linux client (M9, PLAN.md §15a): the repo's one Rust
+  # component, checked in the distribution it targets. Same contract as the
+  # TypeScript packages — format, lint (clippy, warnings fatal), unit tests,
+  # release build — plus the RPM the release workflow ships.
+  client-linux:
+    name: client-linux · fmt · clippy · test · build · rpm (fedora:44)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: fedora:44
+    defaults:
+      run:
+        working-directory: client-linux
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain from the Fedora 44 repositories
+        run: dnf -y -q install cargo rust clippy rustfmt rpm-build gcc rpm-build git-core && cargo --version
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Package the RPM (development app id; release builds pass CLIENT_APP_ID)
+        run: scripts/package-rpm.sh
+      - name: The RPM installs cleanly and names the desktop file after the app id
+        run: |
+          dnf -y -q install dist/*.rpm
+          id=$(snapping-turtle --print-app-id)
+          test -f "/usr/share/applications/$id.desktop"
+          grep -q '^X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2$' "/usr/share/applications/$id.desktop"
+          grep -q '^Exec=/usr/bin/snapping-turtle$' "/usr/share/applications/$id.desktop"
+          test -f /usr/share/icons/hicolor/scalable/apps/snapping-turtle.svg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: client-linux-rpm
+          path: client-linux/dist/*
+          retention-days: 14
+
+  # Cross-component: the real server from the repo harness, the client
+  # binary's upload path against it with the fixture PNG, the row and the page
+  # asserted (client-linux/scripts/integration.sh).
+  client-linux-integration:
+    name: client-linux ↔ server integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: snapping_turtle_client
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U app -d snapping_turtle_client"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://app:ci-only-password@127.0.0.1:5432/snapping_turtle_client
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @snapping-turtle/shared build && pnpm --filter @snapping-turtle/web build
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --locked
+        working-directory: client-linux
+      - run: client-linux/scripts/integration.sh
