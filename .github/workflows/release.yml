@@ -11,6 +11,7 @@
 #   PUBLIC_ORIGIN        https://<PUBLIC_HOST>:<PUBLIC_PORT>   (baked as the default server;
 #                        must equal what compose derives from deploy/.env, port included)
 #   EXTENSION_GECKO_ID   the pinned Firefox add-on id (must equal deploy/.env's)
+#   CLIENT_APP_ID        the Linux client's pinned application id (must equal deploy/.env's)
 name: Release
 
 on:
@@ -62,3 +63,36 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes --notes "$notes" \
               extension/dist/*.zip extension/dist/SHA256SUMS
           fi
+
+  # The native Linux client (M9): built in the distribution it targets with the
+  # pinned app id and the default origin baked in, packaged as an RPM (binary,
+  # desktop file named after the app id, hicolor icons, docs) plus the raw
+  # binary, attached to the same release.
+  client-linux:
+    name: Linux client RPM (fedora:44) → GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: fedora:44
+    needs: extension
+    env:
+      PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+      CLIENT_APP_ID: ${{ vars.CLIENT_APP_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Release inputs present (repository variables)
+        run: |
+          [ -n "$CLIENT_APP_ID" ] || { echo "::error::set the repository variable CLIENT_APP_ID (same value as deploy/.env)"; exit 1; }
+          [ -n "$PUBLIC_ORIGIN" ] || { echo "::error::set the repository variable PUBLIC_ORIGIN"; exit 1; }
+      - name: Toolchain from the Fedora 44 repositories
+        run: dnf -y -q install cargo rust clippy rustfmt rpm-build gcc git-core github-cli
+      - name: Tests pass with the release identities baked in
+        run: cargo test --locked
+        working-directory: client-linux
+      - name: Build and package
+        run: client-linux/scripts/package-rpm.sh
+      - name: Attach the RPM, the raw binary and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release upload "$GITHUB_REF_NAME" --clobber client-linux/dist/*.rpm client-linux/dist/snapping-turtle client-linux/dist/SHA256SUMS

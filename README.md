@@ -22,7 +22,7 @@ human-gated: store submission and AMO signing with the owner's accounts
 
 ```
 extension ──POST /api/v1/captures (bearer token)──▶ Caddy (TLS) ──▶ app (Fastify) ──▶ Postgres + image volume
-                                                                     │
+Linux client (tray) ──────────── same ──────────────▶ │
 viewer ──GET /s/<id> ─────────────────────────────▶ page + /s/<id>/image.png (flat render, cached)
 ```
 
@@ -117,12 +117,52 @@ Node is only needed on the machine that builds the extension (below).
    → **Save**. Firefox asks for host permission on the first save; Chrome
    only if you enter a server other than the built-in default.
 
+   **Linux desktop (Fedora 44 / KDE Plasma):** install the client RPM from
+   the GitHub release (or build it with `client-linux/scripts/package-rpm.sh`
+   — set `CLIENT_APP_ID` in `deploy/.env` first, once, and never change it),
+   then `snapping-turtle --configure` with a token and launch
+   **snapping-turtle** from the app menu. Details in "Linux client" below.
+
 7. **First capture.** On any normal web page click the toolbar icon →
    **Visible** (or `Alt+Shift+S`). The capture page opens in a new tab: draw
    a rectangle, an arrow, some text — it autosaves. **Copy page link** shares
    the annotated view; **Copy image link** shares the flat PNG. Open the page
    link in a private window to see what recipients see. Region
    (`Alt+Shift+R`) and Full page (`Alt+Shift+F`) work the same way.
+
+## Linux client
+
+A native, tray-resident capture client for Linux desktops — primary target
+Fedora 44 with KDE Plasma on Wayland — lives in [client-linux/](client-linux/)
+(Rust; the one non-TypeScript component, rationale in CLAUDE.md).
+
+1. **Install** the RPM attached to the release, or build it:
+
+   ```sh
+   client-linux/scripts/package-rpm.sh        # needs cargo, gcc, rpm-build; reads deploy/.env
+   sudo dnf install client-linux/dist/snapping-turtle-*.rpm
+   ```
+
+2. **Configure** with a token from your Account page (stored in the KWallet /
+   Secret Service keyring, or a 0600 file when there is none); it also asks
+   whether to start at login:
+
+   ```sh
+   snapping-turtle --configure
+   ```
+
+3. **Capture** from the tray menu, the launcher entry's desktop actions, or
+   the global shortcuts Plasma asks you to approve (Meta+Alt+S full screen,
+   Meta+Alt+W window, Meta+Alt+R region). Full screen and window go through
+   KWin's ScreenShot2 (no dialogs); region opens the desktop's own chooser
+   — on Plasma 6.7 that chooser has no rectangle option yet, which
+   [client-linux/README.md](client-linux/README.md) documents per mode. The
+   upload has no source page, so the capture page shows no "Open original
+   page" link; everything else is the same page.
+
+Disable autostart with `snapping-turtle --autostart off`. The manual
+checklist for a real desktop session is
+[client-linux/TESTING.md](client-linux/TESTING.md).
 
 ## Onboarding friends
 
@@ -206,6 +246,9 @@ uploaded bytes.
 | `pnpm --filter extension build:release`                           | audited production builds of both targets (needs `PUBLIC_HOST`+`PUBLIC_PORT`/`PUBLIC_ORIGIN` + `EXTENSION_GECKO_ID`) |
 | `pnpm --filter extension sign:firefox`                            | AMO signing (env credentials) → `deploy/ext/` `.xpi` + `updates.json`; `--xpi <file>` publishes a pre-signed file |
 | `pnpm --filter extension test:smoke`                              | Playwright: overlay/driver fixtures + the built Chrome extension (`build:chrome` first)                           |
+| `cd client-linux && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cargo build --release` | the Linux client's contract (CI runs it in a `fedora:44` container)                               |
+| `client-linux/scripts/package-rpm.sh`                             | release binary + RPM → `client-linux/dist/` (`CLIENT_APP_ID`, `PUBLIC_HOST`+`PUBLIC_PORT` from `deploy/.env`)      |
+| `DATABASE_URL=… client-linux/scripts/integration.sh`              | real server + the client binary's upload path + row/page assertions (CI)                                          |
 | `pnpm --filter server db:generate` / `db:migrate` / `db:seed`     | new migration / apply / bootstrap admin                                                                           |
 | `docker compose -f deploy/docker-compose.yml up -d --build`       | the stack                                                                                                         |
 | `docker compose -f deploy/docker-compose.yml run --rm backup run` | ad-hoc backup                                                                                                     |
@@ -226,6 +269,7 @@ shared/     annotation schema (TypeBox), API types, constants — source of trut
 server/     Fastify app, Drizzle + Postgres, sharp flat renderer, guard, purge job
 web/        Vite bundles served by server/: capture page + editor, auth, account, admin
 extension/  MV3 codebase → chrome + firefox builds; STORE_SUBMISSION.md, TESTING.md
+client-linux/  Rust tray client (portal + KWin capture, upload, RPM); README.md per-mode findings, TESTING.md
 deploy/     compose (+ local/loadtest/migration overrides), Caddyfiles, Dockerfiles, backup/, caddy.d/, ext/
 loadtest/   k6 guard scenarios
 scripts/    check-image-pins.sh

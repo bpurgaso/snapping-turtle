@@ -9,7 +9,7 @@ shaped a design decision, or a contract the code is held to.
 | Document                  | What it is                                                                                                                                    |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | [README.md](../README.md) | What snapping-turtle is; fresh deploy from DNS to first capture; onboarding; day-2 operations; commands                                       |
-| [PLAN.md](../PLAN.md)     | The design document (v0.11): decisions, architecture, data model, security design, per-milestone implementation notes, deferred backlog (§17) |
+| [PLAN.md](../PLAN.md)     | The design document (v0.15): decisions, architecture, data model, security design, per-milestone implementation notes, deferred backlog (§17) |
 | [CLAUDE.md](../CLAUDE.md) | Working rules for changes: security invariants, conventions, gotchas                                                                          |
 
 ## Operating a deployment
@@ -31,6 +31,13 @@ shaped a design decision, or a contract the code is held to.
 | [extension/STORE_SUBMISSION.md](../extension/STORE_SUBMISSION.md) | M8, E2    | Chrome Web Store unlisted listing (copy, permission justifications, data-use disclosure, privacy policy text) and AMO signing + self-distribution, as a human checklist |
 | [extension/TESTING.md](../extension/TESTING.md)                   | M2, M6    | What automation covers and the manual checklist for what needs a real browser gesture (capture), per browser                                                            |
 | [firefox-capturetab-probe.md](firefox-capturetab-probe.md)        | M6        | Measured `tabs.captureTab({ rect, scale })` semantics that the Firefox full-page path is built on                                                                       |
+
+## The Linux client
+
+| Document                                            | Milestone | What it covers                                                                                                                                                                         |
+| --------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [client-linux/README.md](../client-linux/README.md) | M9        | Install / configure / capture; the two capture APIs and the measured per-mode findings on Plasma 6.7 (what the portal delivers, where its file lands, KWin's authorisation rule); identity, secrets, autostart |
+| [client-linux/TESTING.md](../client-linux/TESTING.md) | M9      | What automation covers and the manual desktop checklist (three modes, permission persistence, tray, shortcuts, 401/oversize, file hygiene, GNOME)                                        |
 
 ## Measurements behind design decisions
 
