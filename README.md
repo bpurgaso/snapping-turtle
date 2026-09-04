@@ -246,7 +246,8 @@ uploaded bytes.
 | `pnpm --filter extension build:release`                           | audited production builds of both targets (needs `PUBLIC_HOST`+`PUBLIC_PORT`/`PUBLIC_ORIGIN` + `EXTENSION_GECKO_ID`) |
 | `pnpm --filter extension sign:firefox`                            | AMO signing (env credentials) → `deploy/ext/` `.xpi` + `updates.json`; `--xpi <file>` publishes a pre-signed file |
 | `pnpm --filter extension test:smoke`                              | Playwright: overlay/driver fixtures + the built Chrome extension (`build:chrome` first)                           |
-| `cd client-linux && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cargo build --release` | the Linux client's contract (CI runs it in a `fedora:44` container)                               |
+| `cd client-linux && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked && cargo build --release --locked` | the Linux client's contract (CI runs it in a `fedora:44` container on the toolchain `client-linux/rust-toolchain.toml` pins) |
+| `client-linux/scripts/toolchain.sh`                               | rustup (installed if absent) + the pinned toolchain — the only compiler install path for CI and container rehearsals |
 | `client-linux/scripts/package-rpm.sh`                             | release binary + RPM → `client-linux/dist/` (`CLIENT_APP_ID`, `PUBLIC_HOST`+`PUBLIC_PORT` from `deploy/.env`)      |
 | `DATABASE_URL=… client-linux/scripts/integration.sh`              | real server + the client binary's upload path + row/page assertions (CI)                                          |
 | `pnpm --filter server db:generate` / `db:migrate` / `db:seed`     | new migration / apply / bootstrap admin                                                                           |

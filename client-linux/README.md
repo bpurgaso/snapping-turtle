@@ -14,9 +14,12 @@ touches the renderer code where the shared-types rule matters (CLAUDE.md).
 
 1. **Install the RPM** from the GitHub release (built by the release
    workflow in a `fedora:44` container) — or build it yourself on a Fedora
-   box with `cargo`, `rpm-build` and `gcc`:
+   box with `rpm-build`, `gcc` and the pinned toolchain (`rust-toolchain.toml`;
+   rustup obeys it, and `scripts/toolchain.sh` installs both if you have
+   neither — do not `dnf install rust`, see "Building and checking"):
 
    ```sh
+   client-linux/scripts/toolchain.sh        # once: rustup + the pinned rustc/clippy/rustfmt
    client-linux/scripts/package-rpm.sh      # reads CLIENT_APP_ID / PUBLIC_HOST+PORT from deploy/.env
    sudo dnf install client-linux/dist/snapping-turtle-*.rpm
    ```
@@ -187,7 +190,7 @@ reads that file and fails if they drift (`src/contract.rs`).
 ## Development
 
 ```sh
-cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cargo build --release
+cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked && cargo build --release --locked
 DATABASE_URL=postgres://… scripts/integration.sh   # real server + client upload + row/page assertions (CI runs it)
 SNAPPING_TURTLE_DEBUG=1 snapping-turtle --capture full      # or -v: which API, dimensions, portal file location
 ```
