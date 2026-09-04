@@ -51,8 +51,11 @@ touches the renderer code where the shared-types rule matters (CLAUDE.md).
    - the **global shortcuts** — the client binds `capture-full`,
      `capture-region`, `capture-window` through the GlobalShortcuts portal,
      proposing Meta+Alt+S / R / W; Plasma asks you to approve them the first
-     time and lists them under *System Settings → Keyboard → Shortcuts* where
-     you can change them;
+     time and lists them under *System Settings → Keyboard → Shortcuts →
+     snapping-turtle*. Measured on Plasma 6.7: the proposals are recorded as
+     the *defaults* (`kglobalshortcutsrc` shows `none,Meta+Alt+S,…`) and may
+     stay unassigned until you accept them there — press **Defaults** or set
+     your own keys; the client logs each binding as "(unassigned)" until then;
    - the command line — `snapping-turtle --capture full|region|window`
      (forwarded to the resident instance when one runs, run inline otherwise).
 
@@ -161,6 +164,25 @@ The client refuses locally what the server would refuse: PNGs over
 `MAX_UPLOAD_MB` (30 MB) and images wider than 10,000 px or taller than
 32,000 px. The constants mirror `shared/src/constants.ts`; `cargo test`
 reads that file and fails if they drift (`src/contract.rs`).
+
+## Troubleshooting
+
+- **Full screen or window silently uses the portal (a dialog or a
+  whole-workspace image where none was expected).** KWin refused the binary:
+  `-v` shows `KWin refused this binary`. The installed desktop file's `Exec`
+  must be the real path of the running binary (`/usr/bin/snapping-turtle`
+  from the RPM) — see "How capture works".
+- **Every portal call hangs (also for other apps).** A portal dialog that
+  was left unanswered while the app that asked for it went away wedges
+  xdg-desktop-portal 1.22 until the dialog is dismissed (observed here when a
+  probe was killed with the first-use screenshot prompt open). Dismiss the
+  dialog, or close the stale request from a terminal:
+  `busctl --user tree org.freedesktop.impl.portal.desktop.kde | grep request/`
+  then `busctl --user call org.freedesktop.impl.portal.desktop.kde <that path> org.freedesktop.impl.portal.Request Close`.
+  Never kill the client while one of its prompts is open; cancel the prompt
+  instead.
+- **"already running"** — the tray icon belongs to another instance; use it,
+  or `busctl --user call <app id> /<app id with slashes> org.snappingturtle.Control1 Quit`.
 
 ## Development
 

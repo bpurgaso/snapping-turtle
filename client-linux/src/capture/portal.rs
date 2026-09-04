@@ -144,6 +144,12 @@ fn scheme_of(uri: &str) -> String {
 fn map_error(e: ashpd::Error) -> PortalError {
     match e {
         ashpd::Error::Response(ashpd::desktop::ResponseError::Cancelled) => PortalError::Cancelled,
+        // The frontend answers "other" (no detail) when the screenshot permission
+        // is denied — including a remembered Deny from the first-use prompt.
+        ashpd::Error::Response(ashpd::desktop::ResponseError::Other) => PortalError::Other(
+            "the desktop refused the screenshot. If you denied the first-use prompt, the answer is remembered per app: reset it under System Settings → Apps & Windows → Application Permissions (or `flatpak permission-remove screenshot screenshot <app id>`) and try again"
+                .into(),
+        ),
         ashpd::Error::PortalNotFound(n) => PortalError::Unavailable(n.to_string()),
         other => PortalError::Other(other.to_string()),
     }

@@ -21,10 +21,13 @@ if [ ! -x "$bin" ]; then (cd "$repo/client-linux" && cargo build --locked); fi
 work=$(mktemp -d)
 server_pid=
 cleanup() {
-  if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi
+  # The harness runs in its own session/process group (setsid): kill the group,
+  # not just the wrapper, so pnpm's node child never outlives the script.
+  if [ -n "$server_pid" ]; then kill -TERM -- "-$server_pid" 2>/dev/null || kill -TERM "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi
   rm -rf "$work"
 }
 trap cleanup EXIT
+if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then exec 3>&-; echo "client-linux integration: port $port is already in use (set CLIENT_TEST_PORT)" >&2; exit 1; fi
 fail() { echo "client-linux integration: FAIL — $*" >&2; echo "--- server stderr ---" >&2; cat "$work/serve.err" >&2 || true; exit 1; }
 
 export NODE_ENV=test HOST=127.0.0.1 PORT=$port PUBLIC_ORIGIN="http://127.0.0.1:$port" LOG_LEVEL=warn \
@@ -33,7 +36,7 @@ mkdir -p "$IMAGES_DIR"
 harness="pnpm --filter @snapping-turtle/server exec tsx test/helpers/client-harness.ts"
 
 (cd "$repo" && pnpm --filter @snapping-turtle/shared build >/dev/null)
-(cd "$repo" && $harness serve >"$work/serve.out" 2>"$work/serve.err") &
+setsid bash -c "cd '$repo' && exec $harness serve" >"$work/serve.out" 2>"$work/serve.err" &
 server_pid=$!
 for _ in $(seq 1 240); do [ -s "$work/serve.out" ] && break; kill -0 "$server_pid" 2>/dev/null || fail "server exited early"; sleep 0.5; done
 [ -s "$work/serve.out" ] || fail "server did not print its origin/token line"

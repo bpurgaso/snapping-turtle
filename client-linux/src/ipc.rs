@@ -42,17 +42,31 @@ pub enum Serve {
 }
 
 /// Own the name and serve the control object, or report a running instance.
+///
+/// The name is requested explicitly with `DoNotQueue` and the reply is
+/// matched: zbus's builder-level `.name()` queues behind an existing owner
+/// (measured on zbus 5.19: a second instance came up believing it owned the
+/// name and took it when the first released it), which is exactly the
+/// two-tray-icons situation this guards against.
 pub async fn serve(tx: UnboundedSender<Command>) -> Result<Serve, String> {
-    let builder = zbus::connection::Builder::session()
+    use zbus::fdo::{RequestNameFlags, RequestNameReply};
+    let conn = zbus::connection::Builder::session()
         .map_err(|e| e.to_string())?
         .serve_at(object_path(), Control { tx })
         .map_err(|e| e.to_string())?
-        .name(APP_ID)
-        .map_err(|e| e.to_string())?;
-    match builder.build().await {
-        Ok(conn) => Ok(Serve::Owned(conn)),
+        .build()
+        .await
+        .map_err(|e| format!("session bus: {e}"))?;
+    let name = zbus::names::WellKnownName::try_from(APP_ID).map_err(|e| e.to_string())?;
+    match conn
+        .request_name_with_flags(name, RequestNameFlags::DoNotQueue.into())
+        .await
+    {
+        Ok(RequestNameReply::PrimaryOwner) => Ok(Serve::Owned(conn)),
+        Ok(RequestNameReply::Exists) | Ok(RequestNameReply::InQueue) => Ok(Serve::AlreadyRunning),
+        Ok(RequestNameReply::AlreadyOwner) => Ok(Serve::Owned(conn)),
         Err(zbus::Error::NameTaken) => Ok(Serve::AlreadyRunning),
-        Err(e) => Err(format!("session bus: {e}")),
+        Err(e) => Err(format!("requesting the bus name {APP_ID}: {e}")),
     }
 }
 
