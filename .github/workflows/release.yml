@@ -83,8 +83,12 @@ jobs:
         run: |
           [ -n "$CLIENT_APP_ID" ] || { echo "::error::set the repository variable CLIENT_APP_ID (same value as deploy/.env)"; exit 1; }
           [ -n "$PUBLIC_ORIGIN" ] || { echo "::error::set the repository variable PUBLIC_ORIGIN"; exit 1; }
-      - name: Toolchain from the Fedora 44 repositories
-        run: dnf -y -q install cargo rust clippy rustfmt rpm-build gcc git-core github-cli
+      # Same split as the CI job: prerequisites from Fedora, the compiler
+      # from rust-toolchain.toml via scripts/toolchain.sh.
+      - name: Build prerequisites from the Fedora 44 repositories
+        run: dnf -y -q install rpm-build gcc git-core github-cli
+      - name: Toolchain pinned by client-linux/rust-toolchain.toml
+        run: client-linux/scripts/toolchain.sh
       - name: Tests pass with the release identities baked in
         run: cargo test --locked
         working-directory: client-linux

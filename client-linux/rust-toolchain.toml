@@ -1,0 +1,14 @@
+# The one compiler-version authority for client-linux (CLAUDE.md gotchas).
+# rustup honours this file wherever cargo runs — a developer's checkout, the
+# fedora:44 CI container, the integration job's Ubuntu runner, the release
+# job — so every environment lints, tests and builds with the same rustc and
+# clippy. Fedora's packaged rustc is deliberately not used: it tracks the
+# distro's updates repo (1.98.0 on 2026-09-04) while a developer's rustup
+# stable can trail it, and clippy grows lints every release; the first drift
+# failed CI with lints the local clippy (1.93) did not have (run 33839340241).
+# Bump this deliberately, fix what the new clippy reports, and keep
+# `rust-version` in Cargo.toml (the MSRV) at or below it.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

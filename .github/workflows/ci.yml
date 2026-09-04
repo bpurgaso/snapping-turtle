@@ -126,8 +126,14 @@ jobs:
         working-directory: client-linux
     steps:
       - uses: actions/checkout@v7
-      - name: Toolchain from the Fedora 44 repositories
-        run: dnf -y -q install cargo rust clippy rustfmt rpm-build gcc rpm-build git-core && cargo --version
+      # Build prerequisites come from Fedora; the compiler never does — the
+      # distro's rustc is whatever its updates repo holds that day, and
+      # clippy grows lints every release. rust-toolchain.toml is the one
+      # version authority; scripts/toolchain.sh installs rustup to obey it.
+      - name: Build prerequisites from the Fedora 44 repositories
+        run: dnf -y -q install rpm-build gcc git-core
+      - name: Toolchain pinned by client-linux/rust-toolchain.toml
+        run: scripts/toolchain.sh
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
@@ -177,7 +183,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @snapping-turtle/shared build && pnpm --filter @snapping-turtle/web build
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Toolchain pinned by client-linux/rust-toolchain.toml
+        run: client-linux/scripts/toolchain.sh
       - run: cargo build --locked
         working-directory: client-linux
       - run: client-linux/scripts/integration.sh
