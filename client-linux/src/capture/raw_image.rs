@@ -30,11 +30,11 @@ pub struct RawImage {
 }
 
 fn unpremultiply(c: u32, a: u32) -> u8 {
-    if a == 0 {
-        0
-    } else {
-        ((c * 255 + a / 2) / a).min(255) as u8
-    }
+    // `checked_div` is None exactly when a == 0: a fully transparent pixel
+    // has no colour to recover, so it stays 0.
+    (c * 255 + a / 2)
+        .checked_div(a)
+        .map_or(0, |v| v.min(255) as u8)
 }
 
 impl RawImage {
@@ -111,11 +111,9 @@ impl RawImage {
                         let a = if self.format == RGBX64 { 65535 } else { ch(3) };
                         if self.format == RGBA64_PREMULTIPLIED {
                             let un = |c: u32| {
-                                if a == 0 {
-                                    0
-                                } else {
-                                    (((c * 65535 + a / 2) / a) >> 8).min(255) as u8
-                                }
+                                (c * 65535 + a / 2)
+                                    .checked_div(a)
+                                    .map_or(0, |v| (v >> 8).min(255) as u8)
                             };
                             (un(r), un(g), un(b), (a >> 8) as u8)
                         } else {
@@ -168,7 +166,9 @@ pub fn decode_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     let rgba = match info.color_type {
         png::ColorType::Rgba => bytes.to_vec(),
         png::ColorType::GrayscaleAlpha => bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[0], p[0], p[1]])
             .collect(),
         other => return Err(format!("unexpected decoded color type {other:?}")),
