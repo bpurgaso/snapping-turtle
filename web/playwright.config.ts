@@ -24,7 +24,23 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${port}`,
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        browserName: 'chromium',
+        // Headless Chromium on Linux hints glyph outlines to the pixel grid
+        // by default (--font-render-hinting=full), which rounds every
+        // advance and makes a run of Inter 1–2 px wider than the server's
+        // pango/cairo layout of the same face at the same size; macOS
+        // Chromium never hints, which is where the E1 calibration was made.
+        // Hinting off gives the parity text fixtures the same 0–1 px box
+        // delta on Linux (CI) as on macOS. Text metrics only; the editor in
+        // a real browser is unaffected.
+        launchOptions: { args: ['--font-render-hinting=none'] },
+      },
+    },
+  ],
   webServer: {
     // Seeds an e2e owner account when DATABASE_URL is real (M3 editor smoke);
     // without one it behaves like `tsx src/main.ts` and only the DB-free
