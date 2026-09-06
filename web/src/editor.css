@@ -40,6 +40,17 @@
   color: var(--accent);
   border-color: var(--accent);
 }
+.editor-toolbar .crop-actions {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+.editor-toolbar .crop-actions[hidden] {
+  display: none;
+}
+.editor-toolbar .crop-actions button.primary {
+  border-color: var(--fg);
+  font-weight: 600;
+}
 .editor-toolbar .sep {
   width: 1px;
   align-self: stretch;

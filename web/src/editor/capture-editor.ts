@@ -1,15 +1,18 @@
-import { ANNOTATION_SCHEMA_VERSION } from '@snapping-turtle/shared/constants';
+import { ANNOTATION_SCHEMA_VERSION, MIN_CROP_PX } from '@snapping-turtle/shared/constants';
 import {
   annotationSizes,
+  effectiveWidth,
   type AnnotationDocument,
   type AnnotationSizes,
+  type CropRect,
   type Shape,
 } from '@snapping-turtle/shared/annotations';
 import { RETENTION_CHOICES_DAYS } from '@snapping-turtle/shared/api';
 import { Canvas, FabricImage, IText, type FabricObject, type TPointerEventInfo } from 'fabric';
 import { ApiError, annotations as annotationsApi, describeError, patchCapture } from '../api.js';
 import { el } from '../dom.js';
-import { newShapeId } from './model.js';
+import { CropFrame, CropShade } from './crop.js';
+import { cropGeom, isWholeImage, newShapeId, normalizeCrop } from './model.js';
 import {
   AnnoArrow,
   AnnoRect,
@@ -24,7 +27,8 @@ export interface EditorOptions {
   viewId: string;
   width: number;
   height: number;
-  imageUrl: string;
+  /** Same-origin, owner-only path of the untouched original (§7, E4) — never the flat render. */
+  originalUrl: string;
   csrfToken: string;
   doc: AnnotationDocument;
   createdAt: string;
@@ -33,7 +37,7 @@ export interface EditorOptions {
   retentionMaxDays: number;
 }
 
-type Tool = 'select' | 'rect' | 'arrow' | 'text';
+type Tool = 'select' | 'rect' | 'arrow' | 'text' | 'crop';
 type SaveState = 'saved' | 'pending' | 'saving' | 'error';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
@@ -45,6 +49,13 @@ const DAY_MS = 86_400_000;
  * scaled to fit, rect/arrow/text tools, in-memory undo/redo, debounced
  * autosave with revision-conflict reload, and the owner tooling (retention,
  * delete). All persistence goes through our own JSON — never Fabric's.
+ *
+ * Crop (E4): the canvas always shows the whole original; the crop is a
+ * viewport stored in the document. Outside it is dimmed (`CropShade`), shapes
+ * stay placeable anywhere, and the crop tool swaps in an adjustable frame
+ * (`CropFrame`) until *Apply* commits it — one undo step, one autosave, like
+ * a shape. Drawing sizes follow the effective width (§9): applying or
+ * clearing a crop rebuilds every shape with the sizes of the shown width.
  */
 export class CaptureEditor {
   private canvas!: Canvas;
@@ -57,21 +68,62 @@ export class CaptureEditor {
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private drawing: { origin: { x: number; y: number }; obj: FabricObject } | null = null;
+  /** The persisted crop viewport (E4), or null for the whole image. */
+  private crop: CropRect | null;
+  /** The adjustable frame while the crop tool is active; null otherwise. */
+  private cropFrame: CropFrame | null = null;
+  private readonly shade: CropShade;
+  private readonly cropActions: HTMLElement;
   private readonly status = el('span', {
     className: 'save-state saved',
     text: 'Saved',
     attrs: { role: 'status', 'aria-live': 'polite' },
   });
   private readonly toolButtons = new Map<Tool, HTMLButtonElement>();
-  /** Drawing sizes for this capture's width (§9 adaptive sizing) — computed once, shared by every object. */
-  private readonly sizes: AnnotationSizes;
+  /**
+   * Drawing sizes for the *effective* width (§9 adaptive sizing, E4): the
+   * crop's width when there is one, else the capture's. Recomputed when the
+   * crop changes and shared by every object built since.
+   */
+  private sizes!: AnnotationSizes;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly opts: EditorOptions,
   ) {
     this.rev = opts.doc.rev;
-    this.sizes = annotationSizes(opts.width);
+    this.crop = opts.doc.crop ?? null;
+    this.refreshSizes();
+    this.shade = new CropShade(opts, () => this.shownCrop());
+    this.cropActions = el('span', { className: 'crop-actions' }, [
+      el('button', {
+        text: 'Apply crop',
+        className: 'primary',
+        attrs: { type: 'button' },
+        on: { click: () => this.applyCrop() },
+      }),
+      el('button', {
+        text: 'Clear crop',
+        attrs: { type: 'button' },
+        on: { click: () => this.clearCrop() },
+      }),
+      el('button', {
+        text: 'Cancel crop',
+        attrs: { type: 'button' },
+        on: { click: () => this.setTool('select') },
+      }),
+    ]);
+    this.cropActions.hidden = true;
+  }
+
+  private refreshSizes(): void {
+    this.sizes = annotationSizes(effectiveWidth(this.opts, this.crop));
+  }
+
+  /** What the shade dims outside of: the frame being adjusted, else the persisted crop. */
+  private shownCrop(): CropRect | null {
+    if (this.cropFrame) return normalizeCrop(this.cropFrame.geom(), this.opts);
+    return this.crop;
   }
 
   async mount(): Promise<void> {
@@ -86,7 +138,7 @@ export class CaptureEditor {
     });
     this.fit();
 
-    const img = await FabricImage.fromURL(this.opts.imageUrl);
+    const img = await FabricImage.fromURL(this.opts.originalUrl);
     img.set({ selectable: false, evented: false });
     this.canvas.backgroundImage = img;
 
@@ -97,8 +149,15 @@ export class CaptureEditor {
     this.canvas.on('mouse:move', (o) => this.onMouseMove(o));
     this.canvas.on('mouse:up', () => this.onMouseUp());
     this.canvas.on('object:modified', (o) => {
+      if (o.target instanceof CropFrame) {
+        this.settleFrame(o.target);
+        return; // the crop lands on Apply, not per gesture
+      }
       if (o.target) normalizeScaling(o.target);
       this.commit();
+    });
+    this.canvas.on('object:moving', (o) => {
+      if (o.target instanceof CropFrame) this.keepFrameInside(o.target);
     });
     document.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('resize', () => this.fit());
@@ -138,6 +197,8 @@ export class CaptureEditor {
       toolButton('rect', 'Rectangle'),
       toolButton('arrow', 'Arrow'),
       toolButton('text', 'Text'),
+      toolButton('crop', 'Crop'),
+      this.cropActions,
       el('span', { className: 'sep' }),
       el('button', {
         text: 'Delete shape',
@@ -159,6 +220,7 @@ export class CaptureEditor {
   }
 
   private setTool(tool: Tool): void {
+    if (this.tool === 'crop' && tool !== 'crop') this.leaveCropMode();
     this.tool = tool;
     for (const [t, b] of this.toolButtons) b.setAttribute('aria-pressed', String(t === tool));
     const drawing = tool !== 'select';
@@ -168,6 +230,73 @@ export class CaptureEditor {
       this.canvas.discardActiveObject();
       this.canvas.requestRenderAll();
     }
+    if (tool === 'crop') this.enterCropMode();
+  }
+
+  // ---- crop mode (E4) --------------------------------------------------------
+
+  /**
+   * Shapes stop answering the pointer, the crop actions appear, and — when a
+   * crop exists — its frame is placed for adjustment; otherwise the next drag
+   * draws one. Nothing is committed until Apply or Clear.
+   */
+  private enterCropMode(): void {
+    for (const obj of this.canvas.getObjects()) if (obj !== this.shade) obj.evented = false;
+    this.cropActions.hidden = false;
+    if (this.crop) this.placeFrame(cropGeom(this.crop));
+  }
+
+  private leaveCropMode(): void {
+    if (this.cropFrame) this.canvas.remove(this.cropFrame);
+    this.cropFrame = null;
+    for (const obj of this.canvas.getObjects()) if (obj !== this.shade) obj.evented = true;
+    this.cropActions.hidden = true;
+    this.canvas.requestRenderAll();
+  }
+
+  private placeFrame(geom: { left: number; top: number; width: number; height: number }): CropFrame {
+    const frame = new CropFrame(geom);
+    frame.on('scaling', () => this.canvas.requestRenderAll());
+    this.cropFrame = frame;
+    this.canvas.add(frame);
+    this.canvas.skipTargetFind = false;
+    this.canvas.defaultCursor = 'default';
+    this.canvas.setActiveObject(frame);
+    this.canvas.requestRenderAll();
+    return frame;
+  }
+
+  /** Bake a finished gesture's scale into whole-pixel geometry inside the image. */
+  private settleFrame(frame: CropFrame): void {
+    const c = normalizeCrop(frame.geom(), this.opts);
+    if (c) frame.set({ ...cropGeom(c), scaleX: 1, scaleY: 1 });
+    frame.setCoords();
+    this.canvas.requestRenderAll();
+  }
+
+  private keepFrameInside(frame: CropFrame): void {
+    const g = frame.geom();
+    frame.set({
+      left: Math.min(Math.max(0, g.left), Math.max(0, this.opts.width - g.width)),
+      top: Math.min(Math.max(0, g.top), Math.max(0, this.opts.height - g.height)),
+    });
+  }
+
+  private applyCrop(): void {
+    const next = this.cropFrame ? normalizeCrop(this.cropFrame.geom(), this.opts) : this.crop;
+    this.setCrop(next && !isWholeImage(next, this.opts) ? next : null);
+  }
+
+  private clearCrop(): void {
+    this.setCrop(null);
+  }
+
+  /** Commit a crop change: one undo step, one autosave, shapes rebuilt for the new effective width. */
+  private setCrop(crop: CropRect | null): void {
+    this.setTool('select');
+    const shapes = this.shapes();
+    this.loadDoc({ version: ANNOTATION_SCHEMA_VERSION, rev: this.rev, shapes, ...(crop ? { crop } : {}) });
+    this.commit();
   }
 
   // ---- drawing --------------------------------------------------------------
@@ -175,6 +304,13 @@ export class CaptureEditor {
   private onMouseDown(o: TPointerEventInfo): void {
     if (this.tool === 'select') return;
     const p = this.canvas.getScenePoint(o.e);
+    if (this.tool === 'crop') {
+      if (this.cropFrame) return; // Fabric drives the frame's own drag and handles
+      const frame = this.placeFrame({ left: p.x, top: p.y, width: 1, height: 1 });
+      this.canvas.skipTargetFind = true; // drawing it out: the frame must not catch the pointer yet
+      this.drawing = { origin: { x: p.x, y: p.y }, obj: frame };
+      return;
+    }
     if (this.tool === 'text') {
       // New text starts at the width-derived default; from here on the shape's
       // fontSize is absolute and user resizes store absolute pixels (schema v1).
@@ -192,8 +328,15 @@ export class CaptureEditor {
         ? new AnnoRect({ left: p.x, top: p.y, width: 1, height: 1 }, this.sizes)
         : new AnnoArrow(p.x, p.y, p.x + 1, p.y + 1, this.sizes);
     setShapeId(obj, newShapeId());
-    this.canvas.add(obj);
+    this.addShape(obj);
     this.drawing = { origin: { x: p.x, y: p.y }, obj };
+  }
+
+  /** Add a shape under the crop shade, which always stays on top (E4). */
+  private addShape(obj: FabricObject): void {
+    this.canvas.add(obj);
+    this.canvas.bringObjectToFront(this.shade);
+    if (this.cropFrame) this.canvas.bringObjectToFront(this.cropFrame);
   }
 
   private onMouseMove(o: TPointerEventInfo): void {
@@ -219,6 +362,22 @@ export class CaptureEditor {
     if (!this.drawing) return;
     const { obj } = this.drawing;
     this.drawing = null;
+    if (obj instanceof CropFrame) {
+      // A drag below the minimum crop is discarded; otherwise the frame settles
+      // to whole pixels and its handles take over. Still crop mode either way.
+      if (obj.width < MIN_CROP_PX || obj.height < MIN_CROP_PX) {
+        this.canvas.remove(obj);
+        this.cropFrame = null;
+        this.canvas.requestRenderAll();
+        return;
+      }
+      this.settleFrame(obj);
+      this.canvas.skipTargetFind = false;
+      this.canvas.defaultCursor = 'default';
+      this.canvas.setActiveObject(obj);
+      this.canvas.requestRenderAll();
+      return;
+    }
     const tooSmall =
       obj instanceof AnnoArrow
         ? Math.hypot(obj.rx2 - obj.rx1, obj.ry2 - obj.ry1) < 4
@@ -243,7 +402,7 @@ export class CaptureEditor {
 
   private deleteSelection(): void {
     const active = this.canvas.getActiveObject();
-    if (!active) return;
+    if (!active || active instanceof CropFrame) return;
     if (active instanceof IText && active.isEditing) return;
     this.canvas.remove(active);
     this.canvas.discardActiveObject();
@@ -255,7 +414,13 @@ export class CaptureEditor {
     if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
     const active = this.canvas.getActiveObject();
     if (active instanceof IText && active.isEditing) return;
-    if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (this.tool === 'crop' && e.key === 'Escape') {
+      e.preventDefault();
+      this.setTool('select');
+    } else if (this.tool === 'crop' && e.key === 'Enter') {
+      e.preventDefault();
+      this.applyCrop();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       this.deleteSelection();
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -277,27 +442,42 @@ export class CaptureEditor {
   }
 
   private document(): AnnotationDocument {
-    return { version: ANNOTATION_SCHEMA_VERSION, rev: this.rev, shapes: this.shapes() };
+    const doc: AnnotationDocument = {
+      version: ANNOTATION_SCHEMA_VERSION,
+      rev: this.rev,
+      shapes: this.shapes(),
+    };
+    if (this.crop) doc.crop = this.crop;
+    return doc;
   }
 
+  /** Undo/redo state: the shapes and the crop together (a crop change is one step). */
   private snapshot(): string {
-    return JSON.stringify(this.shapes());
+    return JSON.stringify({ shapes: this.shapes(), crop: this.crop });
   }
 
+  /**
+   * Rebuild the canvas from a document: crop first (it sets the effective
+   * width), then every shape with those sizes, then the shade on top.
+   */
   private loadDoc(doc: AnnotationDocument): void {
     this.canvas.remove(...this.canvas.getObjects());
+    this.cropFrame = null;
+    this.crop = doc.crop ?? null;
+    this.refreshSizes();
     for (const s of doc.shapes) {
       const obj = objectFromShape(s, this.sizes);
       if (obj instanceof IText) this.wireText(obj);
       this.canvas.add(obj);
     }
+    this.canvas.add(this.shade);
     this.canvas.discardActiveObject();
     this.canvas.requestRenderAll();
   }
 
   private loadSnapshot(json: string): void {
-    const shapes = JSON.parse(json) as Shape[];
-    this.loadDoc({ version: ANNOTATION_SCHEMA_VERSION, rev: this.rev, shapes });
+    const { shapes, crop } = JSON.parse(json) as { shapes: Shape[]; crop: CropRect | null };
+    this.loadDoc({ version: ANNOTATION_SCHEMA_VERSION, rev: this.rev, shapes, ...(crop ? { crop } : {}) });
   }
 
   /** One user-visible change is complete: record it and schedule a save. */
@@ -312,6 +492,7 @@ export class CaptureEditor {
 
   private undo(): void {
     if (this.undoStack.length < 2) return;
+    if (this.tool === 'crop') this.setTool('select');
     this.redoStack.push(this.undoStack.pop()!);
     this.loadSnapshot(this.undoStack[this.undoStack.length - 1]!);
     this.markDirty();
@@ -320,6 +501,7 @@ export class CaptureEditor {
   private redo(): void {
     const snap = this.redoStack.pop();
     if (snap === undefined) return;
+    if (this.tool === 'crop') this.setTool('select');
     this.undoStack.push(snap);
     this.loadSnapshot(snap);
     this.markDirty();
@@ -369,6 +551,7 @@ export class CaptureEditor {
   }
 
   private async reloadFromServer(): Promise<void> {
+    if (this.tool === 'crop') this.setTool('select'); // an in-progress crop is a local edit: dropped too
     try {
       const doc = await annotationsApi.get(this.opts.viewId);
       this.rev = doc.rev;

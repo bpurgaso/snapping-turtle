@@ -21,8 +21,10 @@ async function init(root: HTMLElement): Promise<void> {
   const viewId = d['viewId'];
   const width = Number(d['width']);
   const height = Number(d['height']);
-  const imageUrl = d['imageUrl'];
-  if (!viewId || !imageUrl || !Number.isFinite(width) || !Number.isFinite(height)) return;
+  // The canvas draws on the owner-only untouched original (E4): the public
+  // image URL is the flat, possibly cropped, render.
+  const originalUrl = d['originalUrl'];
+  if (!viewId || !originalUrl || !Number.isFinite(width) || !Number.isFinite(height)) return;
 
   const session = await currentSession();
   if (!session) return; // signed out since the page rendered: keep the static image
@@ -46,7 +48,7 @@ async function init(root: HTMLElement): Promise<void> {
     viewId,
     width,
     height,
-    imageUrl,
+    originalUrl,
     csrfToken: session.csrfToken,
     doc,
     createdAt: d['createdAt'] ?? '',

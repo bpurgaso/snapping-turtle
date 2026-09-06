@@ -6,9 +6,12 @@ import { expect, test } from '@playwright/test';
  * in the editor and measure load time, drag frame pacing, and JS heap.
  * Not part of the regular suites — run explicitly with:
  *   ST_PERF_FIXTURE=/path/tall.png DATABASE_URL=… pnpm --filter web test:parity
- * Findings are recorded in docs/perf-tall-canvas.md.
+ * Findings are recorded in docs/perf-tall-canvas.md. ST_PERF_CROP=1 (E4)
+ * stores a crop on the capture before the page loads, so the shade that dims
+ * outside it is on the canvas for every measured frame.
  */
 const fixture = process.env['ST_PERF_FIXTURE'];
+const withCrop = process.env['ST_PERF_CROP'] === '1';
 const hasDb = !!process.env['DATABASE_URL'];
 const OWNER = { username: 'e2e-owner', password: 'e2e-owner-password-not-real-1' };
 
@@ -65,10 +68,26 @@ test.describe('tall canvas perf spike (manual)', () => {
     const uploadMs = Date.now() - uploadStart;
     const path = new URL(((await upload.json()) as { pageUrl: string }).pageUrl).pathname;
 
-    // Load: navigation until the interactive canvas exists and the flat
-    // image request has completed (the background is drawn from it).
+    if (withCrop) {
+      // A crop well inside the image (PNG IHDR gives the size), stored through
+      // the same PUT the editor uses; the editor then mounts with the shade.
+      const width = png.readUInt32BE(16);
+      const height = png.readUInt32BE(20);
+      const crop = { x: 200, y: 400, w: width - 400, h: Math.min(3000, height - 800) };
+      const put = await context.request.put(
+        `/api/v1/captures/${path.split('/').pop()}/annotations`,
+        {
+          data: { version: 1, rev: 0, shapes: [], crop },
+          headers: { 'x-csrf-token': csrf },
+        },
+      );
+      expect(put.status()).toBe(200);
+    }
+
+    // Load: navigation until the interactive canvas exists and the original
+    // image request has completed (the background is drawn from it, E4).
     const t0 = Date.now();
-    const imageDone = page.waitForResponse((r) => r.url().endsWith('/image.png'), {
+    const imageDone = page.waitForResponse((r) => r.url().endsWith('/original'), {
       timeout: 240_000,
     });
     await page.goto(path);
@@ -137,6 +156,7 @@ test.describe('tall canvas perf spike (manual)', () => {
     const heapAfterDrag = await heap();
 
     const report = {
+      crop: withCrop,
       fixtureBytes: png.length,
       uploadMs,
       loadMs,
