@@ -9,6 +9,10 @@
 /** Version stamped into every persisted annotation document. Bump with a migration. */
 export const ANNOTATION_SCHEMA_VERSION = 1 as const;
 
+/** Smallest crop viewport (E4), in original-image pixels per side: the
+ *  editor refuses a smaller drag and the validator rejects a smaller `crop`. */
+export const MIN_CROP_PX = 16;
+
 // ---- Image and upload caps (§12, §15) ---------------------------------------
 
 /** Full-page captures are capped at this many physical pixels tall. Shared by

@@ -4,6 +4,9 @@ import {
   ANNOTATION_LIMITS,
   ANNOTATION_SCHEMA_VERSION,
   AnnotationDocument,
+  MIN_CROP_PX,
+  annotationSizes,
+  effectiveWidth,
   emptyAnnotationDocument,
   type Shape,
 } from '../src/index.js';
@@ -154,5 +157,60 @@ describe('validateAnnotationDocument', () => {
     expect(ANNOTATION_STYLE.red).toMatch(/^#[0-9a-f]{6}$/);
     expect(ANNOTATION_STYLE.fontFamily.startsWith('Inter')).toBe(true);
     expect(MAX_ANNOTATION_DOC_BYTES).toBeGreaterThan(1024 * 1024);
+  });
+});
+
+// ---- E4: crop viewport ------------------------------------------------------
+
+describe('crop viewport (E4)', () => {
+  const image = { width: 800, height: 600 };
+  const base = { version: ANNOTATION_SCHEMA_VERSION, rev: 2, shapes: [rect] };
+
+  it('a document without a crop validates and persists exactly as before E4', () => {
+    const res = validateAnnotationDocument(base, image);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.doc).toEqual(base);
+      expect('crop' in res.doc).toBe(false);
+      expect(JSON.stringify(res.doc)).toBe(JSON.stringify(base));
+    }
+  });
+
+  it('accepts an integer crop inside the image and persists it as given', () => {
+    const crop = { x: 100, y: 50, w: 400, h: 300 };
+    const res = validateAnnotationDocument({ ...base, crop }, image);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.doc.crop).toEqual(crop);
+  });
+
+  it('the schema enforces integers and the minimum side; bounds are checked against the image', () => {
+    const bad = (crop: unknown) => validateAnnotationDocument({ ...base, crop }, image);
+    expect(bad({ x: 0.5, y: 0, w: 100, h: 100 }).ok).toBe(false);
+    expect(bad({ x: 0, y: 0, w: MIN_CROP_PX - 1, h: 100 }).ok).toBe(false);
+    expect(bad({ x: 0, y: 0, w: 100, h: MIN_CROP_PX - 1 }).ok).toBe(false);
+    expect(bad({ x: -1, y: 0, w: 100, h: 100 }).ok).toBe(false);
+    const past = bad({ x: 1, y: 0, w: image.width, h: 100 });
+    expect(past).toEqual({ ok: false, reason: 'crop is outside the image bounds' });
+    // No margin for the crop, unlike shapes.
+    expect(bad({ x: 0, y: 0, w: image.width + 1, h: 100 }).ok).toBe(false);
+    expect(bad({ x: 0, y: 0, w: image.width, h: image.height }).ok).toBe(true);
+  });
+
+  it('shapes keep original-space bounds — outside the crop is fine, outside the image margin is not', () => {
+    const crop = { x: 0, y: 0, w: 100, h: 100 };
+    expect(validateAnnotationDocument({ ...base, shapes: [text], crop }, image).ok).toBe(true);
+    const outside = { ...rect, x: -ANNOTATION_BOUNDS_MARGIN_PX - 1 };
+    expect(validateAnnotationDocument({ ...base, shapes: [outside], crop }, image).ok).toBe(false);
+  });
+
+  it('effectiveWidth is the crop width when present, else the image width (§9 E1 rule)', () => {
+    expect(effectiveWidth({ width: 2560 }, undefined)).toBe(2560);
+    expect(effectiveWidth({ width: 2560 }, null)).toBe(2560);
+    expect(effectiveWidth({ width: 2560 }, { x: 10, y: 10, w: 300, h: 200 })).toBe(300);
+    // …so a narrow crop of a wide capture draws with the narrow sizes.
+    expect(
+      annotationSizes(effectiveWidth({ width: 2560 }, { x: 0, y: 0, w: 300, h: 200 })),
+    ).toEqual(annotationSizes(300));
+    expect(annotationSizes(2560).strokeWidth).toBeGreaterThan(annotationSizes(300).strokeWidth);
   });
 });

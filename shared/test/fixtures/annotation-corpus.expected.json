@@ -628,5 +628,197 @@
     "ok": false,
     "category": "schema",
     "reason": "invalid annotation document at /shapes/1"
+  },
+  "crop: a region inside the image": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140}],\"crop\":{\"x\":100,\"y\":50,\"w\":400,\"h\":300}}"
+  },
+  "crop: the whole image": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140}],\"crop\":{\"x\":0,\"y\":0,\"w\":800,\"h\":600}}"
+  },
+  "crop: minimum size at the origin": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140}],\"crop\":{\"x\":0,\"y\":0,\"w\":16,\"h\":16}}"
+  },
+  "crop: minimum size flush with the far corner": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140}],\"crop\":{\"x\":784,\"y\":584,\"w\":16,\"h\":16}}"
+  },
+  "crop: shapes outside the crop are still valid (original-space bounds)": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140},{\"id\":\"a2\",\"type\":\"arrow\",\"x1\":40,\"y1\":400,\"x2\":210,\"y2\":260},{\"id\":\"a3\",\"type\":\"text\",\"x\":500,\"y\":60,\"text\":\"look here\",\"fontSize\":28}],\"crop\":{\"x\":0,\"y\":0,\"w\":100,\"h\":100}}"
+  },
+  "crop: shapes overhanging the image margin are bounded by the image, not the crop": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":-100,\"y\":-100,\"w\":300,\"h\":140}],\"crop\":{\"x\":300,\"y\":300,\"w\":100,\"h\":100}}"
+  },
+  "crop: integer-valued floats (100.0)": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140}],\"crop\":{\"x\":100,\"y\":50,\"w\":400,\"h\":300}}"
+  },
+  "crop: empty document with a crop": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[],\"crop\":{\"x\":10,\"y\":10,\"w\":50,\"h\":50}}"
+  },
+  "crop: tall image accepts a tall crop": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[],\"crop\":{\"x\":0,\"y\":30000,\"w\":1000,\"h\":2000}}"
+  },
+  "crop: key present but undefined is treated as absent (JSON cannot express it)": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140}]}"
+  },
+  "crop: null": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop"
+  },
+  "crop: width one below the minimum": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/w"
+  },
+  "crop: height one below the minimum": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/h"
+  },
+  "crop: zero size": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/w"
+  },
+  "crop: negative x": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/x"
+  },
+  "crop: negative y": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/y"
+  },
+  "crop: fractional x": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/x"
+  },
+  "crop: fractional width": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/w"
+  },
+  "crop: NaN": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/x"
+  },
+  "crop: Infinity": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/w"
+  },
+  "crop: numeric strings": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop/x"
+  },
+  "crop: missing a side": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop"
+  },
+  "crop: extra key": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop"
+  },
+  "crop: as array": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop"
+  },
+  "crop: as string": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /crop"
+  },
+  "crop: one pixel past the right edge": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "crop is outside the image bounds"
+  },
+  "crop: one pixel past the bottom edge": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "crop is outside the image bounds"
+  },
+  "crop: wider than the image": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "crop is outside the image bounds"
+  },
+  "crop: no margin allowance (shapes get one, the crop does not)": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "crop is outside the image bounds"
+  },
+  "crop: huge integer": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "crop is outside the image bounds"
+  },
+  "crop: tiny image rejects a modest crop": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "crop is outside the image bounds"
+  },
+  "crop: valid crop but a shape out of bounds still fails on the shape": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "shape a1 is outside the image bounds"
   }
 }

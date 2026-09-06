@@ -1,6 +1,6 @@
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
-import { ANNOTATION_SCHEMA_VERSION } from './constants.js';
+import { ANNOTATION_SCHEMA_VERSION, MIN_CROP_PX } from './constants.js';
 
 /**
  * Versioned annotation document (PLAN.md §9). This is our own persistence
@@ -71,12 +71,32 @@ export const TextShape = Type.Object(
 
 export const Shape = Type.Union([RectShape, ArrowShape, TextShape], { $id: 'Shape' });
 
+/**
+ * Non-destructive crop (E4, §9): a viewport onto the original image, in
+ * original-image pixels. The stored PNG is immutable; shapes stay in original
+ * space; viewers and the flat render see this rectangle with anything outside
+ * it clipped. Integers only (the flat render extracts whole pixels), each side
+ * at least MIN_CROP_PX, and — checked against the capture row, not here —
+ * entirely inside the image. Absent means "no crop": the whole image.
+ */
+export const CropRect = Type.Object(
+  {
+    x: Type.Integer({ minimum: 0 }),
+    y: Type.Integer({ minimum: 0 }),
+    w: Type.Integer({ minimum: MIN_CROP_PX }),
+    h: Type.Integer({ minimum: MIN_CROP_PX }),
+  },
+  { additionalProperties: false, $id: 'CropRect' },
+);
+
 export const AnnotationDocument = Type.Object(
   {
     version: Type.Literal(ANNOTATION_SCHEMA_VERSION),
     /** Monotonic revision; PUT with a stale rev is rejected with 409 (§9). */
     rev: Type.Integer({ minimum: 0 }),
     shapes: Type.Array(Shape, { maxItems: ANNOTATION_LIMITS.maxShapes }),
+    /** Optional crop viewport (E4); schema version stays 1 — absence is the pre-E4 document. */
+    crop: Type.Optional(CropRect),
   },
   { additionalProperties: false, $id: 'AnnotationDocument' },
 );
@@ -85,6 +105,7 @@ export type RectShape = Static<typeof RectShape>;
 export type ArrowShape = Static<typeof ArrowShape>;
 export type TextShape = Static<typeof TextShape>;
 export type Shape = Static<typeof Shape>;
+export type CropRect = Static<typeof CropRect>;
 export type AnnotationDocument = Static<typeof AnnotationDocument>;
 
 /** An empty document at revision 0 — what a fresh capture starts with. */
@@ -209,6 +230,21 @@ export function annotationSizes(width: number): AnnotationSizes {
 }
 
 /**
+ * The width the adaptive sizes are computed from (§9, E4): the crop's width
+ * when the document carries a crop, the image's otherwise. Viewing is
+ * fit-to-width on what is *shown*, so a narrow crop of a wide capture must
+ * draw with the sizes a narrow capture would — both renderers pass this to
+ * `annotationSizes()`, and the editor picks the default font size for new
+ * text from it. Stored `fontSize` values stay absolute and untouched.
+ */
+export function effectiveWidth(
+  image: { width: number },
+  crop: CropRect | null | undefined,
+): number {
+  return crop ? crop.w : image.width;
+}
+
+/**
  * Version of the flat renderer's *output* for an unchanged document (§10).
  * The flat cache is valid only while the stored render version equals this
  * constant, so bumping it lazily re-renders every capture on its next view
@@ -284,6 +320,19 @@ export function annotationBoundsError(
   return `shape ${shape.id} is outside the image bounds`;
 }
 
+/**
+ * The crop must lie entirely inside the image — no margin, unlike shapes:
+ * it is a viewport onto real pixels, and sharp's extract refuses anything
+ * else. Position and minimum size are schema-level (CropRect).
+ */
+export function cropBoundsError(
+  crop: CropRect,
+  image: { width: number; height: number },
+): string | null {
+  if (crop.x + crop.w <= image.width && crop.y + crop.h <= image.height) return null;
+  return 'crop is outside the image bounds';
+}
+
 export type AnnotationValidation =
   | { ok: true; doc: AnnotationDocument }
   | { ok: false; reason: string };
@@ -327,8 +376,10 @@ export function isAnnotationDocument(input: unknown): input is AnnotationDocumen
 
 /**
  * Full server-side validation of an untrusted annotation document (S9):
- * schema (shape count, text length, finite coordinates, unknown keys),
- * then control-character stripping, then image-bounds checks. The returned
+ * schema (shape count, text length, finite coordinates, unknown keys, the
+ * optional crop's integers and minimum size), then control-character
+ * stripping, then image-bounds checks (shapes within the margin, the crop
+ * strictly inside the image). The returned
  * document is a sanitised copy - persist that, never the input.
  */
 export function validateAnnotationDocument(
@@ -346,5 +397,13 @@ export function validateAnnotationDocument(
     const err = annotationBoundsError(shape, image);
     if (err) return { ok: false, reason: err };
   }
-  return { ok: true, doc: { version: input.version, rev: input.rev, shapes } };
+  if (input.crop) {
+    const err = cropBoundsError(input.crop, image);
+    if (err) return { ok: false, reason: err };
+  }
+  // The persisted form carries `crop` only when present: a document without
+  // one serialises byte-for-byte as it did before E4 (the corpus pins this).
+  const doc: AnnotationDocument = { version: input.version, rev: input.rev, shapes };
+  if (input.crop) doc.crop = { ...input.crop };
+  return { ok: true, doc };
 }
