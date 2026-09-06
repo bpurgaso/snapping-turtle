@@ -2,6 +2,8 @@ import {
   ANNOTATION_STYLE as S,
   ANNOTATION_TEXT_LAYOUT as T,
   annotationSizes,
+  cropBoundsError,
+  effectiveWidth,
   type AnnotationDocument,
   type AnnotationSizes,
   type ArrowShape,
@@ -19,10 +21,11 @@ import {
  * strokeWidth, so paths sit at +strokeWidth/2; arrows draw at absolute
  * endpoint coordinates; element order is exactly canvas draw order.
  *
- * Every size comes from `annotationSizes(width)` in shared/ (§9, E1) — the
- * same call the editor makes — so a stroke is as thick on the flat render as
- * on the canvas at every capture width. No literal size lives here
- * (shared/test/style-literals.test.ts).
+ * Every size comes from `annotationSizes(effectiveWidth(image, crop))` in
+ * shared/ (§9, E1 + E4) — the same call the editor makes — so a stroke is as
+ * thick on the flat render as on the canvas at every capture width, and a
+ * narrow crop of a wide capture draws with the narrow sizes. No literal size
+ * lives here (shared/test/style-literals.test.ts).
  *
  * Annotation text is data, never markup (CLAUDE.md rule 5): everything
  * interpolated into the SVG goes through xml escaping, and numbers are
@@ -127,10 +130,20 @@ function shapeSvg(s: Shape, z: AnnotationSizes): string {
  * Build the transparent overlay for one annotation document. The width and
  * height come from the capture row, never from the document, so the overlay
  * always rasterizes 1:1 onto the original for `sharp().composite()` — and
- * the width also selects the drawing sizes (§9 adaptive sizing).
+ * the effective width (the crop's when there is one, §9 E4) selects the
+ * drawing sizes (§9 adaptive sizing).
+ *
+ * Crop (E4, §10): shapes are authored in original-image coordinates and
+ * never move; the crop is a viewport. The SVG is crop-sized and its
+ * `viewBox` is the crop rect, so librsvg draws every shape exactly where a
+ * full-size render would put it and clips whatever falls outside — the
+ * viewport offset is integral, so these are the pixels of "composite in
+ * original space, then extract", produced without rasterizing the rest of
+ * the image. sharp extracts the same rect from the original before the
+ * composite (`FlatRenderer`), and the two line up at (0, 0).
  */
 export function buildOverlaySvg(
-  doc: Pick<AnnotationDocument, 'shapes'>,
+  doc: Pick<AnnotationDocument, 'shapes' | 'crop'>,
   image: { width: number; height: number },
 ): string {
   const w = Math.trunc(image.width);
@@ -138,10 +151,15 @@ export function buildOverlaySvg(
   if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1) {
     throw new Error('invalid overlay dimensions');
   }
-  const sizes = annotationSizes(w);
+  const crop = doc.crop ?? null;
+  if (crop && cropBoundsError(crop, { width: w, height: h })) {
+    throw new Error('crop outside the image in annotation document');
+  }
+  const sizes = annotationSizes(effectiveWidth({ width: w }, crop));
   const body = doc.shapes.map((s) => shapeSvg(s, sizes)).join('');
+  const view = crop ?? { x: 0, y: 0, w, h };
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" ` +
-    `viewBox="0 0 ${w} ${h}">${body}</svg>`
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${view.w}" height="${view.h}" ` +
+    `viewBox="${view.x} ${view.y} ${view.w} ${view.h}">${body}</svg>`
   );
 }

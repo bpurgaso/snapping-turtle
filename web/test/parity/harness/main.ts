@@ -1,3 +1,4 @@
+import { effectiveWidth } from '@snapping-turtle/shared/annotations';
 import type { ParityFixture } from '@snapping-turtle/shared/parity-fixtures';
 import { StaticCanvas } from 'fabric';
 import { annotationSizes, objectFromShape } from '../../../src/editor/shapes.js';
@@ -42,11 +43,17 @@ async function render(fixture: ParityFixture, fontDataUrl: string): Promise<stri
     renderOnAddRemove: false,
   });
   try {
-    // The same per-width sizes the editor computes for a capture (§9 E1).
-    const sizes = annotationSizes(fixture.width);
+    // The same per-width sizes the editor computes for a capture (§9 E1),
+    // from the effective width — the crop's when there is one (E4).
+    const sizes = annotationSizes(effectiveWidth(fixture, fixture.crop));
     for (const shape of fixture.shapes) canvas.add(objectFromShape(shape, sizes));
     canvas.renderAll();
-    return canvas.toDataURL({ format: 'png', multiplier: 1, enableRetinaScaling: false });
+    // The editor draws the whole image in original space and the crop is a
+    // viewport onto it (§9 E4): export exactly that window, like the flat render.
+    const view = fixture.crop
+      ? { left: fixture.crop.x, top: fixture.crop.y, width: fixture.crop.w, height: fixture.crop.h }
+      : {};
+    return canvas.toDataURL({ format: 'png', multiplier: 1, enableRetinaScaling: false, ...view });
   } finally {
     await canvas.dispose();
     el.remove();

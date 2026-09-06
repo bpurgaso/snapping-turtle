@@ -1,3 +1,5 @@
+import type { CropRect } from '@snapping-turtle/shared';
+
 /**
  * Server-rendered HTML for the secret routes. Everything interpolated goes
  * through escapeHtml — titles and source URLs are user data, never markup
@@ -54,6 +56,8 @@ export interface EditorPageModel {
   /** ISO timestamp, or '' for indefinite retention. */
   retentionUntil: string;
   retentionMaxDays: number;
+  /** Same-origin path of the owner-only untouched original the canvas draws on (E4). */
+  originalUrl: string;
 }
 
 export interface CapturePageModel {
@@ -62,21 +66,34 @@ export interface CapturePageModel {
   sourceUrl: string | null;
   pageUrl: string;
   imageUrl: string;
+  /** The stored original's dimensions — what the owner's editor canvas is sized to. */
   width: number;
   height: number;
+  /**
+   * The crop viewport (E4, §7), if the document has one: the flat image, the
+   * `<img>` box, the footer and the preview tags all report *its* size —
+   * that is what every viewer and every unfurl receives. null/absent = none.
+   */
+  crop?: CropRect | null;
   createdAt: Date;
   assets: PageAssets;
   /** Present only for the authenticated owner: mounts the editor (§7). */
   editor?: EditorPageModel;
 }
 
+/** What the flat image measures: the crop when there is one, else the original (E4). */
+function shownSize(m: CapturePageModel): { width: number; height: number } {
+  return m.crop ? { width: m.crop.w, height: m.crop.h } : { width: m.width, height: m.height };
+}
+
 /** The screenshot, wrapped for the owner in the editor mount point (§7, §9). */
 function stage(m: CapturePageModel, title: string): RawHtml {
+  const shown = shownSize(m);
   const shot = html`<img
     class="shot"
     src="${m.imageUrl}"
-    width="${m.width}"
-    height="${m.height}"
+    width="${shown.width}"
+    height="${shown.height}"
     alt="Screenshot of ${title}"
     decoding="async"
   />`;
@@ -86,7 +103,7 @@ function stage(m: CapturePageModel, title: string): RawHtml {
     data-view-id="${m.editor.viewId}"
     data-width="${m.width}"
     data-height="${m.height}"
-    data-image-url="${m.imageUrl}"
+    data-original-url="${m.editor.originalUrl}"
     data-page-url="${m.pageUrl}"
     data-created-at="${m.editor.createdAt}"
     data-retention-until="${m.editor.retentionUntil}"
@@ -105,6 +122,7 @@ function stage(m: CapturePageModel, title: string): RawHtml {
  * uniform 404: NOT_FOUND_HTML is a fixed string with no tags.
  */
 function previewTags(m: CapturePageModel, title: string): RawHtml {
+  const shown = shownSize(m);
   return raw(html`<meta property="og:type" content="website" />
         <meta property="og:site_name" content="snapping-turtle" />
         <meta property="og:title" content="${title}" />
@@ -112,8 +130,8 @@ function previewTags(m: CapturePageModel, title: string): RawHtml {
         <meta property="og:url" content="${m.pageUrl}" />
         <meta property="og:image" content="${m.imageUrl}" />
         <meta property="og:image:type" content="image/png" />
-        <meta property="og:image:width" content="${m.width}" />
-        <meta property="og:image:height" content="${m.height}" />
+        <meta property="og:image:width" content="${shown.width}" />
+        <meta property="og:image:height" content="${shown.height}" />
         <meta name="twitter:card" content="summary_large_image" />`);
 }
 
@@ -172,7 +190,7 @@ export function renderCapturePage(m: CapturePageModel): string {
         <main class="stage">${stage(m, title)}</main>
         <footer class="meta">
           <span>${host}</span> · <time datetime="${m.createdAt.toISOString()}">${day}</time> ·
-          ${m.width}×${m.height}
+          ${shownSize(m).width}×${shownSize(m).height}
         </footer>
       </body>
     </html> `;

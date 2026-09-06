@@ -1,4 +1,5 @@
-import { RENDER_VERSION } from '@snapping-turtle/shared';
+import { CropRect, RENDER_VERSION, cropBoundsError, type CropRect as Crop } from '@snapping-turtle/shared';
+import { Value } from 'typebox/value';
 import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { randomInt } from 'node:crypto';
@@ -14,7 +15,7 @@ import type { FlatRenderer } from '../images/flat.js';
 import type { ImageStore } from '../images/storage.js';
 import { logSecurityEvent } from '../security-events.js';
 import type { App, Clock } from '../types.js';
-import { captureUrls } from '../urls.js';
+import { captureUrls, ownerOriginalPath } from '../urls.js';
 
 export interface SecretRouteDeps {
   db: Db;
@@ -106,6 +107,8 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
         flatRenderVersion: captures.flatRenderVersion,
         /** Cheap emptiness check without pulling the (up to 8 MB) document. */
         shapeCount: sql<number>`jsonb_array_length(${captures.annotations} -> 'shapes')`,
+        /** The crop viewport (E4), if any — again without the whole document. */
+        cropJson: sql<unknown>`${captures.annotations} -> 'crop'`,
       })
       .from(captures)
       .where(
@@ -116,7 +119,15 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
         ),
       )
       .limit(1);
-    return row;
+    if (!row) return undefined;
+    // Validated on write (§9); re-checked here so a malformed row can never
+    // reach sharp's extract or the page's dimensions.
+    const crop: Crop | null =
+      Value.Check(CropRect, row.cropJson) &&
+      !cropBoundsError(row.cropJson, { width: row.width, height: row.height })
+        ? row.cropJson
+        : null;
+    return { ...row, crop };
   }
 
   await app.register(
@@ -141,6 +152,7 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
           imageUrl: urls.imageUrl,
           width: row.width,
           height: row.height,
+          crop: row.crop,
           createdAt: row.createdAt,
           assets: isOwner ? editorAssets() : captureAssets(),
           ...(isOwner
@@ -150,6 +162,7 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
                   createdAt: row.createdAt.toISOString(),
                   retentionUntil: row.retentionUntil?.toISOString() ?? '',
                   retentionMaxDays: config.retentionMaxDaysUser,
+                  originalUrl: ownerOriginalPath(row.viewId),
                 },
               }
             : {}),
@@ -159,8 +172,10 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
 
       // The flat render (§10): the URL is stable while its content follows the
       // annotations, so the ETag derives from annotations_rev (and the
-      // renderer version) and clients revalidate cheaply (`private, no-cache`). Zero-annotation captures
-      // serve the re-encoded original untouched — exactly what M1 served.
+      // renderer version) and clients revalidate cheaply (`private, no-cache`).
+      // Captures with zero annotations *and no crop* serve the re-encoded
+      // original untouched — exactly what M1 served; a crop is in the
+      // document, so it bumps the rev and renders like a shape (E4).
       s.get<{ Params: { viewId: string } }>('/:viewId/image.png', async (req, reply) => {
         const row = await findLive(req.params.viewId);
         if (!row) return notFound(req, reply);
@@ -198,7 +213,7 @@ export async function secretRoutes(app: App, deps: SecretRouteDeps): Promise<voi
         const cacheCurrent =
           row.flatRev === row.annotationsRev && row.flatRenderVersion === RENDER_VERSION;
         let sent =
-          row.shapeCount === 0
+          row.shapeCount === 0 && row.crop === null
             ? await sendFile(row.annotationsRev, 'original')
             : cacheCurrent
               ? await sendFile(row.annotationsRev, 'flat')

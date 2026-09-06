@@ -148,6 +148,41 @@ describe('valid capture pages carry preview tags (E3)', () => {
     expect(img.headers['content-type']).toBe('image/png');
   });
 
+  it('og:image:width/height follow the crop (E4): effective dimensions, same image URL', async () => {
+    const { viewId, imageUrl } = await upload('Cropped', 120, 90);
+    const crop = { x: 10, y: 20, w: 64, h: 48 };
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/captures/${viewId}/annotations`,
+      payload: { version: 1, rev: 0, shapes: [], crop },
+      headers: { cookie, [CSRF_HEADER]: csrf },
+    });
+    expect(put.statusCode).toBe(200);
+
+    const res = await page(viewId);
+    expect(res.statusCode).toBe(200);
+    expect(meta(res.body, 'og:image')).toBe(imageUrl);
+    expect(meta(res.body, 'og:image:width')).toBe('64');
+    expect(meta(res.body, 'og:image:height')).toBe('48');
+    // ...and the image behind that URL really is that size (PNG IHDR).
+    const img = await app.inject({ method: 'GET', url: new URL(imageUrl).pathname });
+    expect(img.statusCode).toBe(200);
+    expect(img.rawPayload.readUInt32BE(16)).toBe(64);
+    expect(img.rawPayload.readUInt32BE(20)).toBe(48);
+
+    // Clearing the crop restores the row dimensions.
+    const clear = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/captures/${viewId}/annotations`,
+      payload: { version: 1, rev: 1, shapes: [] },
+      headers: { cookie, [CSRF_HEADER]: csrf },
+    });
+    expect(clear.statusCode).toBe(200);
+    const back = await page(viewId);
+    expect(meta(back.body, 'og:image:width')).toBe('120');
+    expect(meta(back.body, 'og:image:height')).toBe('90');
+  });
+
   it('a hostile title is attribute data in the raw HTML, never markup (rule 5)', async () => {
     const hostile = `Q&A "quoted" <b>bold</b> 'single' &amp; "><script>alert(1)</script>`;
     const { viewId } = await upload(hostile);

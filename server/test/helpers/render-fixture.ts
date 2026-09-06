@@ -13,11 +13,26 @@ import { buildOverlaySvg } from '../../src/images/svg-overlay.js';
 pinRendererFonts();
 
 export async function renderFixturePng(f: ParityFixture): Promise<Buffer> {
-  const overlay = buildOverlaySvg({ shapes: f.shapes }, { width: f.width, height: f.height });
-  return sharp({
+  // Same pipeline shape as FlatRenderer (§10 E4): the overlay is authored in
+  // original space with the crop as its viewBox; sharp extracts the crop
+  // from the image, then composites the overlay at (0, 0).
+  const overlay = buildOverlaySvg(
+    { shapes: f.shapes, ...(f.crop ? { crop: f.crop } : {}) },
+    { width: f.width, height: f.height },
+  );
+  let pipeline = sharp({
     create: { width: f.width, height: f.height, channels: 3, background: f.background },
-  })
-    .composite([{ input: Buffer.from(overlay, 'utf8') }])
+  });
+  if (f.crop) {
+    pipeline = pipeline.extract({
+      left: f.crop.x,
+      top: f.crop.y,
+      width: f.crop.w,
+      height: f.crop.h,
+    });
+  }
+  return pipeline
+    .composite([{ input: Buffer.from(overlay, 'utf8'), left: 0, top: 0 }])
     .png()
     .toBuffer();
 }

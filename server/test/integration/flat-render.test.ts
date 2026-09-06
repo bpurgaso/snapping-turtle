@@ -3,6 +3,7 @@ import {
   CSRF_HEADER,
   RENDER_VERSION,
   type AnnotationDocument,
+  type CropRect,
   type Shape,
 } from '@snapping-turtle/shared';
 import { eq } from 'drizzle-orm';
@@ -190,8 +191,9 @@ afterAll(async () => {
 
 const imagePath = () => `/s/${viewId}/image.png`;
 
-async function putAnnotations(shapes: Shape[]): Promise<void> {
+async function putAnnotations(shapes: Shape[], crop?: CropRect): Promise<void> {
   const doc: AnnotationDocument = { version: ANNOTATION_SCHEMA_VERSION, rev, shapes };
+  if (crop) doc.crop = crop;
   const res = await app.inject({
     method: 'PUT',
     url: `/api/v1/captures/${viewId}/annotations`,
@@ -412,6 +414,154 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['etag']).toBe(flatEtag(rev));
     expect(res.rawPayload.equals(originalBytes)).toBe(true);
+  });
+
+  describe('crop viewport (E4, §10)', () => {
+    const CROP: CropRect = { x: 20, y: 10, w: 100, h: 80 };
+    const dims = async (png: Buffer) => {
+      const m = await sharp(png).metadata();
+      return [m.width, m.height];
+    };
+
+    it('a crop with zero shapes is not the M4 fast path: the cropped image is rendered, at cropped size', async () => {
+      await putAnnotations([], CROP);
+      const started = renderer.gate.started;
+      const res = await app.inject({ method: 'GET', url: imagePath() });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['etag']).toBe(flatEtag(rev));
+      expect(renderer.gate.started).toBe(started + 1);
+      expect(res.rawPayload.equals(originalBytes)).toBe(false);
+      expect(await dims(res.rawPayload)).toEqual([CROP.w, CROP.h]);
+      expect(existsSync(store.pathFor(captureId, 'flat'))).toBe(true);
+      // Pixels are the original's at the crop offset (makePng is uniform, so
+      // the check is that they are image pixels at all, not a blank canvas).
+      const raw = await sharp(res.rawPayload).raw().toBuffer({ resolveWithObject: true });
+      expect([raw.data[0], raw.data[1], raw.data[2]]).toEqual([200, 30, 30]);
+      // Cached now: a second view serves the file without a render.
+      const again = await app.inject({ method: 'GET', url: imagePath() });
+      expect(again.rawPayload.equals(res.rawPayload)).toBe(true);
+      expect(renderer.gate.started).toBe(started + 1);
+    });
+
+    it('the viewer page and the preview tags report the cropped dimensions; the image URL is unchanged', async () => {
+      const res = await app.inject({ method: 'GET', url: `/s/${viewId}` });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toContain(`<meta property="og:image:width" content="${CROP.w}" />`);
+      expect(res.body).toContain(`<meta property="og:image:height" content="${CROP.h}" />`);
+      expect(res.body).toMatch(
+        new RegExp(`<img[^>]*width="${CROP.w}"[^>]*height="${CROP.h}"`, 's'),
+      );
+      expect(res.body).toContain(
+        `<meta property="og:image" content="${ORIGIN}/s/${viewId}/image.png" />`,
+      );
+    });
+
+    it('a crop-only change bumps the revision, misses the old ETag and re-renders at the new size', async () => {
+      const before = rev;
+      const moved: CropRect = { x: 0, y: 0, w: 150, h: 120 };
+      await putAnnotations([], moved); // same (empty) shapes, different crop
+      expect(rev).toBe(before + 1);
+      const started = renderer.gate.started;
+      const res = await app.inject({
+        method: 'GET',
+        url: imagePath(),
+        headers: { 'if-none-match': flatEtag(before) },
+      });
+      expect(res.statusCode).toBe(200); // the old tag no longer validates
+      expect(res.headers['etag']).toBe(flatEtag(rev));
+      expect(renderer.gate.started).toBe(started + 1);
+      expect(await dims(res.rawPayload)).toEqual([moved.w, moved.h]);
+      const [row] = await handle.db
+        .select({ flatRev: captures.flatRev })
+        .from(captures)
+        .where(eq(captures.id, captureId));
+      expect(row!.flatRev).toBe(rev);
+    });
+
+    it('shapes composite in original space and clip at the crop edge', async () => {
+      // A rect whose left edge lies inside the crop and whose right edge is
+      // far outside it: inside, the red core is at the expected place; the
+      // output is still exactly crop-sized.
+      const crop: CropRect = { x: 40, y: 30, w: 120, h: 80 };
+      await putAnnotations([{ id: 'x', type: 'rect', x: 60, y: 50, w: 300, h: 140 }], crop);
+      const res = await app.inject({ method: 'GET', url: imagePath() });
+      expect(res.statusCode).toBe(200);
+      expect(await dims(res.rawPayload)).toEqual([crop.w, crop.h]);
+      const raw = await sharp(res.rawPayload).raw().toBuffer({ resolveWithObject: true });
+      const px = (x: number, y: number) => {
+        const i = (y * crop.w + x) * raw.info.channels;
+        return [raw.data[i]!, raw.data[i + 1]!, raw.data[i + 2]!];
+      };
+      // The crop is 120 px wide → floor sizes (outer 6, red 3): the rect's
+      // top edge path sits at y = 50 + 3 = 53 in original space, i.e. row 23
+      // of the output; its left edge path at x = 63 → column 23.
+      expect(px(60, 23)).toEqual([224, 49, 49]); // red core of the top edge, inside the crop
+      expect(px(23, 60)).toEqual([224, 49, 49]); // red core of the left edge
+      expect(px(5, 5)).toEqual([200, 30, 30]); // untouched image pixel above-left of the rect
+      // The rect's right edge (x = 360) is outside the crop: the last column
+      // is image + stroke interior only, never a right-edge stroke.
+      expect(px(crop.w - 1, 60)).toEqual([200, 30, 30]);
+    });
+
+    it("the owner's editor loads the untouched original through the owner-only route, whatever the crop", async () => {
+      // Still cropped and annotated from the previous case.
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/v1/captures/${viewId}/original`,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe('image/png');
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['cache-control']).toBe('private, no-cache');
+      expect(res.rawPayload.equals(originalBytes)).toBe(true);
+      expect(await dims(res.rawPayload)).toEqual([WIDTH, HEIGHT]);
+      // Fixed for the life of the capture: one constant validator.
+      const again = await app.inject({
+        method: 'GET',
+        url: `/api/v1/captures/${viewId}/original`,
+        headers: { cookie, 'if-none-match': res.headers['etag'] as string },
+      });
+      expect(again.statusCode).toBe(304);
+      // The page hands the editor exactly this path, and keeps the flat URL for everyone else.
+      const page = await app.inject({ method: 'GET', url: `/s/${viewId}`, headers: { cookie } });
+      expect(page.body).toContain(`data-original-url="/api/v1/captures/${viewId}/original"`);
+      expect(page.body).toContain(`src="${ORIGIN}/s/${viewId}/image.png"`);
+    });
+
+    it('the original route is owner-only: anonymous 401, another account 403, unknown id 404 (rule 8)', async () => {
+      const anon = await app.inject({ method: 'GET', url: `/api/v1/captures/${viewId}/original` });
+      expect(anon.statusCode).toBe(401);
+      const other = { username: 'flat-other', password: 'flat-other-password-not-real-1' };
+      await seedAdmin(handle.db, other);
+      const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: other });
+      expect(login.statusCode).toBe(200);
+      const raw = login.headers['set-cookie'];
+      const otherCookie = (Array.isArray(raw) ? raw : [raw as string])
+        .map((c) => c.split(';')[0]!)
+        .join('; ');
+      const forbidden = await app.inject({
+        method: 'GET',
+        url: `/api/v1/captures/${viewId}/original`,
+        headers: { cookie: otherCookie },
+      });
+      expect(forbidden.statusCode).toBe(403); // an admin, even — annotations and the original stay owner-only
+      const unknown = await app.inject({
+        method: 'GET',
+        url: `/api/v1/captures/${'A'.repeat(27)}/original`,
+        headers: { cookie },
+      });
+      expect(unknown.statusCode).toBe(404);
+    });
+
+    it('clearing the crop returns to the full-size render (and to the original when unannotated)', async () => {
+      await putAnnotations(SHAPES);
+      let res = await app.inject({ method: 'GET', url: imagePath() });
+      expect(await dims(res.rawPayload)).toEqual([WIDTH, HEIGHT]);
+      await putAnnotations([]);
+      res = await app.inject({ method: 'GET', url: imagePath() });
+      expect(res.rawPayload.equals(originalBytes)).toBe(true);
+    });
   });
 
   it('the non-owner page needed no markup change: same <img>, now annotated', async () => {

@@ -16,7 +16,9 @@ import { buildOverlaySvg } from './svg-overlay.js';
  * cache while both are current (`flat_rev === annotations_rev` and
  * `flat_render_version === RENDER_VERSION`) and calls `ensure()` otherwise —
  * so a renderer change (E1's adaptive sizing) re-renders every capture lazily
- * on its next view through this same gate, with no mass job. No `view_id` ever enters this module — renders are
+ * on its next view through this same gate, with no mass job. A crop (E4) lives
+ * in the document, so a crop-only edit bumps `annotations_rev` and invalidates
+ * the cache like any shape edit. No `view_id` ever enters this module — renders are
  * keyed and logged by internal capture id only (CLAUDE.md rule 3).
  */
 
@@ -128,19 +130,33 @@ export class FlatRenderer {
     if (!row) return null;
 
     const rev = row.annotationsRev;
-    if (row.annotations.shapes.length === 0) return { rev, empty: true };
+    const { shapes } = row.annotations;
+    const crop = row.annotations.crop ?? null;
+    // The M4 fast path — "nothing to draw, serve the original untouched" —
+    // needs both halves: a cropped-but-unannotated capture must still render
+    // (§10 E4), or viewers would get the full-size image.
+    if (shapes.length === 0 && !crop) return { rev, empty: true };
 
     const startedAt = Date.now();
-    const overlay = buildOverlaySvg(row.annotations, { width: row.width, height: row.height });
     let png: Buffer;
     try {
-      png = await sharp(this.store.pathFor(captureId), {
+      // Composite in original space, then extract the crop (§10 E4). sharp
+      // orders its pipeline extract → composite whatever the call order, so
+      // the overlay is authored in original coordinates with the crop rect as
+      // its viewBox (buildOverlaySvg) and lands on the extracted region at
+      // (0, 0): the same pixels, without rasterizing the discarded area.
+      let pipeline = sharp(this.store.pathFor(captureId), {
         limitInputPixels: MAX_IMAGE_PIXELS,
         sequentialRead: true,
-      })
-        .composite([{ input: Buffer.from(overlay, 'utf8') }])
-        .png()
-        .toBuffer();
+      });
+      if (crop) {
+        pipeline = pipeline.extract({ left: crop.x, top: crop.y, width: crop.w, height: crop.h });
+      }
+      if (shapes.length > 0) {
+        const overlay = buildOverlaySvg(row.annotations, { width: row.width, height: row.height });
+        pipeline = pipeline.composite([{ input: Buffer.from(overlay, 'utf8'), left: 0, top: 0 }]);
+      }
+      png = await pipeline.png().toBuffer();
     } catch (err) {
       // A live row whose original vanished (crash between a file unlink and
       // its row update, or an operator mistake) must not become a 500 — the
@@ -156,7 +172,14 @@ export class FlatRenderer {
       .set({ flatRev: rev, flatRenderVersion: RENDER_VERSION })
       .where(and(eq(captures.id, captureId), eq(captures.annotationsRev, rev)));
     this.log?.info(
-      { captureId, rev, renderVersion: RENDER_VERSION, ms: Date.now() - startedAt, bytes: png.length },
+      {
+        captureId,
+        rev,
+        renderVersion: RENDER_VERSION,
+        cropped: crop !== null,
+        ms: Date.now() - startedAt,
+        bytes: png.length,
+      },
       'flat render complete',
     );
     return { rev, empty: false };

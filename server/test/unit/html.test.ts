@@ -129,6 +129,43 @@ describe('renderCapturePage (§7)', () => {
     });
   });
 
+  describe('crop viewport (E4)', () => {
+    const crop = { x: 100, y: 50, w: 320, h: 240 };
+    const editor = {
+      viewId: 'v'.repeat(27),
+      createdAt: '2026-09-06T00:00:00.000Z',
+      retentionUntil: '',
+      retentionMaxDays: 365,
+      originalUrl: `/api/v1/captures/${'v'.repeat(27)}/original`,
+    };
+
+    it('the <img>, the footer and og:image:width/height report the crop, not the original', () => {
+      const out = renderCapturePage({ ...base, crop });
+      expect(out).toContain('<meta property="og:image:width" content="320" />');
+      expect(out).toContain('<meta property="og:image:height" content="240" />');
+      expect(out).toMatch(/<img[^>]*width="320"[^>]*height="240"/s);
+      expect(out).toContain('320×240');
+      expect(out).not.toContain('800×600');
+      // The image URL is unchanged: viewers, copy links and unfurls inherit the crop (§10).
+      expect(out).toContain(`<meta property="og:image" content="${base.imageUrl}" />`);
+    });
+
+    it("the owner's editor mount keeps the original dimensions (the canvas shows the full image)", () => {
+      const out = renderCapturePage({ ...base, crop, editor });
+      expect(out).toMatch(/<div[^>]*id="editor-root"[^>]*data-width="800"[^>]*data-height="600"/s);
+      // ...and draws on the owner-only original, never the (cropped) flat render.
+      expect(out).toContain(`data-original-url="${editor.originalUrl}"`);
+      expect(out).not.toContain('data-image-url=');
+      expect(out).toMatch(/<img[^>]*width="320"[^>]*height="240"/s);
+      expect(out).toContain('<meta property="og:image:width" content="320" />');
+    });
+
+    it('null and absent crop render identically to the pre-E4 page', () => {
+      expect(renderCapturePage({ ...base, crop: null })).toBe(renderCapturePage(base));
+      expect(renderCapturePage(base)).toContain('<meta property="og:image:width" content="800" />');
+    });
+  });
+
   it('renders without a bundle (buttons degrade to read-only inputs)', () => {
     const out = renderCapturePage({ ...base, assets: { css: [] } });
     expect(out).not.toContain('<script');

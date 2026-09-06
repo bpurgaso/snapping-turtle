@@ -21,6 +21,7 @@ import { VIEW_ID_PATTERN } from '../ids.js';
 import type { ImageStore } from '../images/storage.js';
 import { logSecurityEvent } from '../security-events.js';
 import type { App, Clock } from '../types.js';
+import { ifNoneMatchHits } from './secret.js';
 
 export interface OwnerRouteDeps {
   db: Db;
@@ -112,6 +113,39 @@ export async function ownerRoutes(app: App, deps: OwnerRouteDeps): Promise<void>
     if (updated.length === 0) throw stale();
     return { rev: nextRev };
   }
+
+  // The owner's editor draws on the untouched original (§7, §9 E4). The
+  // public image.png is the flat render — since E4 possibly cropped — which
+  // is no canvas background; this is the server's own re-encoded PNG, fixed
+  // for the life of the capture, hence the constant validator. Owner-only
+  // like the annotation routes (rule 8); it is not under /s/*, so the
+  // uniform-404 surface (rule 2) is untouched.
+  const ORIGINAL_ETAG = '"original"';
+  app.get(
+    '/api/v1/captures/:viewId/original',
+    { preHandler: [auth.requireSession], schema: { params: CaptureParams } },
+    async (req, reply) => {
+      const row = await findOwned(req, req.params.viewId);
+      const cacheHeaders = () =>
+        reply
+          .header('ETag', ORIGINAL_ETAG)
+          .header('Cache-Control', 'private, no-cache')
+          .header('X-Content-Type-Options', 'nosniff');
+      if (ifNoneMatchHits(req.headers['if-none-match'], ORIGINAL_ETAG)) {
+        return cacheHeaders().code(304).send();
+      }
+      const file = await store.open(row.id, 'original');
+      if (!file) {
+        logSecurityEvent(req.log, { tag: 'sec.image.missing_file', captureId: row.id });
+        throw new HttpError(404, 'not_found', 'no such capture');
+      }
+      return cacheHeaders()
+        .type('image/png')
+        .header('Content-Length', file.size)
+        .header('Content-Disposition', 'inline; filename="original.png"')
+        .send(file.stream);
+    },
+  );
 
   app.get(
     '/api/v1/captures/:viewId/annotations',

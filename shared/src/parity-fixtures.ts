@@ -1,5 +1,11 @@
 import { ANNOTATION_SCHEMA_VERSION } from './constants.js';
-import { annotationSizes, type AnnotationDocument, type Shape } from './annotations.js';
+import {
+  annotationSizes,
+  effectiveWidth,
+  type AnnotationDocument,
+  type CropRect,
+  type Shape,
+} from './annotations.js';
 
 /**
  * Fixture annotation documents for the M4 render-parity tests (§10). Consumed
@@ -14,7 +20,11 @@ import { annotationSizes, type AnnotationDocument, type Shape } from './annotati
  * The first six fixtures are 480 px wide (on the §9 curve's floor, scale
  * 0.75) and cover geometry and escaping; `matrixFixtures()` adds one fixture
  * per shape type at each PARITY_WIDTHS entry so the adaptive sizes are
- * proven at the floor, the reference, a proportional width and the ceiling.
+ * proven at the floor, the reference, a proportional width and the ceiling;
+ * `cropFixtures()` (E4) adds the crop viewport: the same document with and
+ * without a narrow crop (the sizes must follow the *effective* width, §9),
+ * and shapes inside, outside and straddling the crop edge (the clip must be
+ * identical in both renderers). A fixture with `crop` renders `crop.w × crop.h`.
  */
 
 export interface ParityFixture {
@@ -26,6 +36,12 @@ export interface ParityFixture {
   shapes: Shape[];
   /** True when glyph rendering dominates the diff (looser pixel tolerance). */
   hasText: boolean;
+  /**
+   * Crop viewport (E4): shapes stay in original coordinates; both renderers
+   * output exactly this rect, drawn with `annotationSizes(crop.w)`. The
+   * `strokeBand` probe, when present, is in *output* (cropped) coordinates.
+   */
+  crop?: CropRect;
   /**
    * Clamp proof (§9 E1): a vertical probe through a rect's top edge where a
    * renderer must paint exactly `px` consecutive non-background pixels — the
@@ -96,6 +112,73 @@ function matrixFixtures(): ParityFixture[] {
     });
   }
   return out;
+}
+
+/**
+ * Crop fixtures (E4). `crop-none` and `crop-narrow` are one document — a
+ * 1,280 px capture (reference sizes) with a rect, an arrow and a text at the
+ * stored default size — rendered once whole and once through a 300 px crop:
+ * the stroke-band probes promise 8 px whole and 6 px cropped (the §9 floor),
+ * on both renderers, so the effective-width rule is proven on pixels rather
+ * than in the function. `crop-clip` puts a rect fully inside, one fully
+ * outside, one straddling each of two edges, an arrow entering from outside
+ * and a text run leaving through the right edge.
+ */
+function cropFixtures(): ParityFixture[] {
+  const width = 1280;
+  const height = 720;
+  const crop: CropRect = { x: 400, y: 200, w: 300, h: 220 };
+  const rect: Shape = { id: 'r1', type: 'rect', x: 430, y: 230, w: 160, h: 90 };
+  const shared: Shape[] = [
+    rect,
+    { id: 'a1', type: 'arrow', x1: 440, y1: 400, x2: 660, y2: 340 },
+    { id: 't1', type: 'text', x: 450, y: 335, text: 'Crop me', fontSize: annotationSizes(width).defaultFontSize },
+  ];
+  const probeX = rect.x + r(rect.w / 2);
+  const whole = annotationSizes(width);
+  const narrow = annotationSizes(effectiveWidth({ width }, crop));
+  return [
+    {
+      name: 'crop-none',
+      width,
+      height,
+      background: BG,
+      hasText: true,
+      shapes: shared,
+      strokeBand: { x: probeX, yFrom: rect.y - 4, yTo: rect.y + whole.outerStrokeWidth + 4, px: whole.outerStrokeWidth },
+    },
+    {
+      name: 'crop-narrow',
+      width,
+      height,
+      background: BG,
+      hasText: true,
+      shapes: shared,
+      crop,
+      strokeBand: {
+        x: probeX - crop.x,
+        yFrom: rect.y - crop.y - 4,
+        yTo: rect.y - crop.y + narrow.outerStrokeWidth + 4,
+        px: narrow.outerStrokeWidth,
+      },
+    },
+    {
+      name: 'crop-clip',
+      width,
+      height,
+      background: BG,
+      hasText: true,
+      shapes: [
+        { id: 'inside', type: 'rect', x: 460, y: 250, w: 120, h: 60 },
+        { id: 'outside', type: 'rect', x: 40, y: 40, w: 200, h: 100 },
+        { id: 'straddle-left-top', type: 'rect', x: 320, y: 140, w: 200, h: 120 },
+        { id: 'straddle-right-bottom', type: 'rect', x: 600, y: 350, w: 200, h: 150 },
+        { id: 'arrow-in', type: 'arrow', x1: 200, y1: 600, x2: 520, y2: 380 },
+        { id: 'text-out', type: 'text', x: 600, y: 240, text: 'leaving the crop', fontSize: annotationSizes(width).defaultFontSize },
+      ],
+      crop: { x: 400, y: 200, w: 300, h: 220 },
+    },
+  ];
 }
 
 export const PARITY_FIXTURES: ParityFixture[] = [
@@ -177,8 +260,16 @@ export const PARITY_FIXTURES: ParityFixture[] = [
     ]),
   },
   ...matrixFixtures(),
+  ...cropFixtures(),
 ];
 
+/** Output size of a fixture: the crop when it has one (E4), else the image. */
+export function fixtureOutputSize(f: ParityFixture): { width: number; height: number } {
+  return f.crop ? { width: f.crop.w, height: f.crop.h } : { width: f.width, height: f.height };
+}
+
 export function fixtureDocument(f: ParityFixture): AnnotationDocument {
-  return { version: ANNOTATION_SCHEMA_VERSION, rev: 1, shapes: f.shapes };
+  const doc: AnnotationDocument = { version: ANNOTATION_SCHEMA_VERSION, rev: 1, shapes: f.shapes };
+  if (f.crop) doc.crop = f.crop;
+  return doc;
 }

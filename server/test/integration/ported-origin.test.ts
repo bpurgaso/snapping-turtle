@@ -148,7 +148,10 @@ describe('a ported PUBLIC_ORIGIN reaches every generated URL', () => {
     expect(owner.statusCode).toBe(200);
     expect(owner.body).toContain(`data-copy="${pageUrl}"`);
     expect(owner.body).toContain(`data-page-url="${pageUrl}"`);
-    expect(owner.body).toContain(`data-image-url="${imageUrl}"`);
+    // The editor draws on the owner-only original (E4): a same-origin path by
+    // design, so it needs no port handling — while the <img> keeps the ported flat URL.
+    expect(owner.body).toContain('data-original-url="/api/v1/captures/');
+    expect(owner.body).toContain(`src="${imageUrl}"`);
     expect(owner.body).not.toContain('https://shots.test/');
     // The image route serves at the ported path (the app never sees the port; Caddy does).
     const img = await app.inject({ method: 'GET', url: `${path}/image.png` });

@@ -179,3 +179,45 @@ describe('buildOverlaySvg envelope', () => {
     expect(() => overlay([bad])).toThrow('non-finite');
   });
 });
+
+describe('crop viewport (E4, §10)', () => {
+  const shapes: Shape[] = [
+    { id: 'in', type: 'rect', x: 120, y: 120, w: 100, h: 60 },
+    { id: 'straddle', type: 'rect', x: 20, y: 20, w: 200, h: 200 },
+  ];
+  const crop = { x: 100, y: 100, w: 300, h: 200 };
+
+  it('without a crop the SVG is image-sized with the identity viewBox (pre-E4 output)', () => {
+    const svg = buildOverlaySvg({ shapes }, { width: 1280, height: 720 });
+    expect(svg).toContain('width="1280" height="720" viewBox="0 0 1280 720"');
+  });
+
+  it('with a crop the SVG is crop-sized and its viewBox is the crop rect — shapes keep original coordinates', () => {
+    const svg = buildOverlaySvg({ shapes, crop }, { width: 1280, height: 720 });
+    expect(svg).toContain('width="300" height="200" viewBox="100 100 300 200"');
+    // The straddling rect is still authored at x=20 (original space): the
+    // viewBox clips it; nothing is translated or dropped by the builder.
+    expect(svg.match(/<rect /g)).toHaveLength(4);
+    const z = annotationSizes(300);
+    expect(svg).toContain(`x="${20 + z.outerStrokeWidth / 2}" y="${20 + z.outerStrokeWidth / 2}"`);
+  });
+
+  it('sizes come from the effective width: a narrow crop of a wide capture draws the narrow strokes', () => {
+    const wide = { width: 2560, height: 1440 };
+    const full = buildOverlaySvg({ shapes }, wide);
+    const narrow = buildOverlaySvg({ shapes, crop: { x: 0, y: 0, w: 300, h: 200 } }, wide);
+    expect(full).toContain(`stroke-width="${annotationSizes(2560).strokeWidth}"`);
+    expect(narrow).toContain(`stroke-width="${annotationSizes(300).strokeWidth}"`);
+    expect(narrow).not.toContain(`stroke-width="${annotationSizes(2560).strokeWidth}"`);
+    expect(annotationSizes(2560).strokeWidth).not.toBe(annotationSizes(300).strokeWidth);
+  });
+
+  it('refuses a crop outside the image (defence in depth: validated on write)', () => {
+    expect(() =>
+      buildOverlaySvg(
+        { shapes, crop: { x: 1000, y: 0, w: 300, h: 200 } },
+        { width: 1280, height: 720 },
+      ),
+    ).toThrow(/crop outside the image/);
+  });
+});

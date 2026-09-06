@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   PARITY_FIXTURES,
+  fixtureOutputSize,
   type ParityFixture,
 } from '@snapping-turtle/shared/parity-fixtures';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -79,8 +80,11 @@ for (const fixture of PARITY_FIXTURES) {
     const editor = PNG.sync.read(Buffer.from(dataUrl.split(',')[1]!, 'base64'));
     const server = PNG.sync.read(await renderFixturePng(fixture));
 
-    expect([editor.width, editor.height]).toEqual([fixture.width, fixture.height]);
-    expect([server.width, server.height]).toEqual([fixture.width, fixture.height]);
+    // A cropped fixture (E4) is crop-sized on both sides; the shapes were
+    // still authored — and drawn — in original coordinates.
+    const out = fixtureOutputSize(fixture);
+    expect([editor.width, editor.height]).toEqual([out.width, out.height]);
+    expect([server.width, server.height]).toEqual([out.width, out.height]);
 
     // Clamp proof (§9 E1): both renderers paint the promised stroke band —
     // the floor's 6 px on a 300 px crop, the ceiling's 48 px at 10,000 px.
@@ -91,13 +95,13 @@ for (const fixture of PARITY_FIXTURES) {
       expect(serverBand.px, `server stroke band for ${fixture.name}`).toBe(serverBand.expected);
     }
 
-    const diff = new PNG({ width: fixture.width, height: fixture.height });
+    const diff = new PNG({ width: out.width, height: out.height });
     const differing = pixelmatch(
       editor.data,
       server.data,
       diff.data,
-      fixture.width,
-      fixture.height,
+      out.width,
+      out.height,
       { threshold: PER_PIXEL_THRESHOLD },
     );
     // Ink-relative ratio: differing pixels over the pixels either renderer
@@ -106,7 +110,7 @@ for (const fixture of PARITY_FIXTURES) {
     // displaced stroke; the ink ratio is dimension-independent and was
     // calibrated against deliberate 3 px displacements (see the header).
     const ink = inkPixels(editor, server, fixture.background);
-    const imageRatio = differing / (fixture.width * fixture.height);
+    const imageRatio = differing / (out.width * out.height);
     const inkRatio = differing / Math.max(1, ink);
     const limit = maxInkDiffRatio(fixture);
     // Structural check: the extent of everything painted must agree. This is
