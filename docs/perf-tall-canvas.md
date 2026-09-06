@@ -91,3 +91,32 @@ sooner if real-world drags exceed ~50 ms p95 on target hardware:
 2. Cheap partial mitigation: `enableRetinaScaling: false` above a canvas-area
    threshold — restores dpr-1 pacing at the cost of slightly soft rendering on
    retina, no architectural change.
+
+## E4 addendum — the crop shade (2026-09-06)
+
+E4 puts a `CropShade` object on the canvas whenever the capture has a crop:
+one full-canvas `rgba(0,0,0,0.45)` fill with the crop punched out (even-odd),
+drawn on top of every shape on each lower-canvas render. The spike was re-run
+on the same fixture with `ST_PERF_CROP=1` (a crop of 4,280 × 3,000 px stored
+through the API before the page loads), Linux x64 / Plasma Wayland, Playwright
+Chromium, dpr 1, two runs per configuration:
+
+| Metric                          | no crop           | crop stored       |
+|---------------------------------|-------------------|-------------------|
+| Draw rectangle, avg / p95 frame | 17.2–17.3 / 16.8  | 16.5 / 16.7–16.8  |
+| Drag rectangle, avg / p95 frame | 16.6–17.0 / 16.7–16.8 | 17.7–18.3 / 33.3 |
+| Drag max frame                  | 16.8–33.4         | 33.4              |
+| JS heap after drag              | 4.2 MB            | 4.2 MB            |
+
+Reading: drawing is untouched (the upper canvas). Dragging re-blits the lower
+canvas every frame, and the shade adds one more ~10.6 M-pixel fill to that —
+about 1–1.6 ms per frame on this box, enough that a few percent of frames
+miss the 60 Hz budget the fixture already sits on the edge of (p95 33 ms = two
+vsyncs). This is the 150 MP ceiling; a viewport-sized or a few-thousand-px-tall
+capture has a canvas an order of magnitude smaller and stays at 60 fps with
+the shade. Not mitigated: clipping the fill to the visible slice would need a
+re-render on every scroll, which costs more than it saves; the windowed
+rendering fallback (§9) remains the answer if the ceiling ever matters.
+(Load times are not comparable between the two columns: the no-crop page's
+static `<img>` fetches the full-size flat and the editor fetches the original
+— two 150 MP decodes — while the cropped page's `<img>` is the small crop.)

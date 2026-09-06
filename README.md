@@ -156,7 +156,10 @@ Fedora 44 with KDE Plasma on Wayland — lives in [client-linux/](client-linux/)
    Meta+Alt+W window, Meta+Alt+R region). Full screen and window go through
    KWin's ScreenShot2 (no dialogs); region opens the desktop's own chooser
    — on Plasma 6.7 that chooser has no rectangle option yet, which
-   [client-linux/README.md](client-linux/README.md) documents per mode. The
+   [client-linux/README.md](client-linux/README.md) documents per mode; the
+   practical answer there is a full-screen capture followed by **Crop** on the
+   capture page (non-destructive, the shared image is trimmed to the
+   rectangle at its own size). The
    upload has no source page, so the capture page shows no "Open original
    page" link; everything else is the same page.
 
