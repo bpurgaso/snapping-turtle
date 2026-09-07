@@ -106,6 +106,55 @@ export function cropGeom(c: CropRect): CropGeom {
   return { left: c.x, top: c.y, width: c.w, height: c.h };
 }
 
+// ---- Editor viewport (E6) ------------------------------------------------------
+
+/** Fabric's 2×3 affine viewport transform: [scaleX, skewY, skewX, scaleY, translateX, translateY]. */
+export type ViewportMatrix = [number, number, number, number, number, number];
+
+export interface EditorViewport {
+  /** Canvas element size in CSS pixels. */
+  width: number;
+  height: number;
+  /** Scene → screen scale (fit-to-width of what is shown, capped at 1:1, §9). */
+  zoom: number;
+  /** The transform that puts the shown region's origin at the canvas origin. */
+  vpt: ViewportMatrix;
+}
+
+/**
+ * The editor's two views of one document (E6, §9): `shown` is the crop rect
+ * in normal mode when the capture has one — the canvas is crop-sized and the
+ * viewport pans to the crop, so the owner edits exactly what viewers get —
+ * and null in crop mode or without a crop, when the whole original is shown.
+ * Pure viewport state: shapes keep their original-image coordinates in
+ * either view, and Fabric maps pointer events through the inverse of `vpt`,
+ * so a shape drawn while collapsed is stored in original space unchanged.
+ * Fit-to-width of the shown region, at most 1:1, tall content scrolls (§9).
+ */
+export function editorViewport(
+  shown: CropRect | null,
+  image: { width: number; height: number },
+  availableWidth: number,
+): EditorViewport {
+  const region = shown ?? { x: 0, y: 0, w: image.width, h: image.height };
+  const zoom = Math.min(1, Math.max(320, availableWidth) / region.w);
+  return {
+    width: Math.round(region.w * zoom),
+    height: Math.round(region.h * zoom),
+    zoom,
+    vpt: [zoom, 0, 0, zoom, 0 - region.x * zoom, 0 - region.y * zoom],
+  };
+}
+
+/** Scene (original-image) point → canvas point under a viewport; the inverse is what Fabric applies to the pointer. */
+export function sceneToCanvas(v: EditorViewport, p: { x: number; y: number }): { x: number; y: number } {
+  return { x: p.x * v.vpt[0] + v.vpt[4], y: p.y * v.vpt[3] + v.vpt[5] };
+}
+
+export function canvasToScene(v: EditorViewport, p: { x: number; y: number }): { x: number; y: number } {
+  return { x: (p.x - v.vpt[4]) / v.vpt[0], y: (p.y - v.vpt[5]) / v.vpt[3] };
+}
+
 /** CSPRNG-backed id; matches the schema's [A-Za-z0-9_-] pattern (rule 1). */
 export function newShapeId(): string {
   return crypto.randomUUID();

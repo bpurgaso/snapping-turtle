@@ -12,7 +12,7 @@ import { Canvas, FabricImage, IText, type FabricObject, type TPointerEventInfo }
 import { ApiError, annotations as annotationsApi, describeError, patchCapture } from '../api.js';
 import { el } from '../dom.js';
 import { CropFrame, CropShade } from './crop.js';
-import { cropGeom, isWholeImage, newShapeId, normalizeCrop } from './model.js';
+import { cropGeom, editorViewport, isWholeImage, newShapeId, normalizeCrop } from './model.js';
 import {
   AnnoArrow,
   AnnoRect,
@@ -50,12 +50,18 @@ const DAY_MS = 86_400_000;
  * autosave with revision-conflict reload, and the owner tooling (retention,
  * delete). All persistence goes through our own JSON — never Fabric's.
  *
- * Crop (E4): the canvas always shows the whole original; the crop is a
- * viewport stored in the document. Outside it is dimmed (`CropShade`), shapes
- * stay placeable anywhere, and the crop tool swaps in an adjustable frame
- * (`CropFrame`) until *Apply* commits it — one undo step, one autosave, like
- * a shape. Drawing sizes follow the effective width (§9): applying or
- * clearing a crop rebuilds every shape with the sizes of the shown width.
+ * Crop (E4, E6): the crop is a viewport stored in the document, and the
+ * editor has two views of it (§9). In **crop mode** the canvas shows the
+ * whole original with everything outside the crop dimmed (`CropShade`) and
+ * an adjustable frame (`CropFrame`) — the "add back what I cropped out"
+ * view, where every shape is visible and editable wherever it lies. In
+ * **normal mode** with an accepted crop the canvas collapses to the crop:
+ * the element is crop-sized and Fabric's viewport transform pans to the
+ * crop rect (`editorViewport`), so the owner edits exactly what viewers get.
+ * Both are pure view state — shapes keep original-image coordinates and the
+ * document never changes at a transition; only Apply and Clear commit (one
+ * undo step, one autosave, like a shape). Drawing sizes follow the effective
+ * width (§9) in both views, so nothing but the viewport changes between them.
  */
 export class CaptureEditor {
   private canvas!: Canvas;
@@ -167,15 +173,21 @@ export class CaptureEditor {
 
   // ---- layout ---------------------------------------------------------------
 
-  /** Fit-to-width at most 1:1; tall captures scroll vertically (§9). */
+  /**
+   * Size the canvas to what the current view shows and pan to it (E6): the
+   * crop in normal mode, the whole original in crop mode or without a crop.
+   * Fit-to-width at most 1:1; tall captures scroll vertically (§9). The
+   * shade only has work in crop mode — collapsed, the canvas edge is the
+   * crop edge — so it is hidden otherwise, which also spares tall captures
+   * its full-canvas fill on every frame.
+   */
   private fit(): void {
-    const avail = Math.max(320, this.root.clientWidth || this.root.parentElement?.clientWidth || 1024);
-    const scale = Math.min(1, avail / this.opts.width);
-    this.canvas.setDimensions({
-      width: Math.round(this.opts.width * scale),
-      height: Math.round(this.opts.height * scale),
-    });
-    this.canvas.setZoom(scale);
+    const avail = this.root.clientWidth || this.root.parentElement?.clientWidth || 1024;
+    const shown = this.tool === 'crop' ? null : this.crop;
+    const view = editorViewport(shown, this.opts, avail);
+    this.canvas.setDimensions({ width: view.width, height: view.height });
+    this.canvas.setViewportTransform(view.vpt);
+    this.shade.visible = this.tool === 'crop';
     this.canvas.requestRenderAll();
   }
 
@@ -231,6 +243,9 @@ export class CaptureEditor {
       this.canvas.requestRenderAll();
     }
     if (tool === 'crop') this.enterCropMode();
+    // Entering crop mode expands to the whole original; leaving it collapses
+    // back to the crop (if any). Pure viewport state, nothing committed.
+    this.fit();
   }
 
   // ---- crop mode (E4) --------------------------------------------------------
@@ -458,7 +473,8 @@ export class CaptureEditor {
 
   /**
    * Rebuild the canvas from a document: crop first (it sets the effective
-   * width), then every shape with those sizes, then the shade on top.
+   * width), then every shape with those sizes, then the shade on top, then
+   * the viewport for the new crop (undo/redo cross the collapse the same way).
    */
   private loadDoc(doc: AnnotationDocument): void {
     this.canvas.remove(...this.canvas.getObjects());
@@ -472,7 +488,7 @@ export class CaptureEditor {
     }
     this.canvas.add(this.shade);
     this.canvas.discardActiveObject();
-    this.canvas.requestRenderAll();
+    this.fit(); // the view follows the crop: collapse, expand, or the whole image
   }
 
   private loadSnapshot(json: string): void {

@@ -4,13 +4,16 @@ import { MIN_CROP_PX } from '@snapping-turtle/shared/constants';
 import {
   arrowGeom,
   arrowToShape,
+  canvasToScene,
   cropGeom,
+  editorViewport,
   isWholeImage,
   newShapeId,
   normalizeCrop,
   rectGeom,
   rectToShape,
   round2,
+  sceneToCanvas,
   textGeom,
   textToShape,
 } from '../src/editor/model.js';
@@ -145,5 +148,61 @@ describe('crop normalisation (E4)', () => {
     expect(whole).toEqual({ x: 0, y: 0, w: 800, h: 500 });
     expect(isWholeImage(whole, image)).toBe(true);
     expect(isWholeImage({ x: 0, y: 0, w: 799, h: 500 }, image)).toBe(false);
+  });
+});
+
+/**
+ * The collapsed view (E6): with an accepted crop the canvas is crop-sized and
+ * the viewport pans to the crop; in crop mode (or without a crop) the whole
+ * image is shown. Either way the transform is pure view state — a pointer
+ * position maps back to the same original-image coordinates the document
+ * stores, which is the invariant the Playwright collapsed-drawing test
+ * checks end to end.
+ */
+describe('editor viewport (E6)', () => {
+  const image = { width: 800, height: 500 };
+  const crop = { x: 200, y: 100, w: 400, h: 300 };
+
+  it('collapsed: canvas is crop-sized and the crop origin lands at the canvas origin', () => {
+    const v = editorViewport(crop, image, 1160);
+    expect([v.width, v.height, v.zoom]).toEqual([400, 300, 1]);
+    expect(v.vpt).toEqual([1, 0, 0, 1, -200, -100]);
+    expect(sceneToCanvas(v, { x: 200, y: 100 })).toEqual({ x: 0, y: 0 });
+    expect(sceneToCanvas(v, { x: 600, y: 400 })).toEqual({ x: 400, y: 300 });
+  });
+
+  it('a pointer on the collapsed canvas maps to original-space coordinates', () => {
+    const v = editorViewport(crop, image, 1160);
+    expect(canvasToScene(v, { x: 50, y: 40 })).toEqual({ x: 250, y: 140 });
+    // Round trip at a non-unit zoom too (a 400 px crop in the 320 px floor: 0.8).
+    const zoomed = editorViewport(crop, image, 200);
+    expect(zoomed.zoom).toBe(0.8);
+    const back = canvasToScene(zoomed, sceneToCanvas(zoomed, { x: 333, y: 222 }));
+    expect(back.x).toBeCloseTo(333, 9);
+    expect(back.y).toBeCloseTo(222, 9);
+  });
+
+  it('full view: whole image, no pan; fit-to-width capped at 1:1 (§9)', () => {
+    expect(editorViewport(null, image, 1160)).toEqual({
+      width: 800,
+      height: 500,
+      zoom: 1,
+      vpt: [1, 0, 0, 1, 0, 0],
+    });
+    const narrow = editorViewport(null, image, 400);
+    expect(narrow).toEqual({ width: 400, height: 250, zoom: 0.5, vpt: [0.5, 0, 0, 0.5, 0, 0] });
+  });
+
+  it('fit-to-width follows what is shown: a narrow crop of a wide capture displays at natural size', () => {
+    const wide = { width: 2560, height: 1440 };
+    const full = editorViewport(null, wide, 1160);
+    const collapsed = editorViewport({ x: 600, y: 300, w: 800, h: 500 }, wide, 1160);
+    expect(full.zoom).toBeCloseTo(1160 / 2560, 6);
+    expect(collapsed.zoom).toBe(1);
+    expect([collapsed.width, collapsed.height]).toEqual([800, 500]);
+  });
+
+  it('never fits narrower than the 320 px floor', () => {
+    expect(editorViewport(null, image, 100).zoom).toBe(0.4);
   });
 });
