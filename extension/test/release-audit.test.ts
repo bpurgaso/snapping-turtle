@@ -83,7 +83,9 @@ describe('auditReleaseFiles', () => {
       const files = new Map(cleanFiles(target));
       files.set('manifest.json', enc.encode(JSON.stringify(manifest, null, 2) + '\n'));
       files.set('background.js', enc.encode(`const o="${ported.publicOrigin}";fetch(o);`));
-      expect(auditReleaseFiles({ target, files, zip: files, template, inputs: ported })).toEqual([]);
+      expect(auditReleaseFiles({ target, files, zip: files, template, inputs: ported })).toEqual(
+        [],
+      );
       expect(manifest.host_permissions).toEqual([
         target === 'chrome'
           ? 'https://shots.example-deploy.net:28443/*'
@@ -122,6 +124,41 @@ describe('auditReleaseFiles', () => {
     expect(auditReleaseFiles({ target: 'chrome', files: missing, template, inputs })).toContain(
       'chrome: manifest.json missing',
     );
+  });
+
+  it('flags a template whose permissions cannot back an ungated background call (rule 5)', () => {
+    // The 0.1.0 Firefox build called tabs.captureTab with no permission that
+    // could enable it. Rule 5 checks the generated manifest against the
+    // background's permission contract (src/lib/api-requirements.ts), so a
+    // permission dropped from the template fails the release, not the user.
+    for (const target of ['chrome', 'firefox'] as const) {
+      const stripped = structuredClone(template);
+      stripped.permissions = stripped.permissions.filter((p) => p !== 'scripting');
+      const manifest = buildManifest(target, { template: stripped, ...inputs });
+      const files = cleanFiles(target);
+      files.set('manifest.json', enc.encode(JSON.stringify(manifest, null, 2) + '\n'));
+      expect(auditReleaseFiles({ target, files, template: stripped, inputs })).toEqual([
+        `${target}: scripting.executeScript needs one of scripting in the manifest — the background calls it without a feature check`,
+      ]);
+    }
+    // captureTab is gated (feature-detected, stitch fallback): its missing
+    // <all_urls> is not a problem — the clean template audits clean.
+    expect(
+      auditReleaseFiles({ target: 'firefox', files: cleanFiles('firefox'), template, inputs }),
+    ).toEqual([]);
+  });
+
+  it('refuses a manifest that declares <all_urls>, in either key (rule 5)', () => {
+    for (const target of ['chrome', 'firefox'] as const) {
+      const broad = structuredClone(template);
+      broad.permissions = [...broad.permissions, '<all_urls>'];
+      const manifest = buildManifest(target, { template: broad, ...inputs });
+      const files = cleanFiles(target);
+      files.set('manifest.json', enc.encode(JSON.stringify(manifest, null, 2) + '\n'));
+      expect(auditReleaseFiles({ target, files, template: broad, inputs })).toEqual([
+        expect.stringMatching(new RegExp(`^${target}: the manifest declares <all_urls>`)),
+      ]);
+    }
   });
 
   it('flags debug logging, source maps, plain http, loopback hosts and placeholders', () => {

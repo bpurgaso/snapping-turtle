@@ -1,0 +1,4 @@
+{ "manifest_version": 3, "name": "probe-optional-allurls", "version": "0.0.1",
+  "permissions": ["activeTab", "scripting"], "optional_host_permissions": ["<all_urls>"], "action": {},
+  "background": { "scripts": ["background.js"] },
+  "browser_specific_settings": { "gecko": { "id": "probe-optional-allurls@example.invalid" } } }

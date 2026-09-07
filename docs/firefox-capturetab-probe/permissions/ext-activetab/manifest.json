@@ -1,0 +1,4 @@
+{ "manifest_version": 3, "name": "probe-activetab", "version": "0.0.1",
+  "permissions": ["activeTab", "scripting"], "action": {},
+  "background": { "scripts": ["background.js"] },
+  "browser_specific_settings": { "gecko": { "id": "probe-activetab@example.invalid" } } }

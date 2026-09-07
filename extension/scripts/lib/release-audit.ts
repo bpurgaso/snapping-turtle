@@ -1,3 +1,4 @@
+import { declaresAllUrls, unmetRequirements } from '../../src/lib/api-requirements.js';
 import { buildManifest, type ManifestTemplate, type Target } from '../../src/manifest.js';
 import { PLACEHOLDER_ORIGIN, type BuildInputs } from './env.js';
 
@@ -93,6 +94,15 @@ export function auditReleaseFiles(opts: AuditOptions): string[] {
         `${target}: manifest.json differs from the template-generated manifest for version ${inputs.version} / ${inputs.publicOrigin} (hand-edited output, stale build, or different inputs)`,
       );
     }
+    // 5. The manifest backs every ungated API call, and never grants <all_urls>.
+    for (const unmet of unmetRequirements(expected)) {
+      problems.push(`${target}: ${unmet} — the background calls it without a feature check`);
+    }
+    if (declaresAllUrls(expected)) {
+      problems.push(
+        `${target}: the manifest declares <all_urls>; the extension's minimal-permission posture forbids it (PLAN.md §15/§17, STORE_SUBMISSION.md) — remove it, or make that product decision first`,
+      );
+    }
   }
 
   // 2. Files that never belong in a shipped extension.
@@ -115,7 +125,8 @@ export function auditReleaseFiles(opts: AuditOptions): string[] {
         `${target}: ${name} names a loopback host (only ${LOOPBACK_ALLOWED_FILE}'s validation copy may)`,
       );
     }
-    if (PLACEHOLDER_HOST.test(text)) problems.push(`${target}: ${name} contains a placeholder host`);
+    if (PLACEHOLDER_HOST.test(text))
+      problems.push(`${target}: ${name} contains a placeholder host`);
     if (NODE_ENV_LEAK.test(text)) problems.push(`${target}: ${name} references process.env`);
   }
   if (!originBaked) {

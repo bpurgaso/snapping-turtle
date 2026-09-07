@@ -74,3 +74,65 @@ edit `binary` in `run.mjs` elsewhere. Re-run this when bumping
   the probe stops at 2,000 × 32,000 (~0.4 s).
 - Whether this holds on Windows/Linux builds; the measurements are macOS
   (Darwin 25.6, Apple silicon).
+
+## Permissions (E5, 2026-09-07): which manifest makes `captureTab` exist at all?
+
+**Question:** the shipped 0.1.0 Firefox build failed every full-page capture
+with `f.default.tabs.captureTab is not a function`. The polyfill is a
+passthrough in Firefox (`module.exports = globalThis.browser`), so Firefox
+itself did not expose the function. Which permission set does?
+
+**Answer (Firefox 154.0, Linux, headless, `permissions/run.mjs`):** only a
+manifest-declared `<all_urls>`. Firefox's API schema
+(`browser/components/extensions/schemas/tabs.json`, read from the installed
+build's `omni.ja`) declares `captureTab` with `"permissions": ["<all_urls>"]`
+and `captureVisibleTab` with `["<all_urls>", "activeTab"]`; `Schemas.sys.mjs`
+injects an entry only when `extension.hasPermission()` holds for one of them,
+and `activeTab` never adds `<all_urls>` to that set. The M6 probe above never
+saw this because it was MV2 with `<all_urls>`.
+
+| probe manifest                                                                                                        | `typeof browser.tabs.captureTab` at startup | after a real toolbar gesture (`triggerAction`, which grants `activeTab`; `captureVisibleTab` worked in every row) | `captureTab({ rect })` |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| MV3 `permissions: [activeTab, scripting]` (the shipped shape)                                                         | `undefined`                                 | `undefined`                                                                                                       | not callable           |
+| MV3 + `host_permissions: ["<all_urls>"]`                                                                              | `function`                                  | `function`                                                                                                        | 800×3000 ✓             |
+| MV2 `permissions: [activeTab, "<all_urls>"]` (the M6 probe)                                                           | `function`                                  | `function`                                                                                                        | 800×3000 ✓             |
+| MV3 + `optional_host_permissions: ["<all_urls>"]`, granted on the gesture via `permissions.request` (prompt pref off) | `undefined`                                 | `undefined` — granted (`permissions.getAll` lists `<all_urls>`) but not injected into the running background      | not callable           |
+| MV3 + `optional_host_permissions: ["https://*/*"]` (our pattern), granted on the gesture                              | `undefined`                                 | `undefined`                                                                                                       | not callable           |
+
+Consequences: the extension never declares `<all_urls>` (PLAN.md §15, §17), so
+`extension/src/lib/full-page-strategy.ts` feature-detects `captureTab` at
+runtime and Firefox scroll-and-stitches like Chrome; the release audit refuses
+a manifest that declares `<all_urls>`; `extension/src/lib/api-requirements.ts`
+is the table of what each background call needs. Re-run this when bumping
+`strict_min_version` or if the `<all_urls>` decision is ever revisited.
+
+### Method
+
+`permissions/` holds five throwaway MV3/MV2 probes that differ only in their
+manifest, one shared `background.js`, and a runner. The background reports
+`typeof browser.tabs.captureTab` (plus `captureVisibleTab`, the own-property
+check and `permissions.getAll()`) to a local CORS endpoint at startup, then
+again from `action.onClicked` after trying `captureVisibleTab` and — when it is
+a function — `captureTab` with a rect. The gesture is Firefox's own
+`browserActionFor(extension).triggerAction(window)` from a chrome-context
+WebDriver script (`geckodriver --allow-system-access`), which runs the same
+`triggerClickOrPopup` → `addActiveTabPermission` path as a toolbar click.
+
+```sh
+cd docs/firefox-capturetab-probe
+npm i --no-save geckodriver
+for p in permissions/ext-*; do node permissions/run.mjs "$p"; done
+```
+
+## End to end (E5, 2026-09-07): the built Firefox artifact stitches
+
+With the 0.1.1 strategy fix, the built `dist/firefox` (dev build,
+`PUBLIC_ORIGIN=http://127.0.0.1:3119`) was installed temporarily in the same
+headless Firefox 154, its options page filled and saved through the real form
+(host permission auto-granted by the prompt pref), a 1000 × 5000 CSS px page
+opened, and the `capture-full` shortcut fired by dispatching `command` on the
+extension's XUL `<key>` — the path a real `Alt+Shift+F` takes, including the
+`activeTab` grant. The server harness (`server/test/helpers/client-harness.ts`)
+then held a 1000 × 5000 capture row with the page's URL and title, and a
+second tab had opened on its `/s/<id>` page. The runner is
+`permissions/run-e2e.mjs`; it needs a throwaway `DATABASE_URL`.

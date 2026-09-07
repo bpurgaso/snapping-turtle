@@ -1,6 +1,6 @@
 {
   "name": "@snapping-turtle/extension",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "MV3 browser extension: one codebase, Chrome (service worker) and Firefox (event page) builds",
   "type": "module",

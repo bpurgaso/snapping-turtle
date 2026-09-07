@@ -21,6 +21,8 @@ import {
 } from './lib/content-protocol.js';
 import { dataUrlToBlob } from './lib/data-url.js';
 import { clearFailureFlag, flagFailure } from './lib/failure-flag.js';
+import { failureReason, fullPageFailureMessage, isInternalFailure } from './lib/failure-text.js';
+import { chooseFullPageStrategy } from './lib/full-page-strategy.js';
 import { createComposite, cropBitmap, decodeDataUrl } from './lib/image.js';
 import {
   isCaptureRequest,
@@ -29,7 +31,7 @@ import {
   type CaptureResponse,
 } from './lib/messages.js';
 import { restrictedReason } from './lib/restricted.js';
-import { BROWSER_TARGET, loadSettings, saveSettings, type Settings } from './lib/settings.js';
+import { loadSettings, saveSettings, type Settings } from './lib/settings.js';
 import { CaptureCancelledError, stitchFullPage } from './lib/stitch.js';
 import type { RegionSelection } from './content/region-overlay.js';
 
@@ -40,8 +42,11 @@ import type { RegionSelection } from './content/region-overlay.js';
  *   visible  gesture → captureVisibleTab → upload → open pageUrl
  *   region   gesture → inject content script → overlay … (user drags) …
  *            → content sends st:region:selected → captureVisibleTab → crop → upload
- *   full     Firefox: measure → one tabs.captureTab({rect, scale}) → upload
- *            Chrome:  scroll-and-stitch via lib/stitch.ts, badge shows progress
+ *   full     chosen at runtime by what the browser exposes (lib/full-page-strategy.ts):
+ *            native   measure → one tabs.captureTab({rect, scale}) → upload
+ *                     (Firefox only, and only with <all_urls> — not shipped)
+ *            stitch   scroll-and-stitch via lib/stitch.ts, badge shows progress
+ *                     (Chrome, and Firefox as shipped)
  *
  * Failures become a browser notification AND a "!" badge + stored last error
  * (the OS may swallow notifications; the popup shows the stored error on next
@@ -114,6 +119,20 @@ const fail = (code: CaptureFailureCode, message: string): CaptureResponse => ({
   message,
 });
 
+/**
+ * A failure caused by a thrown error: the user sees `<what>: <reason>` with a
+ * reason written for people (lib/failure-text.ts); a program diagnostic goes
+ * to the console instead of the notification.
+ */
+function failed(what: string, err: unknown): CaptureResponse {
+  logInternal(what, err);
+  return fail('failed', `${what}: ${failureReason(err)}`);
+}
+
+function logInternal(what: string, err: unknown): void {
+  if (isInternalFailure(err)) console.error(`${what}:`, err);
+}
+
 /** Surface a final outcome on both channels; `started` is not final. */
 async function report(response: CaptureResponse): Promise<CaptureResponse> {
   if (response.ok) {
@@ -172,7 +191,7 @@ async function startCapture(
         await sendToContent(tabId, { type: 'st:region:select' }, 'st:region:started');
       } catch (err) {
         release();
-        return report(fail('failed', `Could not start region selection: ${errorText(err)}`));
+        return report(failed('Could not start region selection', err));
       }
       pendingRegions.set(tabId, { release, settings });
       return { ok: true, status: 'started' };
@@ -197,7 +216,7 @@ async function captureVisible(
   try {
     dataUrl = await captureVisibleTab(windowId);
   } catch (err) {
-    return fail('failed', `Capture failed: ${errorText(err)}`);
+    return failed('Capture failed', err);
   }
   return upload(dataUrlToBlob(dataUrl), tab, settings);
 }
@@ -244,7 +263,7 @@ async function captureRegion(
       bitmap.close();
     }
   } catch (err) {
-    return fail('failed', `Capture failed: ${errorText(err)}`);
+    return failed('Capture failed', err);
   }
   return upload(blob, tab, settings);
 }
@@ -258,16 +277,22 @@ async function runFullPage(
   release: () => void,
 ): Promise<void> {
   try {
+    // Runtime feature detection, never the build target: Firefox exposes
+    // captureTab only with <all_urls>, which the manifest does not declare
+    // (lib/full-page-strategy.ts), so as shipped both browsers stitch.
     const result =
-      BROWSER_TARGET === 'firefox'
-        ? await captureFullPageFirefox(tab)
-        : await captureFullPageChrome(tab, windowId);
+      chooseFullPageStrategy(browser.tabs) === 'native'
+        ? await captureFullPageNative(tab)
+        : await captureFullPageStitched(tab, windowId);
     const response = await upload(result.blob, tab, settings);
     if (response.ok && result.truncated) await notify(truncationNotice(result.heightPx));
     await report(response);
   } catch (err) {
     if (err instanceof CaptureCancelledError) await report(fail('cancelled', err.message));
-    else await report(fail('failed', `Full-page capture failed: ${errorText(err)}`));
+    else {
+      logInternal('full-page capture failed', err);
+      await report(fail('failed', fullPageFailureMessage(err)));
+    }
   } finally {
     release();
     await clearBadgeIfProgress();
@@ -280,8 +305,12 @@ interface FullPageResult {
   truncated: boolean;
 }
 
-/** Firefox: the whole document in one native call (PLAN.md §15). */
-async function captureFullPageFirefox(tab: Ready['tab']): Promise<FullPageResult> {
+/**
+ * The whole document in one native `tabs.captureTab` call (PLAN.md §15).
+ * Reached only when the browser exposes the function — Firefox with
+ * `<all_urls>`, which the shipped manifest does not declare.
+ */
+async function captureFullPageNative(tab: Ready['tab']): Promise<FullPageResult> {
   await injectContentScript(tab.id!);
   const reply = await sendToContent(tab.id!, { type: 'st:page:measure' }, 'st:page:metrics');
   const spec = fullPageRect(reply.metrics);
@@ -314,8 +343,11 @@ async function captureFullPageFirefox(tab: Ready['tab']): Promise<FullPageResult
   }
 }
 
-/** Chrome: scroll-and-stitch via lib/stitch.ts against the injected page driver. */
-async function captureFullPageChrome(tab: Ready['tab'], windowId: number): Promise<FullPageResult> {
+/** Scroll-and-stitch via lib/stitch.ts against the injected page driver; browser-agnostic. */
+async function captureFullPageStitched(
+  tab: Ready['tab'],
+  windowId: number,
+): Promise<FullPageResult> {
   const tabId = tab.id!;
   await injectContentScript(tabId);
   const result = await stitchFullPage({

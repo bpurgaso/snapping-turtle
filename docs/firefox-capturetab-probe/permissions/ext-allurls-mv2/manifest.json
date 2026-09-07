@@ -1,0 +1,4 @@
+{ "manifest_version": 2, "name": "probe-allurls-mv2", "version": "0.0.1",
+  "permissions": ["activeTab", "<all_urls>"], "browser_action": {},
+  "background": { "scripts": ["background.js"] },
+  "browser_specific_settings": { "gecko": { "id": "probe-allurls-mv2@example.invalid" } } }

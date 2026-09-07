@@ -1,0 +1,24 @@
+{
+ "manifest_version": 3,
+ "name": "probe-optional-https",
+ "version": "0.0.1",
+ "permissions": [
+  "activeTab",
+  "scripting"
+ ],
+ "optional_host_permissions": [
+  "https://*/*"
+ ],
+ "action": {},
+ "background": {
+  "scripts": [
+   "want-https.js",
+   "background.js"
+  ]
+ },
+ "browser_specific_settings": {
+  "gecko": {
+   "id": "probe-optional-https@example.invalid"
+  }
+ }
+}
