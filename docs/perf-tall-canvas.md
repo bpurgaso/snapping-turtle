@@ -120,3 +120,34 @@ rendering fallback (§9) remains the answer if the ceiling ever matters.
 (Load times are not comparable between the two columns: the no-crop page's
 static `<img>` fetches the full-size flat and the editor fetches the original
 — two 150 MP decodes — while the cropped page's `<img>` is the small crop.)
+
+## E6 addendum — the collapsed view (2026-09-07)
+
+E6 changes what normal mode shows when a crop is stored: the canvas element
+is sized to the crop and Fabric's viewport pans to it, and the shade is
+hidden (the canvas edge is the crop edge). Same fixture, same method, same
+crop as the E4 addendum (4,280 × 3,000 px stored through the API before the
+page loads), Linux x64 / Plasma Wayland, Playwright Chromium, dpr 1, the
+machine otherwise idle:
+
+| Metric                          | no crop (this run) | crop, E4 shade view | crop, E6 collapsed |
+|---------------------------------|--------------------|---------------------|--------------------|
+| Page load → interactive editor  | 2.6 s              | (not comparable¹)   | 1.9 s              |
+| Draw rectangle, avg / p95 frame | 18.3 / 16.8 ms     | 16.5 / 16.7–16.8 ms | 16.5 / 16.7 ms     |
+| Drag rectangle, avg / p95 frame | 20.3 / 33.4 ms     | 17.7–18.3 / 33.3 ms | **16.6 / 16.7 ms** |
+| Drag max frame                  | 100 ms             | 33.4 ms             | **16.8 ms**        |
+| JS heap after load / drag       | 3.2 / 4.9 MB       | 4.2 MB (drag)       | 3.2 / 4.9 MB       |
+
+¹ the E4 addendum did not compare load times between its columns (two
+150 MP decodes on the no-crop page vs. one on the cropped page).
+
+Reading: the collapsed canvas is ≈ 1,160 × 813 CSS px at fit-to-width of the
+4,280 px crop (zoom ≈ 0.27) instead of ≈ 1,246 × 8,520 px for the whole
+fixture, so the per-frame lower-canvas blit that dominates dragging is an
+order of magnitude smaller, and there is no shade fill at all. Every drag
+frame lands inside the 60 Hz budget (max 16.8 ms) where the E4 shade view
+missed some (p95 33.3 ms) and the whole-image view misses more today (this
+box's no-crop numbers are a little worse than the E4 addendum's — machine
+noise, the same code). No regression in any column; crop mode itself is the
+E4 view unchanged, so its cost is the E4 addendum's. The windowed-rendering
+fallback (§9) stays unbuilt.
