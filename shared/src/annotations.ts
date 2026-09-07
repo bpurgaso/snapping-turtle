@@ -251,8 +251,13 @@ export function effectiveWidth(
  * with no mass job. Bump it whenever the drawn result of a document changes
  * without the document changing: a size-curve retune, a color, the font,
  * a geometry fix. Rows rendered before versioning existed carry 0.
+ *
+ * History: 1 = E1 (adaptive sizes). 2 = E6 (2026-09-07): no drawing change —
+ * bumped as the designed flush after the "uncropped image link" report, so
+ * any flat file a pre-report build stamped as current is re-rendered on its
+ * next view and every ETag-honouring cache misses once (§10 E6 notes).
  */
-export const RENDER_VERSION = 1;
+export const RENDER_VERSION = 2;
 
 /**
  * Fabric.js text-layout constants, pinned here so the M4 SVG renderer can

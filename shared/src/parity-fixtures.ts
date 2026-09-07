@@ -122,7 +122,11 @@ function matrixFixtures(): ParityFixture[] {
  * on both renderers, so the effective-width rule is proven on pixels rather
  * than in the function. `crop-clip` puts a rect fully inside, one fully
  * outside, one straddling each of two edges, an arrow entering from outside
- * and a text run leaving through the right edge.
+ * and a text run leaving through the right edge. `crop-only` (E6) is the
+ * fourth state of the served-image matrix — a crop with *no* shapes — so the
+ * renderer's extract-without-composite branch has a golden and a parity
+ * fixture like every other branch: an unannotated cropped capture must
+ * come out crop-sized, never as the untouched original (§10).
  */
 function cropFixtures(): ParityFixture[] {
   const width = 1280;
@@ -177,6 +181,15 @@ function cropFixtures(): ParityFixture[] {
         { id: 'text-out', type: 'text', x: 600, y: 240, text: 'leaving the crop', fontSize: annotationSizes(width).defaultFontSize },
       ],
       crop: { x: 400, y: 200, w: 300, h: 220 },
+    },
+    {
+      name: 'crop-only',
+      width,
+      height,
+      background: BG,
+      hasText: false,
+      shapes: [],
+      crop,
     },
   ];
 }

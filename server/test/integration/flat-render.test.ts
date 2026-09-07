@@ -564,6 +564,122 @@ describe('GET /s/:viewId/image.png (§10)', () => {
     });
   });
 
+  /**
+   * The served-image regression matrix (E6, §10): every combination of
+   * "has shapes" × "has crop" is set on the capture in turn, and the bytes
+   * the flat URL serves are measured — their real pixel dimensions, whether
+   * they are the untouched original, and a fresh ETag per state. The two
+   * states that reach the M4 fast path's *second* condition (crop only) and
+   * its complement (shapes + crop) are the ones E4's own DoD named; the
+   * copy-image button and the E3 preview tags are asserted from the page in
+   * the same states so a regression in any of the three surfaces fails here.
+   */
+  describe('served-image regression matrix (E6, §10)', () => {
+    const CROP: CropRect = { x: 30, y: 20, w: 150, h: 100 };
+    const dims = async (png: Buffer) => {
+      const m = await sharp(png).metadata();
+      return [m.width, m.height];
+    };
+    const states: Array<{
+      name: string;
+      shapes: Shape[];
+      crop?: CropRect;
+      expectDims: [number, number];
+      /** The fast path's whole condition: only "no shapes and no crop" serves the original bytes. */
+      original: boolean;
+    }> = [
+      { name: 'no shapes, no crop', shapes: [], expectDims: [WIDTH, HEIGHT], original: true },
+      { name: 'shapes only', shapes: SHAPES, expectDims: [WIDTH, HEIGHT], original: false },
+      { name: 'crop only', shapes: [], crop: CROP, expectDims: [CROP.w, CROP.h], original: false },
+      {
+        name: 'shapes + crop',
+        shapes: SHAPES,
+        crop: CROP,
+        expectDims: [CROP.w, CROP.h],
+        original: false,
+      },
+    ];
+    const etags = new Map<string, string>();
+
+    for (const state of states) {
+      it(`${state.name}: image.png is ${state.expectDims.join('×')}${state.original ? ' and the original bytes' : ', rendered'}`, async () => {
+        await putAnnotations(state.shapes, state.crop);
+        const res = await app.inject({ method: 'GET', url: imagePath() });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['content-type']).toBe('image/png');
+        expect(await dims(res.rawPayload)).toEqual(state.expectDims);
+        expect(res.rawPayload.equals(originalBytes)).toBe(state.original);
+        expect(res.headers['etag']).toBe(flatEtag(rev));
+        etags.set(state.name, res.headers['etag'] as string);
+
+        // The two page surfaces in the same state: the copy-image button's
+        // URL is the flat route (never the original route, never a variant),
+        // and the E3 preview tags report what the flat route serves.
+        for (const headers of [{}, { cookie }]) {
+          const page = await app.inject({ method: 'GET', url: `/s/${viewId}`, headers });
+          expect(page.statusCode).toBe(200);
+          const copyTargets = [...page.body.matchAll(/data-copy="([^"]+)"/g)].map((m) => m[1]);
+          expect(copyTargets).toEqual([`${ORIGIN}/s/${viewId}`, `${ORIGIN}/s/${viewId}/image.png`]);
+          expect(page.body).toContain(
+            `<meta property="og:image" content="${ORIGIN}/s/${viewId}/image.png" />`,
+          );
+          expect(page.body).toContain(
+            `<meta property="og:image:width" content="${state.expectDims[0]}" />`,
+          );
+          expect(page.body).toContain(
+            `<meta property="og:image:height" content="${state.expectDims[1]}" />`,
+          );
+        }
+      });
+    }
+
+    it('every state carried a distinct ETag; a crop-only edit changes it again', async () => {
+      expect(new Set(etags.values()).size).toBe(states.length);
+      const before = rev;
+      const tag = flatEtag(before);
+      await putAnnotations([], { ...CROP, w: CROP.w + 10 }); // crop-only document, crop moved
+      expect(rev).toBe(before + 1);
+      const res = await app.inject({
+        method: 'GET',
+        url: imagePath(),
+        headers: { 'if-none-match': tag },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['etag']).not.toBe(tag);
+      expect(await dims(res.rawPayload)).toEqual([CROP.w + 10, CROP.h]);
+    });
+
+    it('a stale full-size flat stamped by an older renderer version is never served for a cropped capture', async () => {
+      // The "pre-fix cached uncropped flat" case: a flat file of the wrong
+      // size sits on disk with flat_rev current but an older render version —
+      // what a build that ignored the crop would have left behind. The
+      // version half of the cache key (§10 E1) rejects it: the next view
+      // re-renders at crop size and re-stamps the row.
+      await putAnnotations([], CROP);
+      const stale = await sharp({
+        create: { width: WIDTH, height: HEIGHT, channels: 3, background: { r: 1, g: 2, b: 3 } },
+      })
+        .png()
+        .toBuffer();
+      await store.write(captureId, stale, 'flat');
+      await handle.db
+        .update(captures)
+        .set({ flatRev: rev, flatRenderVersion: RENDER_VERSION - 1 })
+        .where(eq(captures.id, captureId));
+      const started = renderer.gate.started;
+      const res = await app.inject({ method: 'GET', url: imagePath() });
+      expect(res.statusCode).toBe(200);
+      expect(res.rawPayload.equals(stale)).toBe(false);
+      expect(await dims(res.rawPayload)).toEqual([CROP.w, CROP.h]);
+      expect(renderer.gate.started).toBe(started + 1);
+      const [row] = await handle.db
+        .select({ flatRev: captures.flatRev, flatRenderVersion: captures.flatRenderVersion })
+        .from(captures)
+        .where(eq(captures.id, captureId));
+      expect(row).toEqual({ flatRev: rev, flatRenderVersion: RENDER_VERSION });
+    });
+  });
+
   it('the non-owner page needed no markup change: same <img>, now annotated', async () => {
     await putAnnotations(SHAPES);
     const res = await app.inject({ method: 'GET', url: `/s/${viewId}` });

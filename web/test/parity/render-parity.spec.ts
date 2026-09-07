@@ -118,7 +118,15 @@ for (const fixture of PARITY_FIXTURES) {
     // fixture size, where a pixel ratio saturates or dilutes.
     const editorBox = inkBBox(editor, fixture.background);
     const serverBox = inkBBox(server, fixture.background);
-    const boxDelta = editorBox && serverBox ? inkBoxDelta(editorBox, serverBox) : Number.POSITIVE_INFINITY;
+    // A fixture with nothing to paint (`crop-only`, E6) has no ink box on
+    // either side: that is agreement, not a missing render. One side painting
+    // and the other not is the failure it always was.
+    const boxDelta =
+      editorBox && serverBox
+        ? inkBoxDelta(editorBox, serverBox)
+        : !editorBox && !serverBox
+          ? 0
+          : Number.POSITIVE_INFINITY;
     const boxLimit = maxInkBoxDeltaPx(fixture);
 
     // Always record the measurements — the calibration trail for tolerances —
