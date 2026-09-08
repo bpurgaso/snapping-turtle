@@ -39,7 +39,13 @@ reported, not fatal — there is nothing to do about them but watch. Findings
 _with_ a fix fail the build, because the fix is almost always mechanical:
 
 - the Dockerfiles run `apt-get upgrade` / `apk upgrade` at build time, so a
-  rebuild picks up base-OS fixes without waiting for a new base tag;
+  rebuild picks up base-OS fixes without waiting for a new base tag. That
+  only holds if the layer actually runs: every image's final stage is named
+  `runtime` and `ci.yml` lists it in `no-cache-filters`, so the GitHub
+  Actions build cache never serves the upgrade layer (a cached layer froze
+  curl and util-linux at their pre-fix versions and kept main red from
+  2026-09-06 until the filter was added). Locally, `docker compose build
+  --no-cache` is the equivalent;
 - the app runtime image drops npm/corepack/yarn (never used at runtime), the
   backup image drops `gosu` — both were pure CVE surface;
 - Go-binary findings (Caddy) mean bumping `CADDY_VERSION` in

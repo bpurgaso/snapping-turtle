@@ -98,6 +98,13 @@ jobs:
           tags: snapping-turtle/${{ matrix.image }}:ci
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          # The final stage of every image is named `runtime` and runs the
+          # base-OS upgrade (apt-get/apk). It is always rebuilt: served from
+          # the cache, that layer keeps the packages of the day it was first
+          # built and Trivy fails on fixes Alpine/Debian shipped since (main
+          # was red for exactly this, 2026-09-06). The expensive stages —
+          # pnpm install, the xcaddy build — stay cached.
+          no-cache-filters: runtime
       # Supply chain (PLAN.md §12): HIGH/CRITICAL with an available fix fail
       # the build; reviewed exceptions live in deploy/.trivyignore
       # (docs/supply-chain.md). Unfixable findings are reported, not fatal.

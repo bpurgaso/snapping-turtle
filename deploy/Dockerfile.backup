@@ -7,9 +7,9 @@
 #
 # Runs as uid 1000 — the `node` user the app writes images as — so the
 # read-only image volume is readable without loosening its 0750/0640 modes.
-FROM postgres:16.15-alpine
+FROM postgres:16.15-alpine AS runtime
 # apk upgrade: the postgres image lags Alpine's security fixes by days to
-# weeks; gosu (the entrypoint's privilege-drop helper) is unused here — the
+# weeks (the stage is named so CI never serves this layer from cache); gosu (the entrypoint's privilege-drop helper) is unused here — the
 # container runs as a fixed uid — and its statically linked Go runtime is
 # pure CVE surface.
 RUN apk upgrade --no-cache \

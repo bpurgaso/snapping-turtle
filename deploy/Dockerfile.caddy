@@ -36,6 +36,9 @@ RUN xcaddy build \
     --replace golang.org/x/text=golang.org/x/text@v0.39.0 \
     --replace google.golang.org/grpc=google.golang.org/grpc@v1.83.1
 
-FROM caddy:${CADDY_VERSION}-alpine
+# Named so CI can exclude it from the build cache (ci.yml no-cache-filters):
+# the apk upgrade below only picks up Alpine's fixes when it actually runs,
+# and a cached layer would serve last month's packages to today's Trivy scan.
+FROM caddy:${CADDY_VERSION}-alpine AS runtime
 RUN apk upgrade --no-cache
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
