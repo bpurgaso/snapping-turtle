@@ -67,9 +67,11 @@ done
 
 ## 3. Dependabot
 
-`.github/dependabot.yml`: weekly grouped PRs for npm (dev tooling in one
-group, runtime minor/patch in another), GitHub Actions and the Dockerfiles'
-base images. Every PR runs the full CI contract. Major upgrades of Fabric.js,
+`.github/dependabot.yml`: weekly grouped PRs for npm (dev-tooling
+minor/patch in one group, runtime minor/patch in another; majors arrive on
+their own), GitHub Actions, the Dockerfiles' base images, the compose
+images, and the Linux client's Cargo crates (minor/patch grouped). Every PR
+runs the full CI contract. Major upgrades of Fabric.js,
 sharp, argon2 and Fastify are excluded from automation — each is a deliberate
 change with its own verification (renderer parity, native binaries, the HTTP
 surface).

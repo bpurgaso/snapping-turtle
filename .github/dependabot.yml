@@ -15,8 +15,12 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     groups:
+      # Minors and patches only: a major (vitest 4→5 arrived bundled with
+      # three minors on 2026-09-07) gets its own PR so its review does not
+      # hold the routine bumps, and a routine bump does not carry a major.
       dev-tooling:
         dependency-type: development
+        update-types: [minor, patch]
       runtime-minor-patch:
         dependency-type: production
         update-types: [minor, patch]
@@ -74,3 +78,20 @@ updates:
       # deploy/Dockerfile.backup's FROM follows the compose pin above (checked
       # in CI); a Dockerfile-only postgres PR could never pass, so none is asked for.
       - dependency-name: postgres
+
+  # The Linux client (client-linux/, Rust — PLAN.md §15a). Cargo.lock is
+  # committed and every CI cargo call is --locked, so a bump moves Cargo.toml
+  # and the lockfile together. MSRV pressure moves rust-toolchain.toml up in
+  # the PR; the crate is never held down for it. The upload/TLS crates
+  # (reqwest, rustls) are covered by the client↔server integration job; the
+  # portal/tray crates (ashpd, zbus, ksni, oo7) are not verifiable in CI —
+  # their bumps need the owner's client-linux/TESTING.md pass.
+  - package-ecosystem: cargo
+    directory: /client-linux
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      cargo-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
