@@ -5,7 +5,7 @@ The k6 enumeration simulation PLAN.md §16 asks for: proof that the guard
 distributed crawl opens the global breaker, that authenticated sessions keep
 working while it is open, that it recovers, and a latency baseline for
 legitimate traffic. Scenarios live in `loadtest/scenarios/`, k6 runs as a
-container (`grafana/k6:1.3.0`) — never an npm dependency — and none of this
+container (`grafana/k6:2.2.0`) — never an npm dependency — and none of this
 runs in default CI: it takes ~4 minutes, needs Docker, and its purpose is to
 re-measure after guard changes, not to gate every commit.
 
@@ -126,6 +126,16 @@ request; every later one is the cache hit). Budgets stay at 150 ms: ~17× the
 measured page p95, loose enough for CI-class noise, tight enough that a
 render or database round-trip added to the hot path (~50–100 ms here) would
 fail it.
+
+**Re-run 2026-09-07 on k6 2.2.0** (same machine, same guard settings, app at
+E6): all three scenarios PASS with the identical six security events; ban
+tripped at 1.51 s on `attacker_404 = 6`, the breaker phase again blocked
+the anonymous viewer 20 × and served 66 × after the cool-down, baseline
+page p95 7.7 ms / image p95 4.3 ms over 1,200 requests with 0 failures.
+The k6 2.0 removals (`externally-controlled` executor, `k6 pause`/`resume`,
+`--no-summary`, `k6/experimental/redis`, the REST API listener) touch
+nothing here — the scenarios use `constant-arrival-rate` and
+`shared-iterations` only.
 
 **Threshold tuning:** none. The production defaults (`RATE_INVALID_LOOKUP_BUDGET=5`,
 `RATE_BREAKER_INVALID_PER_MIN=100`, `RATE_BAN_LADDER_MINUTES=15,60,1440`,
