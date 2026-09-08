@@ -16,7 +16,7 @@
     "fabric": "6.9.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.1",
+    "@playwright/test": "1.63.0",
     "@types/node": "22.20.1",
     "@types/pngjs": "6.0.5",
     "pixelmatch": "7.2.0",
