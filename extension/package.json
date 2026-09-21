@@ -21,12 +21,12 @@
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
-    "@types/node": "22.20.1",
+    "@types/node": "22.20.3",
     "@types/webextension-polyfill": "0.12.6",
     "fflate": "0.8.3",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
-    "vite": "8.2.2",
+    "vite": "8.3.0",
     "vitest": "4.1.11",
     "web-ext": "10.6.0"
   }
