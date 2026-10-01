@@ -39,11 +39,31 @@
         background: #fff;
         min-height: 2000px !important;
       }
+      /* The one thing on the page worth suggesting (E7): a bordered box at 0,350 → 300,550. */
+      #card {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        transform: none !important;
+        filter: none !important;
+        pointer-events: auto !important;
+        box-sizing: border-box !important;
+        width: 300px !important;
+        height: 200px !important;
+        margin: 0 !important;
+        border: 2px solid #c0392b !important;
+        background: #fff !important;
+      }
+      p {
+        margin: 0 !important;
+        height: 350px !important;
+      }
     </style>
   </head>
   <body>
     <main>
       <p id="target">hostile page content</p>
+      <div id="card"></div>
     </main>
     <script>
       window.__seen = [];

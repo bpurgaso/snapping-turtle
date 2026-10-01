@@ -14,7 +14,24 @@ import { defineConfig } from '@playwright/test';
  *            provided (see extension/TESTING.md) and by the manual checklist.
  *
  * Run `pnpm build:chrome` first for smoke/; `pnpm test:smoke` does not build.
+ *
+ * Opt-in third project, `ST_GECKO=1 pnpm test:smoke --project=browser-gecko`:
+ * the same browser/ specs in Playwright's Firefox (`playwright install
+ * firefox` first). Playwright cannot load an extension into Firefox, but the
+ * overlay and the region suggestions (E7) are plain DOM code — hit-testing,
+ * computed-style strings, rects — and that is exactly what differs between
+ * engines. Not in CI; the result of each run is recorded in TESTING.md.
  */
+const gecko = process.env['ST_GECKO']
+  ? [
+      {
+        name: 'browser-gecko',
+        testMatch: /browser\/.*\.spec\.ts$/,
+        use: { browserName: 'firefox' as const },
+      },
+    ]
+  : [];
+
 export default defineConfig({
   testDir: './test',
   globalSetup: './test/browser/build-harness.ts',
@@ -29,5 +46,6 @@ export default defineConfig({
   projects: [
     { name: 'browser', testMatch: /browser\/.*\.spec\.ts$/ },
     { name: 'smoke', testMatch: /smoke\/.*\.spec\.ts$/ },
+    ...gecko,
   ],
 });

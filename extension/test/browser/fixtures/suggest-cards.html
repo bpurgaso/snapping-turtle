@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>suggestions: cards fixture</title>
+    <!--
+      Region suggestions (E7): containers that draw a box — a border on at
+      least three sides, or a visible box-shadow — and the look-alikes that do
+      not. Absolutely positioned so the specs can name exact rects (1280 × 720).
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+        font:
+          14px/1.4 system-ui,
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body > * {
+        position: absolute;
+        margin: 0;
+      }
+      h3,
+      p {
+        margin: 0 0 8px;
+      }
+      #bordered {
+        left: 40px;
+        top: 40px;
+        width: 300px;
+        height: 200px;
+        padding: 16px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+      }
+      #shadowed {
+        left: 380px;
+        top: 40px;
+        width: 300px;
+        height: 200px;
+        padding: 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+      }
+      /* Bordered controls under the 48 px box floor: the card is the target, not them. */
+      #card-button {
+        position: absolute;
+        left: 16px;
+        top: 120px;
+        width: 90px;
+        height: 32px;
+        border: 1px solid #888;
+        background: #f5f5f5;
+      }
+      #card-input {
+        position: absolute;
+        left: 120px;
+        top: 118px;
+        width: 160px;
+        height: 36px;
+        border: 1px solid #888;
+      }
+      /* A rule drawn with an offset-only shadow is not a box either. */
+      #tabbar {
+        left: 40px;
+        top: 580px;
+        width: 640px;
+        height: 60px;
+        padding: 8px;
+        box-shadow: inset 0 -1px 0 0 rgba(0, 0, 0, 0.4);
+      }
+      /* An image filling its card: the card's own hover area is a 1 px border. */
+      #flush {
+        left: 720px;
+        top: 40px;
+        width: 302px;
+        height: 202px;
+        border: 1px solid #999;
+      }
+      #flush img {
+        display: block;
+        width: 300px;
+        height: 200px;
+      }
+      /* An image with room around it: padding suggests the card, the image itself. */
+      #padded {
+        left: 720px;
+        top: 280px;
+        width: 300px;
+        height: 200px;
+        padding: 20px;
+        border: 1px solid #999;
+      }
+      #padded img {
+        display: block;
+        width: 200px;
+        height: 120px;
+      }
+      /* Look-alikes that are not boxes. */
+      #underlined {
+        left: 40px;
+        top: 280px;
+        width: 300px;
+        height: 60px;
+        padding: 8px 0;
+        border-bottom: 2px solid #333;
+      }
+      #ghost-border {
+        left: 380px;
+        top: 280px;
+        width: 300px;
+        height: 60px;
+        padding: 8px;
+        border: 2px solid transparent;
+      }
+      #ghost-shadow {
+        left: 380px;
+        top: 360px;
+        width: 300px;
+        height: 60px;
+        padding: 8px;
+        box-shadow:
+          0 0 #0000,
+          0 0 #0000;
+      }
+      #sided {
+        left: 40px;
+        top: 360px;
+        width: 300px;
+        height: 60px;
+        padding: 8px;
+        border-top: 1px solid #333;
+        border-bottom: 1px solid #333;
+      }
+      /* A faint hairline and a three-sided panel still read as boxes. */
+      #faint {
+        left: 40px;
+        top: 460px;
+        width: 300px;
+        height: 80px;
+        padding: 8px;
+        border: 1px solid rgba(0, 0, 0, 0.125);
+      }
+      #panel {
+        left: 380px;
+        top: 460px;
+        width: 300px;
+        height: 80px;
+        padding: 8px;
+        border: 1px solid #999;
+        border-top: 0;
+      }
+      /* A card scrolled partly out of its pane: only the visible part is suggested. */
+      #pane {
+        left: 1060px;
+        top: 40px;
+        width: 200px;
+        height: 200px;
+        overflow: auto;
+      }
+      #pane-card {
+        margin: 10px;
+        width: 160px;
+        height: 400px;
+        padding: 8px;
+        border: 1px solid #999;
+      }
+      #tall-spacer {
+        height: 600px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bordered">
+      <h3 id="bordered-title">Bordered card</h3>
+      <p id="bordered-text">Text inside a card with a visible border.</p>
+      <button id="card-button" type="button">A button</button>
+      <input id="card-input" type="text" value="an input" />
+    </div>
+    <div id="shadowed">
+      <h3>Shadowed card</h3>
+      <p id="shadowed-text">Text inside a card with a box-shadow and no border.</p>
+    </div>
+    <div id="flush">
+      <img
+        id="flush-img"
+        alt=""
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='150'%3E%3Crect width='100%25' height='100%25' fill='%232980b9'/%3E%3C/svg%3E"
+      />
+    </div>
+    <div id="padded">
+      <img
+        id="padded-img"
+        alt=""
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='150'%3E%3Crect width='100%25' height='100%25' fill='%2327ae60'/%3E%3C/svg%3E"
+      />
+    </div>
+    <h2 id="underlined">An underlined heading</h2>
+    <div id="ghost-border">A transparent border draws nothing.</div>
+    <div id="ghost-shadow">A transparent zero-size shadow draws nothing.</div>
+    <div id="sided">Rules above and below are not a box.</div>
+    <div id="faint">A faint hairline border is still a box.</div>
+    <div id="panel">Three sides are still a box.</div>
+    <div id="tabbar">A tab bar underlined with an inset shadow.</div>
+    <div id="pane">
+      <div id="pane-card">A card taller than its scrolling pane.</div>
+      <div id="tall-spacer"></div>
+    </div>
+    <script>
+      document.getElementById('pane').scrollTop = 60;
+    </script>
+  </body>
+</html>

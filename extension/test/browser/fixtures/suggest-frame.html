@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>suggestions: near-viewport container fixture</title>
+    <!--
+      Region suggestions (E7): a bordered wrapper covering more than 90% of
+      the viewport is not a target — Visible mode already exists — but a
+      qualifying card inside it still is.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+        font:
+          14px/1.4 system-ui,
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      #frame {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        width: calc(100vw - 20px);
+        height: calc(100vh - 20px);
+        padding: 24px;
+        border: 2px solid #666;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+      #inner {
+        position: absolute;
+        left: 200px;
+        top: 200px;
+        width: 320px;
+        height: 180px;
+        padding: 16px;
+        border: 1px solid #999;
+      }
+      p {
+        margin: 0 0 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="frame">
+      <p id="frame-text">Text directly inside a wrapper that fills nearly the whole viewport.</p>
+      <div id="inner"><p id="inner-text">A card inside the wrapper.</p></div>
+    </div>
+  </body>
+</html>
