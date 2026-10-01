@@ -139,6 +139,8 @@ describe('auditReleaseFiles', () => {
       files.set('manifest.json', enc.encode(JSON.stringify(manifest, null, 2) + '\n'));
       expect(auditReleaseFiles({ target, files, template: stripped, inputs })).toEqual([
         `${target}: scripting.executeScript needs one of scripting in the manifest — the background calls it without a feature check`,
+        // …and a dropped permission is also a change to the pinned set (rule 6).
+        expect.stringMatching(new RegExp(`^${target}: permission set changed — permissions is `)),
       ]);
     }
     // captureTab is gated (feature-detected, stitch fallback): its missing
@@ -157,6 +159,42 @@ describe('auditReleaseFiles', () => {
       files.set('manifest.json', enc.encode(JSON.stringify(manifest, null, 2) + '\n'));
       expect(auditReleaseFiles({ target, files, template: broad, inputs })).toEqual([
         expect.stringMatching(new RegExp(`^${target}: the manifest declares <all_urls>`)),
+        expect.stringMatching(new RegExp(`^${target}: permission set changed — permissions is `)),
+      ]);
+    }
+  });
+
+  it('refuses any change to the pinned permission set, however the template got it (rule 6)', () => {
+    // Rule 1 compares the built manifest with the template, so a permission
+    // added to the template itself passes it. Rule 6 holds the template to an
+    // independent record: E7 added a feature and no permission, and the next
+    // feature has to say so in src/lib/api-requirements.ts — and in the store
+    // disclosures — before a release builds.
+    for (const target of ['chrome', 'firefox'] as const) {
+      const audit = (mutate: (t: typeof template) => void): string[] => {
+        const changed = structuredClone(template);
+        mutate(changed);
+        const manifest = buildManifest(target, { template: changed, ...inputs });
+        const files = cleanFiles(target);
+        files.set('manifest.json', enc.encode(JSON.stringify(manifest, null, 2) + '\n'));
+        return auditReleaseFiles({ target, files, template: changed, inputs });
+      };
+      expect(audit(() => undefined)).toEqual([]);
+      expect(audit((t) => t.permissions.push('tabs'))).toEqual([
+        `${target}: permission set changed — permissions is ["activeTab","scripting","storage","notifications","tabs"], the pinned set is ["activeTab","scripting","storage","notifications"] (src/lib/api-requirements.ts; a new permission needs the disclosures in STORE_SUBMISSION.md first)`,
+      ]);
+      expect(audit((t) => t.permissions.reverse())).toEqual([
+        expect.stringMatching(/permission set changed — permissions is \["notifications"/),
+      ]);
+      expect(audit((t) => (t.optional_host_permissions = ['*://*/*']))).toEqual([
+        expect.stringMatching(/permission set changed — optional_host_permissions is /),
+      ]);
+      expect(
+        audit((t) =>
+          Object.assign(t, { content_scripts: [{ matches: ['https://*/*'], js: ['content.js'] }] }),
+        ),
+      ).toEqual([
+        expect.stringMatching(/permission set changed — content_scripts must not be declared/),
       ]);
     }
   });

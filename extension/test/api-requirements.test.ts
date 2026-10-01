@@ -4,6 +4,9 @@ import {
   BACKGROUND_API_REQUIREMENTS,
   declaresAllUrls,
   NATIVE_FULL_PAGE_PERMISSION,
+  permissionSetDrift,
+  PINNED_OPTIONAL_HOST_PERMISSIONS,
+  PINNED_PERMISSIONS,
   unavailableGatedApis,
   unmetRequirements,
 } from '../src/lib/api-requirements.js';
@@ -60,5 +63,84 @@ describe('the background ↔ manifest permission contract', () => {
     expect(
       unavailableGatedApis({ permissions: base, host_permissions: ['https://*/*'] }),
     ).toHaveLength(1);
+  });
+});
+
+describe('the pinned permission set (PLAN.md §15; unchanged by E7)', () => {
+  it('is exactly what 0.1.1 shipped with, in order', () => {
+    expect(PINNED_PERMISSIONS).toEqual(['activeTab', 'scripting', 'storage', 'notifications']);
+    expect(PINNED_OPTIONAL_HOST_PERMISSIONS).toEqual(['https://*/*']);
+  });
+
+  it('both generated manifests match it byte for byte', () => {
+    expect(
+      permissionSetDrift(buildManifest('chrome', opts), 'https://shots.example.com/*'),
+    ).toEqual([]);
+    expect(
+      permissionSetDrift(buildManifest('firefox', opts), 'https://shots.example.com/*'),
+    ).toEqual([]);
+    // With a port: Chrome keeps it in the pattern, Firefox drops it.
+    const ported = { ...opts, publicOrigin: 'https://shots.example.com:28443' };
+    expect(
+      permissionSetDrift(buildManifest('chrome', ported), 'https://shots.example.com:28443/*'),
+    ).toEqual([]);
+    expect(
+      permissionSetDrift(buildManifest('firefox', ported), 'https://shots.example.com/*'),
+    ).toEqual([]);
+  });
+
+  it('names an added, dropped or reordered permission', () => {
+    const base = buildManifest('chrome', opts);
+    const host = 'https://shots.example.com/*';
+    expect(
+      permissionSetDrift({ ...base, permissions: [...base.permissions, 'tabs'] }, host),
+    ).toEqual([
+      'permissions is ["activeTab","scripting","storage","notifications","tabs"], the pinned set is ["activeTab","scripting","storage","notifications"]',
+    ]);
+    expect(
+      permissionSetDrift({ ...base, permissions: ['activeTab', 'scripting', 'storage'] }, host),
+    ).toHaveLength(1);
+    expect(
+      permissionSetDrift(
+        { ...base, permissions: ['scripting', 'activeTab', 'storage', 'notifications'] },
+        host,
+      ),
+    ).toHaveLength(1);
+    const { permissions: _dropped, ...withoutPermissions } = base;
+    expect(permissionSetDrift(withoutPermissions, host)).toEqual([
+      'permissions is null, the pinned set is ["activeTab","scripting","storage","notifications"]',
+    ]);
+  });
+
+  it('names a widened or extra host grant', () => {
+    const base = buildManifest('chrome', opts);
+    const host = 'https://shots.example.com/*';
+    expect(permissionSetDrift({ ...base, host_permissions: [host, 'https://*/*'] }, host)).toEqual([
+      expect.stringMatching(/^host_permissions is /),
+    ]);
+    expect(permissionSetDrift({ ...base, host_permissions: ['<all_urls>'] }, host)).toEqual([
+      expect.stringMatching(/^host_permissions is \["<all_urls>"\]/),
+    ]);
+    expect(permissionSetDrift({ ...base, optional_host_permissions: ['*://*/*'] }, host)).toEqual([
+      expect.stringMatching(/^optional_host_permissions is /),
+    ]);
+    const { optional_host_permissions: _gone, ...withoutOptional } = base;
+    expect(permissionSetDrift(withoutOptional, host)).toEqual([
+      expect.stringMatching(/^optional_host_permissions is null/),
+    ]);
+  });
+
+  it('refuses access by another name: optional_permissions and declared content scripts', () => {
+    const base = buildManifest('firefox', opts);
+    const host = 'https://shots.example.com/*';
+    expect(permissionSetDrift({ ...base, optional_permissions: ['tabs'] }, host)).toEqual([
+      'optional_permissions must not be declared',
+    ]);
+    expect(
+      permissionSetDrift(
+        { ...base, content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'] }] },
+        host,
+      ),
+    ).toEqual(['content_scripts must not be declared']);
   });
 });

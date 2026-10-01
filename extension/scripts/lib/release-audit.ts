@@ -1,4 +1,9 @@
-import { declaresAllUrls, unmetRequirements } from '../../src/lib/api-requirements.js';
+import {
+  declaresAllUrls,
+  permissionSetDrift,
+  unmetRequirements,
+} from '../../src/lib/api-requirements.js';
+import { hostPattern } from '../../src/lib/origin.js';
 import { buildManifest, type ManifestTemplate, type Target } from '../../src/manifest.js';
 import { PLACEHOLDER_ORIGIN, type BuildInputs } from './env.js';
 
@@ -101,6 +106,14 @@ export function auditReleaseFiles(opts: AuditOptions): string[] {
     if (declaresAllUrls(expected)) {
       problems.push(
         `${target}: the manifest declares <all_urls>; the extension's minimal-permission posture forbids it (PLAN.md §15/§17, STORE_SUBMISSION.md) — remove it, or make that product decision first`,
+      );
+    }
+    // 6. The permission set is byte-identical to the pinned floor: nothing
+    //    added, dropped or reordered since the store disclosures were written.
+    const pattern = hostPattern(new URL(inputs.publicOrigin).origin, target);
+    for (const drift of permissionSetDrift(expected, pattern)) {
+      problems.push(
+        `${target}: permission set changed — ${drift} (src/lib/api-requirements.ts; a new permission needs the disclosures in STORE_SUBMISSION.md first)`,
       );
     }
   }
