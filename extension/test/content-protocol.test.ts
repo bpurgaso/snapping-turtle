@@ -29,6 +29,12 @@ describe('content protocol guards', () => {
     ]) {
       expect(isContentCommand({ type })).toBe(true);
     }
+    // The region command carries the suggestions setting (E7): a boolean or nothing.
+    expect(isContentCommand({ type: 'st:region:select', suggest: true })).toBe(true);
+    expect(isContentCommand({ type: 'st:region:select', suggest: false })).toBe(true);
+    expect(isContentCommand({ type: 'st:region:select', suggest: 'yes' })).toBe(false);
+    expect(isContentCommand({ type: 'st:region:select', suggest: 1 })).toBe(false);
+    expect(isContentCommand({ type: 'st:region:select', suggest: null })).toBe(false);
     expect(isContentCommand({ type: 'st:page:scroll', y: 800 })).toBe(true);
     expect(isContentCommand({ type: 'st:page:scroll' })).toBe(false);
     expect(isContentCommand({ type: 'st:page:scroll', y: -1 })).toBe(false);

@@ -40,7 +40,8 @@ import type { RegionSelection } from './content/region-overlay.js';
  * flow from PLAN.md §15 so it survives the popup closing:
  *
  *   visible  gesture → captureVisibleTab → upload → open pageUrl
- *   region   gesture → inject content script → overlay … (user drags) …
+ *   region   gesture → inject content script → overlay … (user drags, or clicks a
+ *            suggested element — the overlay returns the same rect either way) …
  *            → content sends st:region:selected → captureVisibleTab → crop → upload
  *   full     chosen at runtime by what the browser exposes (lib/full-page-strategy.ts):
  *            native   measure → one tabs.captureTab({rect, scale}) → upload
@@ -188,7 +189,11 @@ async function startCapture(
       if (!release) return report(fail('busy', busyMessage(lock.current() ?? 'another')));
       try {
         await injectContentScript(tabId);
-        await sendToContent(tabId, { type: 'st:region:select' }, 'st:region:started');
+        await sendToContent(
+          tabId,
+          { type: 'st:region:select', suggest: settings.regionSuggestions },
+          'st:region:started',
+        );
       } catch (err) {
         release();
         return report(failed('Could not start region selection', err));

@@ -10,7 +10,8 @@ import {
 
 /**
  * Options page (PLAN.md §15): server origin (pre-filled from the build-time
- * PUBLIC_ORIGIN), API token (storage.local only), Test connection.
+ * PUBLIC_ORIGIN), API token (storage.local only), Test connection, and the
+ * "Smart region suggestions" switch (E7).
  *
  * Saving or testing a server first asks for host permission on exactly that
  * origin. Chrome grants the built-in default silently; Firefox treats every
@@ -28,6 +29,11 @@ import {
  * Until `ready` the form is disabled — the handlers are attached before the
  * stored settings are awaited, so nothing a user does early can fall through
  * to a native form submission or be overwritten by the late prefill.
+ *
+ * The suggestions switch is a preference, not a credential: it is stored the
+ * moment it changes (ready → saved), without the origin/token validation or
+ * the host-permission request that Save needs — a first-run user with no
+ * token yet can still turn it off.
  */
 
 export type OptionsState =
@@ -88,6 +94,10 @@ async function init(main: HTMLElement): Promise<void> {
     showToggle.textContent = hidden ? 'Hide token' : 'Show token';
   });
   tokenInput.insertAdjacentElement('afterend', showToggle);
+
+  const suggestInput = checkbox(fields, 'suggest', 'Smart region suggestions', {
+    hint: 'In Region mode, highlight images and bordered or shadowed boxes under the pointer; a click captures the highlighted element. Dragging a region works either way.',
+  });
 
   const actions = document.createElement('div');
   actions.className = 'actions';
@@ -179,6 +189,20 @@ async function init(main: HTMLElement): Promise<void> {
     })();
   });
 
+  suggestInput.addEventListener('change', () => {
+    const on = suggestInput.checked;
+    void saveSettings({ regionSuggestions: on }).then(
+      () => {
+        show(`Smart region suggestions ${on ? 'on' : 'off'}.`, 'ok');
+        setState('saved');
+      },
+      (err: unknown) => {
+        suggestInput.checked = !on;
+        fail(`Could not save the setting: ${err instanceof Error ? err.message : String(err)}.`);
+      },
+    );
+  });
+
   testButton.addEventListener('click', () => {
     const values = readForm();
     if (!values) return;
@@ -213,6 +237,7 @@ async function init(main: HTMLElement): Promise<void> {
   }
   originInput.value = settings.serverOrigin;
   tokenInput.value = settings.apiToken;
+  suggestInput.checked = settings.regionSuggestions;
   syncAccountLink();
   fields.disabled = false;
   setState('ready');
@@ -243,6 +268,31 @@ function field(
   hint.textContent = opts.hint;
   input.setAttribute('aria-describedby', hint.id);
   wrapper.append(label, input, hint);
+  parent.append(wrapper);
+  return input;
+}
+
+function checkbox(
+  parent: HTMLElement,
+  id: string,
+  labelText: string,
+  opts: { hint: string },
+): HTMLInputElement {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'field check';
+  const input = document.createElement('input');
+  input.id = id;
+  input.name = id;
+  input.type = 'checkbox';
+  const label = document.createElement('label');
+  label.htmlFor = id;
+  label.textContent = labelText;
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.id = `${id}-hint`;
+  hint.textContent = opts.hint;
+  input.setAttribute('aria-describedby', hint.id);
+  wrapper.append(input, label, hint);
   parent.append(wrapper);
   return input;
 }

@@ -153,7 +153,9 @@ test.describe('built Chrome extension', () => {
       await expect(status).toHaveText(pattern);
       expect(await page.evaluate(() => chrome.storage.local.get(null))).toEqual({});
       // The next attempt must be observable as a fresh transition.
-      await page.evaluate(() => document.getElementById('options')!.setAttribute('data-state', 'test-armed'));
+      await page.evaluate(() =>
+        document.getElementById('options')!.setAttribute('data-state', 'test-armed'),
+      );
     }
 
     await originInput.fill(origin);
@@ -235,5 +237,47 @@ test.describe('built Chrome extension', () => {
       serverOrigin: origin,
       apiToken: FAKE_TOKEN,
     });
+  });
+
+  test('options: "Smart region suggestions" is on by default and is stored the moment it changes', async ({
+    context,
+    extensionId,
+  }) => {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+    await page.goto(`chrome-extension://${extensionId}/options/index.html`);
+    const state = page.locator('#options');
+    await expect(state).toHaveAttribute('data-state', 'ready');
+    const toggle = page.getByLabel('Smart region suggestions');
+    // Nothing stored yet: the default is on.
+    expect(await page.evaluate(() => chrome.storage.local.get(null))).toEqual({});
+    await expect(toggle).toBeChecked();
+
+    // Off — with no token or Save involved: it is a preference, not a credential.
+    await toggle.uncheck();
+    await expect(state).toHaveAttribute('data-state', 'saved');
+    await expect(page.locator('#status')).toHaveText('Smart region suggestions off.');
+    expect(await page.evaluate(() => chrome.storage.local.get(null))).toEqual({
+      regionSuggestions: false,
+    });
+    expect(await page.evaluate(() => chrome.storage.sync.get(null))).toEqual({});
+
+    await page.reload();
+    await expect(state).toHaveAttribute('data-state', 'ready');
+    await expect(page.getByLabel('Smart region suggestions')).not.toBeChecked();
+
+    // Back on, and a later Save of the other settings leaves it alone.
+    await page.getByLabel('Smart region suggestions').check();
+    await expect(page.locator('#status')).toHaveText('Smart region suggestions on.');
+    await page.getByLabel('API token').fill(FAKE_TOKEN);
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect(page.locator('#status')).toContainText('Saved. Captures will upload to');
+    expect(await page.evaluate(() => chrome.storage.local.get(null))).toEqual({
+      serverOrigin: defaultOrigin(),
+      apiToken: FAKE_TOKEN,
+      regionSuggestions: true,
+    });
+    expect(errors).toEqual([]);
   });
 });

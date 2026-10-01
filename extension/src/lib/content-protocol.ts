@@ -13,7 +13,8 @@ export const CONTENT_SCRIPT_FILE = 'content.js';
 
 /** Background → content. */
 export type ContentCommand =
-  | { type: 'st:region:select' }
+  /** `suggest`: the "Smart region suggestions" setting (E7); absent means on. */
+  | { type: 'st:region:select'; suggest?: boolean }
   | { type: 'st:page:measure' }
   | { type: 'st:page:begin' }
   | { type: 'st:page:scroll'; y: number }
@@ -55,6 +56,9 @@ export function isContentCommand(value: unknown): value is ContentCommand {
   }
   if (v['type'] === 'st:page:scroll') {
     return typeof v['y'] === 'number' && Number.isFinite(v['y']) && v['y'] >= 0;
+  }
+  if (v['type'] === 'st:region:select') {
+    return v['suggest'] === undefined || typeof v['suggest'] === 'boolean';
   }
   return true;
 }

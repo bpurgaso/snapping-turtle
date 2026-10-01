@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { defaultOrigin, expect, test } from './fixtures.js';
 
 /**
@@ -10,7 +11,10 @@ import { defaultOrigin, expect, test } from './fixtures.js';
  * the content bundle loads and answers the driver protocol in a real content
  * script, the two-phase region result reaches the background, the full-page
  * run injects, scrolls, fails at capture, restores the page and reports on
- * both channels.
+ * both channels. Since E7: the background hands the "Smart region
+ * suggestions" setting to the content script, a click on a highlighted image
+ * travels the same two-phase path as a drag, and with the setting off the
+ * overlay is the M6 one.
  */
 const FAKE_TOKEN = 'st_FAKEFAKEFAKEFAKEFAKEFAKEFAK';
 
@@ -18,6 +22,15 @@ const FIXTURE = `<!doctype html><html><head><style>
   html,body{margin:0} .band{height:400px} .band:nth-child(odd){background:#c33} .band:nth-child(even){background:#39c}
   header{position:fixed;top:0;left:0;right:0;height:50px;background:#222}
 </style></head><body><header id="h"></header>${'<div class="band"></div>'.repeat(20)}</body></html>`;
+
+/** One 300 × 200 image at 100,50 on an otherwise plain page (E7). */
+const SUGGEST_FIXTURE = `<!doctype html><html><head><style>
+  html,body{margin:0;background:#fff} img{position:absolute;left:100px;top:50px;width:300px;height:200px;background:#2980b9}
+  p{position:absolute;left:500px;top:480px;margin:0}
+</style></head><body><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"><p>plain text</p></body></html>`;
+
+const overlayMounted = (page: Page): Promise<boolean> =>
+  page.evaluate(() => document.querySelector('snapping-turtle-region') !== null);
 
 test.describe('M6 flows in the built extension', () => {
   test('content script injects, answers the driver protocol, and restores on st:page:restore', async ({
@@ -111,6 +124,112 @@ test.describe('M6 flows in the built extension', () => {
     expect(String((stored['lastError'] as { message: string }).message)).toMatch(
       /activeTab|all_urls/,
     );
+  });
+
+  test('region suggestions (E7): a click on a highlighted image reaches the background as a selection', async ({
+    context,
+    extensionId,
+  }) => {
+    const origin = defaultOrigin();
+    await context.route(`${origin}/e7-fixture`, (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: SUGGEST_FIXTURE }),
+    );
+    const target = await context.newPage();
+    await target.goto(`${origin}/e7-fixture`);
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${extensionId}/options/index.html`);
+    await options.evaluate((token) => chrome.storage.local.set({ apiToken: token }), FAKE_TOKEN);
+    await target.bringToFront();
+
+    // Through the background, exactly as the popup asks: it reads the setting
+    // (default on) and passes it to the content script with the command.
+    const response = await options.evaluate(async (url) => {
+      const [tab] = await chrome.tabs.query({ url });
+      return chrome.runtime.sendMessage({
+        type: 'capture',
+        mode: 'region',
+        tabId: tab!.id,
+        windowId: tab!.windowId,
+      });
+    }, `${origin}/e7-fixture`);
+    expect(response).toEqual({ ok: true, status: 'started' });
+    await expect.poll(() => overlayMounted(target)).toBe(true);
+
+    // A click on plain page is a no-op: the overlay stays.
+    await target.mouse.click(600, 500);
+    expect(await overlayMounted(target)).toBe(true);
+    // A click on the image — no drag — finishes the selection…
+    await target.mouse.move(200, 150);
+    await target.mouse.down();
+    await target.mouse.up();
+    await expect.poll(() => overlayMounted(target)).toBe(false);
+    // …which reached the background; captureVisibleTab is where activeTab bites.
+    await expect.poll(() => options.evaluate(() => chrome.action.getBadgeText({}))).toBe('!');
+    const stored = await options.evaluate(() => chrome.storage.local.get(null));
+    expect(String((stored['lastError'] as { message: string }).message)).toMatch(
+      /^Capture failed: .*(activeTab|all_urls)/,
+    );
+    // The lock was released with the result: a second region request starts.
+    const again = await options.evaluate(async (url) => {
+      const [tab] = await chrome.tabs.query({ url });
+      return chrome.runtime.sendMessage({
+        type: 'capture',
+        mode: 'region',
+        tabId: tab!.id,
+        windowId: tab!.windowId,
+      });
+    }, `${origin}/e7-fixture`);
+    expect(again).toEqual({ ok: true, status: 'started' });
+  });
+
+  test('region suggestions (E7): with the setting off the same click is a no-op and a drag still works', async ({
+    context,
+    extensionId,
+  }) => {
+    const origin = defaultOrigin();
+    await context.route(`${origin}/e7-fixture`, (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: SUGGEST_FIXTURE }),
+    );
+    const target = await context.newPage();
+    await target.goto(`${origin}/e7-fixture`);
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${extensionId}/options/index.html`);
+    await options.evaluate(
+      (token) => chrome.storage.local.set({ apiToken: token, regionSuggestions: false }),
+      FAKE_TOKEN,
+    );
+    await target.bringToFront();
+    const response = await options.evaluate(async (url) => {
+      const [tab] = await chrome.tabs.query({ url });
+      return chrome.runtime.sendMessage({
+        type: 'capture',
+        mode: 'region',
+        tabId: tab!.id,
+        windowId: tab!.windowId,
+      });
+    }, `${origin}/e7-fixture`);
+    expect(response).toEqual({ ok: true, status: 'started' });
+    await expect.poll(() => overlayMounted(target)).toBe(true);
+
+    await target.mouse.move(200, 150);
+    await target.mouse.down();
+    await target.mouse.up();
+    // Two frames later the overlay is still there and nothing was reported.
+    await target.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect(await overlayMounted(target)).toBe(true);
+    expect(await options.evaluate(() => chrome.action.getBadgeText({}))).toBe('');
+
+    await target.mouse.move(100, 100);
+    await target.mouse.down();
+    await target.mouse.move(300, 250, { steps: 4 });
+    await target.mouse.up();
+    await expect.poll(() => overlayMounted(target)).toBe(false);
+    await expect.poll(() => options.evaluate(() => chrome.action.getBadgeText({}))).toBe('!');
   });
 
   test('full page: a capture request starts the stitch, which fails at the gesture and restores the page', async ({
