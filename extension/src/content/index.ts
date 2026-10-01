@@ -68,7 +68,7 @@ function install(): void {
   const handle = (command: ContentCommand): ContentReply => {
     switch (command.type) {
       case 'st:region:select': {
-        void selectRegion(document).then(
+        void selectRegion(document, {}, { suggestions: command.suggest !== false }).then(
           (selection) => {
             const result: RegionResultMessage = selection
               ? { type: 'st:region:selected', selection }

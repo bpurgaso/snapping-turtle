@@ -17,9 +17,11 @@ export interface Settings {
   serverOrigin: string;
   apiToken: string;
   lastMode: CaptureMode | null;
+  /** "Smart region suggestions" (E7): highlight confident targets in region mode. On unless switched off. */
+  regionSuggestions: boolean;
 }
 
-const KEYS = ['serverOrigin', 'apiToken', 'lastMode'] as const;
+const KEYS = ['serverOrigin', 'apiToken', 'lastMode', 'regionSuggestions'] as const;
 
 export async function loadSettings(): Promise<Settings> {
   const raw = await browser.storage.local.get([...KEYS]);
@@ -33,6 +35,8 @@ export async function loadSettings(): Promise<Settings> {
       raw['lastMode'] === 'visible' || raw['lastMode'] === 'region' || raw['lastMode'] === 'full'
         ? raw['lastMode']
         : null,
+    // Default on: only an explicit `false` turns the assist off.
+    regionSuggestions: raw['regionSuggestions'] !== false,
   };
 }
 

@@ -46,6 +46,19 @@ input {
   font-size: 12px;
   opacity: 0.75;
 }
+.field.check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 8px;
+  margin-top: 18px;
+}
+.field.check input {
+  margin: 0;
+  padding: 0;
+}
+.field.check .hint {
+  grid-column: 1 / -1;
+}
 .actions {
   display: flex;
   gap: 8px;
