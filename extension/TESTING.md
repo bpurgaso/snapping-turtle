@@ -1,4 +1,4 @@
-# Extension manual test checklist (M2 + M6 + E1)
+# Extension manual test checklist (M2 + M6 + E1 + E7)
 
 What automation covers and what a human must still do.
 
@@ -17,6 +17,21 @@ stubbed and, with `ST_E2E_*`, a real server, and (M6) the content script
 answering the driver protocol in a real content script, a region drag whose
 result reaches the background, and a full-page request that injects, scrolls,
 fails at the capture step, restores the page and reports on both channels.
+Since E7 (smart region suggestions, 0.2.0): the qualifier is unit-tested
+exhaustively (`test/region-suggest.test.ts` — border and shadow detection,
+size guards, ancestor-or-self selection, edge promotion, clipping, outward
+rounding); **browser** drives the highlight in fixture pages (an image grid
+and the other media tags, tiny icons, cards and their look-alikes, an image
+inside a card, a card in a scroll pane, a plain-text article that must yield
+zero suggestions, a near-viewport wrapper, the hostile-CSS page), the
+click / drag / Esc gestures, and the pixel-identical page after a click;
+**smoke** covers the options switch and a click on a highlighted image
+reaching the background in the built Chrome extension. The same **browser**
+specs also run in Firefox's engine on request:
+`ST_GECKO=1 pnpm --filter extension test:smoke --project=browser-gecko`
+(Playwright's Firefox — it cannot load the extension, but the overlay is
+plain DOM code and this is where engines differ). Last run: 44 / 44 on
+Playwright Firefox 155, 2026-09-30.
 
 **Not automatable.** Anything past the `activeTab` grant — the toolbar click
 or keyboard shortcut — because Chrome's `captureVisibleTab` accepts only
@@ -27,8 +42,11 @@ Firefox `captureTab` semantics were measured separately with a throwaway
 probe (`docs/firefox-capturetab-probe.md`), not through the shipped extension.
 
 Status column: what the 2026-08-30 session ran plus the human walk-through the
-same day (M2 items), and what the 2026-08-31 session ran (M6 items).
-**unverified** = nobody has run it yet; do not treat it as passing.
+same day (M2 items), what the 2026-08-31 session ran (M6 items), and what the
+2026-09-30 session ran (E7 items, §9).
+**unverified** = nobody has run it yet; do not treat it as passing. The E5
+bug shipped through exactly such a row (6.1, Firefox): unrun rows are where
+shipped bugs live.
 
 ## 0. Build and load
 
@@ -105,17 +123,17 @@ Build with the default (`https://shots.example.com`) or any origin other than th
 Open a normal https page with some visible structure (the server's `/login`
 is fine). Default shortcut `Alt+Shift+R`.
 
-| #   | Check                                                                                                                                                                                                                              | Chrome                                                     | Firefox    |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------- |
-| 5.1 | Click **Region** → popup closes at once; the page dims with a crosshair cursor and a top hint "Drag to select the area to capture · Esc to cancel"                                                                                 | overlay: verified (Playwright); via popup: unverified      | unverified |
-| 5.2 | Drag → the dim lifts inside the rectangle, a `W × H` readout follows the corner; release → overlay disappears **before** the capture, a new tab opens with exactly the selected area (no dim, no outline, no readout in the image) | readout/removal: verified (Playwright); pixels: unverified | unverified |
-| 5.3 | On a 2× display (or with browser zoom ≠ 100%) the stored image is `W×dpr` by `H×dpr` px and shows the same content as the selection (no offset, no half-size crop)                                                                 | dpr reported: verified (Playwright); pixels: unverified    | unverified |
-| 5.4 | Esc before or during a drag → overlay gone, no upload, no notification, no `!` badge                                                                                                                                               | overlay: verified (Playwright); no-badge: unverified       | unverified |
-| 5.5 | A plain click (no drag) keeps the overlay up; a second drag works                                                                                                                                                                  | verified (Playwright)                                      | unverified |
-| 5.6 | Shortcut `Alt+Shift+R` does the same without the popup                                                                                                                                                                             | unverified                                                 | unverified |
-| 5.7 | On a page with aggressive CSS (`* { display:none !important }`-style resets, huge z-indexes, `pointer-events: none`) the overlay still shows and drags; the page's own click handlers do not fire under it                         | verified (Playwright hostile-css fixture)                  | unverified |
-| 5.8 | While a region selection is open, a second capture request (shortcut) is refused: notification "A region capture is already running…"; finishing or cancelling the selection frees it                                              | unverified                                                 | unverified |
-| 5.9 | Chrome only: leave the overlay open for > 1 minute before dragging (the service worker may be recycled) → the capture still completes                                                                                              | unverified                                                 | n/a        |
+| #   | Check                                                                                                                                                                                                                                                       | Chrome                                                     | Firefox    |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------- |
+| 5.1 | Click **Region** → popup closes at once; the page dims with a crosshair cursor and a top hint "Click a highlighted element or drag to select · Esc to cancel" (with Smart region suggestions off, §9: "Drag to select the area to capture · Esc to cancel") | overlay: verified (Playwright); via popup: unverified      | unverified |
+| 5.2 | Drag → the dim lifts inside the rectangle, a `W × H` readout follows the corner; release → overlay disappears **before** the capture, a new tab opens with exactly the selected area (no dim, no outline, no readout in the image)                          | readout/removal: verified (Playwright); pixels: unverified | unverified |
+| 5.3 | On a 2× display (or with browser zoom ≠ 100%) the stored image is `W×dpr` by `H×dpr` px and shows the same content as the selection (no offset, no half-size crop)                                                                                          | dpr reported: verified (Playwright); pixels: unverified    | unverified |
+| 5.4 | Esc before or during a drag → overlay gone, no upload, no notification, no `!` badge                                                                                                                                                                        | overlay: verified (Playwright); no-badge: unverified       | unverified |
+| 5.5 | A plain click (no drag) where nothing is highlighted keeps the overlay up; a second drag works                                                                                                                                                              | verified (Playwright)                                      | unverified |
+| 5.6 | Shortcut `Alt+Shift+R` does the same without the popup                                                                                                                                                                                                      | unverified                                                 | unverified |
+| 5.7 | On a page with aggressive CSS (`* { display:none !important }`-style resets, huge z-indexes, `pointer-events: none`) the overlay still shows and drags; the page's own click handlers do not fire under it                                                  | verified (Playwright hostile-css fixture)                  | unverified |
+| 5.8 | While a region selection is open, a second capture request (shortcut) is refused: notification "A region capture is already running…"; finishing or cancelling the selection frees it                                                                       | unverified                                                 | unverified |
+| 5.9 | Chrome only: leave the overlay open for > 1 minute before dragging (the service worker may be recycled) → the capture still completes                                                                                                                       | unverified                                                 | n/a        |
 
 ## 6. Full-page capture (M6, needs a real gesture)
 
@@ -197,6 +215,62 @@ the two captures.
 | 8.3 | **Logged-out view**: open both links in a private window. The full page shows fit-to-width and the annotations are legible at that zoom; the crop shows at natural size and the annotations are legible there. The flat image matches what the editor showed (same thickness, same text size) | unverified | unverified |
 | 8.4 | Resize a text on the full-page capture with its corner handle, then reload as the owner and logged-out: the resized size is what was saved (absolute pixels), not the default                                                                                                                 | unverified | unverified |
 | 8.5 | Select an arrow on the full-page capture: the endpoint handles are the usual small circles on screen, not scaled with the image                                                                                                                                                               | unverified | unverified |
+
+## 9. Smart region suggestions (E7, 0.2.0 — needs a real gesture)
+
+In Region mode the overlay highlights a confident target under the pointer —
+an image / video / canvas / svg, or a box with a visible border or shadow —
+with a **green outline and a green `W × H` badge** at its top-left corner
+(the manual drag rect is a white hairline with a dark readout below it). A
+click captures the highlighted element; dragging works exactly as in §5 and
+dismisses the highlight as soon as it starts. Everything else highlights
+nothing, on purpose. The switch is **Smart region suggestions** on the
+options page, on by default.
+
+Suggested pages: an **image-heavy** page (an image search result, a photo
+gallery, a Wikipedia article with an infobox); a **card-based** page (a
+GitHub repository page, a dashboard, a product grid —
+`getbootstrap.com/docs/5.3/examples/album/` has both cards and images); a
+**plain-text** page (`news.ycombinator.com`, a long article body).
+
+"overlay" in the status columns means the behaviour was driven in fixture
+pages by Playwright — Chromium, and Playwright's Firefox for the Firefox
+column; neither is the installed extension after a real gesture.
+
+| #    | Check                                                                                                                                                                                                                                                                                             | Chrome                                                                                            | Firefox                                                                  |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 9.1  | **Image-heavy page**: `Alt+Shift+R`, hover an image → green outline hugging exactly that image, badge shows its size; move to the gap between images → the highlight goes and the page is evenly dimmed                                                                                           | overlay: verified (Playwright fixtures); real page after a gesture: unverified                    | overlay: verified (Playwright Firefox 155); in the extension: unverified |
+| 9.2  | Click the highlighted image → overlay disappears **before** the capture; a new tab opens with exactly that image — its own border/edge complete on all four sides, **no green outline, no badge, no dim** anywhere in the picture                                                                 | removal + rect: verified (Playwright, pixel-identical page); pixels of a real capture: unverified | removal + rect: verified (Playwright Firefox); pixels: unverified        |
+| 9.3  | On a 2× display (or browser zoom ≠ 100%) the stored image of 9.2 is `W×dpr` by `H×dpr` px with nothing shaved off the right or bottom edge                                                                                                                                                        | CSS rect + dpr reported: verified (Playwright); pixels: unverified                                | unverified                                                               |
+| 9.4  | **Card-based page**: hover a card's text or padding → the whole card is highlighted (border or shadow included); click → the capture is the card. Small bordered controls inside it (buttons, inputs under 48 px) do not take the highlight from the card                                         | overlay: verified (Playwright fixtures); real page: unverified                                    | overlay: verified (Playwright Firefox); in the extension: unverified     |
+| 9.5  | **Image inside a card**: hover the image → the image is highlighted; hover the card's padding → the card. Where the image fills the card edge to edge, the outer ~8 px of the card selects the card and the middle selects the image                                                              | overlay: verified (Playwright fixtures); real page: unverified                                    | overlay: verified (Playwright Firefox); in the extension: unverified     |
+| 9.6  | **Plain-text page**: move over paragraphs, headings, links and list items → **nothing** highlights; a click does nothing (overlay stays, no upload, no notification); a drag still selects                                                                                                        | overlay: verified (Playwright, 576-point sweep); real page: unverified                            | overlay: verified (Playwright Firefox); in the extension: unverified     |
+| 9.7  | **Drag from a highlighted element**: press on a highlighted image and drag → the green highlight vanishes as the drag starts, the white drag rect follows the pointer, and the capture is the dragged rectangle, not the image                                                                    | overlay: verified (Playwright); pixels: unverified                                                | overlay: verified (Playwright Firefox); in the extension: unverified     |
+| 9.8  | Esc while an element is highlighted → overlay gone, no upload, no notification, no `!` badge                                                                                                                                                                                                      | overlay: verified (Playwright); no-badge: unverified                                              | overlay: verified (Playwright Firefox); in the extension: unverified     |
+| 9.9  | An image partly scrolled off the bottom of the window → the highlight stops at the window edge and the capture is the visible part                                                                                                                                                                | clamp: verified (Playwright); pixels: unverified                                                  | clamp: verified (Playwright Firefox); in the extension: unverified       |
+| 9.10 | **The switch**: options page → untick **Smart region suggestions** → status "Smart region suggestions off."; Region mode now shows the old hint, highlights nothing, a click on an image does nothing, a drag works. Tick it again → highlights are back. No Save click or token is needed for it | switch + storage + click no-op: verified (smoke, built extension); via a real gesture: unverified | unverified                                                               |
+| 9.11 | The popup's **Region** button and the `Alt+Shift+R` shortcut both give the highlights                                                                                                                                                                                                             | background passes the setting: verified (smoke); via popup/shortcut: unverified                   | unverified                                                               |
+| 9.12 | After updating from 0.1.1 (Firefox: automatic from `/ext/`; Chrome: store update) the stored server address and token are still there and suggestions are on without touching the options page                                                                                                    | default-on with nothing stored: verified (smoke); a real update: unverified                       | unverified                                                               |
+
+Known limitations of the suggestions (documented, not bugs to file):
+
+- **Frames and shadow DOM.** Content inside an iframe — cross-origin or not —
+  and inside a closed shadow root cannot be inspected; the iframe or host
+  element itself is suggested only when it qualifies on its own (it is a
+  media element, or has a border or shadow). Open shadow roots are not
+  pierced either: the host is the element. A consent dialog or an embedded
+  player in an iframe therefore suggests at most the iframe's box.
+- **Not every picture is an element.** CSS background images, text on a
+  coloured panel with no border or shadow, and anything drawn inside one big
+  `<canvas>` are invisible to the heuristic. Drag, or capture more and crop
+  on the capture page.
+- **`pointer-events: none` elements** are skipped by the browser's hit test,
+  so a decorative image styled that way suggests whatever is behind it.
+- **Styles are read once per element** while the overlay is up; a page that
+  restyles an element under the open overlay keeps its first answer until
+  the next Region capture. Positions are read fresh on every move.
+- **Touch** has no hover: a tap on a qualifying element captures it without
+  a preview highlight. Untested, like everything else on Android.
 
 ## Running the live-server Playwright checks yourself
 
