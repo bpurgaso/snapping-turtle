@@ -128,7 +128,11 @@ Node is only needed on the machine that builds the extension (below).
    a rectangle, an arrow, some text — it autosaves. **Copy page link** shares
    the annotated view; **Copy image link** shares the flat PNG. Open the page
    link in a private window to see what recipients see. Region
-   (`Alt+Shift+R`) and Full page (`Alt+Shift+F`) work the same way.
+   (`Alt+Shift+R`) and Full page (`Alt+Shift+F`) work the same way. In
+   Region mode, images and bordered or shadowed boxes highlight under the
+   pointer and a click captures the highlighted one; drag to select any
+   other rectangle (the highlights can be switched off in the extension's
+   settings).
 
 ## Linux client
 

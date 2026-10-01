@@ -101,7 +101,7 @@ release. Signing stays local.
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `activeTab`                                       | Grants capture and script-injection rights on the one tab the user invoked the extension on, only for that gesture. This is how the extension takes the screenshot (`captureVisibleTab`) without requesting access to all sites.                       |
 | `scripting`                                       | Injects the region-selection overlay and the full-page scroll driver into the invoked tab, on demand, after the user clicks Region or Full page. No content script is declared in the manifest; nothing runs on pages the user did not ask to capture. |
-| `storage`                                         | Stores the user's server address, their API token and the last-used capture mode in `storage.local` on this device only. `storage.sync` is deliberately not used so the token never leaves the browser profile.                                        |
+| `storage`                                         | Stores the user's server address, their API token, the last-used capture mode and the region-suggestions preference in `storage.local` on this device only. `storage.sync` is deliberately not used so the token never leaves the browser profile.     |
 | `notifications`                                   | Reports an upload failure once the popup has closed or when the capture was started from a keyboard shortcut — the only channel left at that point.                                                                                                    |
 | Host permission for the build-time default server | The single origin uploads are sent to: the snapping-turtle server this build was made for.                                                                                                                                                             |
 | `optional_host_permissions: https://*/*`          | Lets a user who runs their own server at a different domain grant access to exactly that origin from the options page. Requested at runtime for one origin at a time, never for all sites.                                                             |
@@ -121,7 +121,10 @@ Tick, truthfully:
 
 Leave unticked: personally identifiable information, health, financial,
 personal communications, location, user activity (no clicks, keystrokes or
-browsing are recorded — only the one page the user captures).
+browsing are recorded — only the one page the user captures). Region mode's
+element suggestions (0.2.0) change none of this: they read the layout of the
+tab the user invoked the extension on, locally, to draw a highlight, and
+what leaves the browser is still only the captured image, its URL and title.
 
 Certifications (all three are true and must be ticked):
 
@@ -148,9 +151,10 @@ Certifications (all three are true and must be ticked):
 > and deletes the image when its retention period ends (30 days by default,
 > extendable by the owner; the server's operator controls the policy).
 >
-> What is stored in the browser: the server address, the API token and the
-> last-used capture mode, in the extension's local storage on this device.
-> Removing the extension deletes them.
+> What is stored in the browser: the server address, the API token, the
+> last-used capture mode and whether region suggestions are switched on, in
+> the extension's local storage on this device. Removing the extension
+> deletes them.
 >
 > Who can see a capture: anyone who has its link. Links are unguessable;
 > treat them as you would the screenshot itself. The server's operator (the
