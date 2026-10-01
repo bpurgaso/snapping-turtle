@@ -76,3 +76,57 @@ export function unavailableGatedApis(
 export function declaresAllUrls(manifest: ManifestPermissions): boolean {
   return declared(manifest).has(NATIVE_FULL_PAGE_PERMISSION);
 }
+
+/**
+ * The permission floor (PLAN.md §15): exactly what the shipped manifests ask
+ * for, in the order they ask for it. The template is the source the build
+ * reads; this is the independent record the release audit and the manifest
+ * tests hold it to, so a permission cannot arrive by editing one file. A
+ * feature that needs none — the region suggestions (E7) read the DOM of a tab
+ * `activeTab` + `scripting` already cover — leaves this untouched; changing it
+ * is a product decision that also changes the store disclosures
+ * (extension/STORE_SUBMISSION.md).
+ */
+export const PINNED_PERMISSIONS: readonly string[] = [
+  'activeTab',
+  'scripting',
+  'storage',
+  'notifications',
+];
+export const PINNED_OPTIONAL_HOST_PERMISSIONS: readonly string[] = ['https://*/*'];
+/** Manifest keys that grant access by another name; none may appear. */
+export const FORBIDDEN_ACCESS_KEYS = ['optional_permissions', 'content_scripts'] as const;
+
+export interface ManifestAccessKeys extends ManifestPermissions {
+  optional_host_permissions?: readonly string[];
+  optional_permissions?: unknown;
+  content_scripts?: unknown;
+}
+
+/**
+ * Empty when the manifest's permission set is byte-identical to the pinned
+ * one: `permissions` and `optional_host_permissions` as recorded above, and
+ * `host_permissions` exactly the build's default server.
+ */
+export function permissionSetDrift(
+  manifest: ManifestAccessKeys,
+  defaultServerPattern: string,
+): string[] {
+  const problems: string[] = [];
+  const check = (key: string, actual: unknown, pinned: readonly string[]): void => {
+    const have = JSON.stringify(actual ?? null);
+    const want = JSON.stringify(pinned);
+    if (have !== want) problems.push(`${key} is ${have}, the pinned set is ${want}`);
+  };
+  check('permissions', manifest.permissions, PINNED_PERMISSIONS);
+  check('host_permissions', manifest.host_permissions, [defaultServerPattern]);
+  check(
+    'optional_host_permissions',
+    manifest.optional_host_permissions,
+    PINNED_OPTIONAL_HOST_PERMISSIONS,
+  );
+  for (const key of FORBIDDEN_ACCESS_KEYS) {
+    if (manifest[key] !== undefined) problems.push(`${key} must not be declared`);
+  }
+  return problems;
+}
