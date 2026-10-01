@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>suggestions: plain text fixture</title>
+    <!--
+      Region suggestions (E7), the conservative contract: an ordinary article
+      on a plain background — headings (one underlined), paragraphs, links, a
+      list, a quote with a side rule, a rule, inline code with a hairline
+      border, a borderless table, a small icon — must yield ZERO suggestions.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+        color: #222;
+        font:
+          16px/1.6 Georgia,
+          serif;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      h1 {
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 8px;
+      }
+      blockquote {
+        margin: 16px 0;
+        padding: 4px 16px;
+        border-left: 4px solid #ccc;
+        color: #555;
+      }
+      code {
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        padding: 0 4px;
+        font:
+          13px/1.2 ui-monospace,
+          monospace;
+      }
+      td,
+      th {
+        padding: 4px 16px 4px 0;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+      }
+      table {
+        border-collapse: collapse;
+      }
+      nav {
+        padding: 12px 24px;
+        border-bottom: 1px solid #ddd;
+      }
+      nav a {
+        margin-right: 16px;
+      }
+      .icon {
+        width: 16px;
+        height: 16px;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="#one">One</a><a href="#two">Two</a><a href="#three">Three</a>
+      <svg class="icon" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#888" /></svg>
+    </nav>
+    <main>
+      <h1 id="one">A plain article</h1>
+      <p>
+        Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut
+        labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco
+        laboris nisi ut aliquip ex ea commodo consequat, with a <a href="#two">link</a> and some
+        <code>inline code</code> in it.
+      </p>
+      <h2 id="two">A second heading</h2>
+      <p>
+        Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla
+        pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt
+        mollit anim id est laborum.
+      </p>
+      <blockquote>
+        A quotation set off by a rule down its left side, which is one side, not a box.
+      </blockquote>
+      <ul>
+        <li>First item of a list</li>
+        <li>Second item of a list</li>
+        <li>Third item of a list</li>
+      </ul>
+      <hr />
+      <h2 id="three">A table without a frame</h2>
+      <table>
+        <tr>
+          <th>Name</th>
+          <th>Value</th>
+        </tr>
+        <tr>
+          <td>alpha</td>
+          <td>1</td>
+        </tr>
+        <tr>
+          <td>beta</td>
+          <td>2</td>
+        </tr>
+      </table>
+      <p>
+        Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque
+        laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi
+        architecto beatae vitae dicta sunt explicabo.
+      </p>
+    </main>
+  </body>
+</html>
