@@ -13,6 +13,10 @@ export const ANNOTATION_SCHEMA_VERSION = 1 as const;
  *  editor refuses a smaller drag and the validator rejects a smaller `crop`. */
 export const MIN_CROP_PX = 16;
 
+/** Smallest redaction block (E9), in original-image pixels per side: the
+ *  editor discards a smaller drag and the validator rejects a smaller `redact`. */
+export const MIN_REDACT_PX = 4;
+
 // ---- Image and upload caps (§12, §15) ---------------------------------------
 
 /** Full-page captures are capped at this many physical pixels tall. Shared by

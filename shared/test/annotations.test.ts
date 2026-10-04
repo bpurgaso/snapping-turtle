@@ -5,9 +5,13 @@ import {
   ANNOTATION_SCHEMA_VERSION,
   AnnotationDocument,
   MIN_CROP_PX,
+  MIN_REDACT_PX,
+  REDACTION_STYLE,
   annotationSizes,
   effectiveWidth,
   emptyAnnotationDocument,
+  redactionPixelRect,
+  renderOrder,
   type Shape,
 } from '../src/index.js';
 
@@ -212,5 +216,109 @@ describe('crop viewport (E4)', () => {
       annotationSizes(effectiveWidth({ width: 2560 }, { x: 0, y: 0, w: 300, h: 200 })),
     ).toEqual(annotationSizes(300));
     expect(annotationSizes(2560).strokeWidth).toBeGreaterThan(annotationSizes(300).strokeWidth);
+  });
+});
+
+describe('redaction (E9)', () => {
+  const image = { width: 800, height: 600 };
+  const base = { version: ANNOTATION_SCHEMA_VERSION, rev: 1 };
+  const block: Shape = { id: 'b1', type: 'redact', x: 100, y: 50, w: 200, h: 80 };
+
+  it('a document without a redaction validates and persists exactly as before E9', () => {
+    const res = validateAnnotationDocument({ ...base, shapes: [rect, arrow, text] }, image);
+    expect(res.ok).toBe(true);
+    expect(JSON.stringify((res as { doc: unknown }).doc)).toBe(
+      JSON.stringify({ ...base, shapes: [rect, arrow, text] }),
+    );
+  });
+
+  it('accepts an integer block of at least MIN_REDACT_PX per side and persists it as given', () => {
+    const res = validateAnnotationDocument({ ...base, shapes: [rect, block] }, image);
+    expect(res.ok).toBe(true);
+    expect((res as { doc: { shapes: Shape[] } }).doc.shapes[1]).toEqual(block);
+    const minimal = { ...block, w: MIN_REDACT_PX, h: MIN_REDACT_PX };
+    expect(validateAnnotationDocument({ ...base, shapes: [minimal] }, image).ok).toBe(true);
+  });
+
+  it('the schema enforces integers, the minimum side and no extra keys; bounds follow the rect rule', () => {
+    const bad: unknown[] = [
+      { ...block, x: 10.5 },
+      { ...block, w: 100.25 },
+      { ...block, w: MIN_REDACT_PX - 1 },
+      { ...block, h: 0 },
+      { ...block, h: -10 },
+      { ...block, x: NaN },
+      { ...block, opacity: 0.5 },
+      { ...block, style: 'blur' },
+      { id: 'b', type: 'redact', x: 0, y: 0, w: 10 },
+    ];
+    for (const shape of bad) {
+      expect(
+        Value.Check(AnnotationDocument, { ...base, shapes: [shape] }),
+        JSON.stringify(shape),
+      ).toBe(false);
+    }
+    // Like a rect: may overhang by the margin, not beyond it.
+    const m = ANNOTATION_BOUNDS_MARGIN_PX;
+    expect(annotationBoundsError({ ...block, x: -m, y: -m }, image)).toBeNull();
+    expect(annotationBoundsError({ ...block, x: image.width + m - block.w }, image)).toBeNull();
+    expect(annotationBoundsError({ ...block, x: -m - 1 }, image)).toMatch(/b1/);
+    expect(annotationBoundsError({ ...block, y: image.height + m - block.h + 1 }, image)).toMatch(
+      /b1/,
+    );
+  });
+
+  it('redactionPixelRect is the identity on a stored block and rounds outward otherwise', () => {
+    expect(redactionPixelRect(block)).toEqual({ x: 100, y: 50, w: 200, h: 80 });
+    // A drag in progress has float geometry: floor the origin, ceil the far edge.
+    expect(redactionPixelRect({ x: 10.2, y: 20.9, w: 30.1, h: 5.05 })).toEqual({
+      x: 10,
+      y: 20,
+      w: 31,
+      h: 6,
+    });
+    expect(redactionPixelRect({ x: -0.5, y: -0.5, w: 3.9, h: 3.2 })).toEqual({
+      x: -1,
+      y: -1,
+      w: 5,
+      h: 4,
+    });
+    // Never smaller than the input on any side.
+    for (const r of [
+      { x: 0.99, y: 0.01, w: 1.01, h: 9.99 },
+      { x: 7, y: 7, w: 0.1, h: 0.1 },
+    ]) {
+      const p = redactionPixelRect(r);
+      expect(p.x).toBeLessThanOrEqual(r.x);
+      expect(p.y).toBeLessThanOrEqual(r.y);
+      expect(p.x + p.w).toBeGreaterThanOrEqual(r.x + r.w);
+      expect(p.y + p.h).toBeGreaterThanOrEqual(r.y + r.h);
+      expect([p.x, p.y, p.w, p.h].every(Number.isInteger)).toBe(true);
+    }
+    expect(() => redactionPixelRect({ x: NaN, y: 0, w: 10, h: 10 })).toThrow(/non-finite/);
+    expect(() => redactionPixelRect({ x: 0, y: 0, w: Infinity, h: 10 })).toThrow(/non-finite/);
+  });
+
+  it('renderOrder puts every redaction first and keeps document order within each group', () => {
+    const b2: Shape = { id: 'b2', type: 'redact', x: 0, y: 0, w: 10, h: 10 };
+    expect(renderOrder([rect, block, text, b2, arrow]).map((s) => s.id)).toEqual([
+      'b1',
+      'b2',
+      'a1',
+      'a3',
+      'a2',
+    ]);
+    expect(renderOrder([])).toEqual([]);
+    expect(renderOrder([rect, arrow])).toEqual([rect, arrow]);
+    expect(renderOrder([block])).toEqual([block]);
+    // Pure: the input is untouched.
+    const input = [text, block];
+    renderOrder(input);
+    expect(input.map((s) => s.id)).toEqual(['a3', 'b1']);
+  });
+
+  it('the redaction style is an opaque fill with no stroke (no size literal elsewhere, §9 E9)', () => {
+    expect(REDACTION_STYLE.fill).toMatch(/^#[0-9a-f]{6}$/);
+    expect(REDACTION_STYLE.strokeWidth).toBe(0);
   });
 });

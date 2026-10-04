@@ -1,6 +1,6 @@
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
-import { ANNOTATION_SCHEMA_VERSION, MIN_CROP_PX } from './constants.js';
+import { ANNOTATION_SCHEMA_VERSION, MIN_CROP_PX, MIN_REDACT_PX } from './constants.js';
 
 /**
  * Versioned annotation document (PLAN.md §9). This is our own persistence
@@ -69,7 +69,27 @@ export const TextShape = Type.Object(
   { additionalProperties: false, $id: 'TextShape' },
 );
 
-export const Shape = Type.Union([RectShape, ArrowShape, TextShape], { $id: 'Shape' });
+/**
+ * Redaction block (E9, §9; threat model at the end of §12): a solid opaque
+ * rectangle drawn under every other shape, in whole original-image pixels —
+ * integers, each side at least MIN_REDACT_PX, bounds-checked like a rect
+ * (image ± margin, so a block may run off the edge to cover something flush
+ * with it). Schema version stays 1: a document without one serialises as
+ * before. It is a viewport-independent fill: no stroke, no size curve.
+ */
+export const RedactShape = Type.Object(
+  {
+    id: ShapeId,
+    type: Type.Literal('redact'),
+    x: Type.Integer(),
+    y: Type.Integer(),
+    w: Type.Integer({ minimum: MIN_REDACT_PX }),
+    h: Type.Integer({ minimum: MIN_REDACT_PX }),
+  },
+  { additionalProperties: false, $id: 'RedactShape' },
+);
+
+export const Shape = Type.Union([RectShape, ArrowShape, TextShape, RedactShape], { $id: 'Shape' });
 
 /**
  * Non-destructive crop (E4, §9): a viewport onto the original image, in
@@ -104,6 +124,7 @@ export const AnnotationDocument = Type.Object(
 export type RectShape = Static<typeof RectShape>;
 export type ArrowShape = Static<typeof ArrowShape>;
 export type TextShape = Static<typeof TextShape>;
+export type RedactShape = Static<typeof RedactShape>;
 export type Shape = Static<typeof Shape>;
 export type CropRect = Static<typeof CropRect>;
 export type AnnotationDocument = Static<typeof AnnotationDocument>;
@@ -137,6 +158,64 @@ export const ANNOTATION_STYLE = {
    */
   fontFamily: 'Inter, system-ui, sans-serif',
 } as const;
+
+/**
+ * Redaction style (E9, §9). The block is a **solid opaque fill**, full stop:
+ * no blur, no pixelation, no mosaic. Every one of those is computed from the
+ * covered pixels and therefore carries information about them — depixelating
+ * and deblurring text is a practical, routine attack — so the rendered output
+ * must contain zero information from the covered region. Both renderers fill
+ * `redactionPixelRect(shape)` with this colour and nothing else; there is no
+ * stroke, so E1's adaptive sizing never applies to a block (§9 E9 notes).
+ */
+export const REDACTION_STYLE = {
+  fill: '#000000',
+  /** A block has no stroke, at any width — this is the one place that says 0. */
+  strokeWidth: 0,
+} as const;
+
+/** The integer pixel rectangle a block covers: `x..x+w` × `y..y+h`, exclusive. */
+export interface PixelRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The one geometry function for a redaction (E9, §9): the integer pixel
+ * rectangle both renderers fill. Rounds **outward** — floor on the top-left,
+ * ceil on the bottom-right — so that wherever a renderer's arithmetic could
+ * disagree it disagrees toward covering more, never less. Stored blocks are
+ * already integral (the editor passes a finished drag through this before
+ * storing), so on a valid document it is the identity; it is still the only
+ * path to a block's pixels in either renderer. Throws on a non-finite value:
+ * a block whose extent cannot be determined must not render as nothing.
+ */
+export function redactionPixelRect(r: { x: number; y: number; w: number; h: number }): PixelRect {
+  if (![r.x, r.y, r.w, r.h].every(Number.isFinite)) {
+    throw new Error('non-finite redaction geometry');
+  }
+  const x0 = Math.floor(r.x);
+  const y0 = Math.floor(r.y);
+  const x1 = Math.ceil(r.x + r.w);
+  const y1 = Math.ceil(r.y + r.h);
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * The drawing order both renderers use (E9, §9): image, then every redaction
+ * in document order, then every other shape in document order. An arrow or
+ * a text may point *at* a block (it is drawn over it); nothing is ever drawn
+ * under one, whatever order the owner created things in. Stable, pure, and
+ * the only ordering either renderer applies.
+ */
+export function renderOrder<T extends { type: Shape['type'] }>(shapes: readonly T[]): T[] {
+  const blocks: T[] = [];
+  const rest: T[] = [];
+  for (const s of shapes) (s.type === 'redact' ? blocks : rest).push(s);
+  return [...blocks, ...rest];
+}
 
 /**
  * Adaptive sizing (§9, E1): annotation sizes scale with the capture's width
@@ -311,6 +390,7 @@ export function annotationBoundsError(
   const okY = (v: number) => inRange(v, -m, image.height + m);
   switch (shape.type) {
     case 'rect':
+    case 'redact':
       if (okX(shape.x) && okY(shape.y) && okX(shape.x + shape.w) && okY(shape.y + shape.h)) {
         return null;
       }
@@ -382,7 +462,7 @@ export function isAnnotationDocument(input: unknown): input is AnnotationDocumen
 /**
  * Full server-side validation of an untrusted annotation document (S9):
  * schema (shape count, text length, finite coordinates, unknown keys, the
- * optional crop's integers and minimum size), then control-character
+ * optional crop's and every redaction's integers and minimum size), then control-character
  * stripping, then image-bounds checks (shapes within the margin, the crop
  * strictly inside the image). The returned
  * document is a sanitised copy - persist that, never the input.

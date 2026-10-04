@@ -820,5 +820,185 @@
     "ok": false,
     "category": "bounds",
     "reason": "shape a1 is outside the image bounds"
+  },
+  "redact: a block inside the image": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":100,\"y\":50,\"w\":200,\"h\":80}]}"
+  },
+  "redact: listed after other shapes (order is the renderer's concern, not the document's)": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140},{\"id\":\"a2\",\"type\":\"arrow\",\"x1\":40,\"y1\":400,\"x2\":210,\"y2\":260},{\"id\":\"a3\",\"type\":\"text\",\"x\":500,\"y\":60,\"text\":\"look here\",\"fontSize\":28},{\"id\":\"b1\",\"type\":\"redact\",\"x\":100,\"y\":50,\"w\":200,\"h\":80}]}"
+  },
+  "redact: listed before other shapes": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":100,\"y\":50,\"w\":200,\"h\":80},{\"id\":\"a1\",\"type\":\"rect\",\"x\":120,\"y\":80,\"w\":300,\"h\":140},{\"id\":\"a2\",\"type\":\"arrow\",\"x1\":40,\"y1\":400,\"x2\":210,\"y2\":260},{\"id\":\"a3\",\"type\":\"text\",\"x\":500,\"y\":60,\"text\":\"look here\",\"fontSize\":28}]}"
+  },
+  "redact: several blocks, overlapping": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":100,\"y\":50,\"w\":200,\"h\":80},{\"id\":\"b2\",\"type\":\"redact\",\"x\":150,\"y\":90,\"w\":200,\"h\":80}]}"
+  },
+  "redact: minimum size": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":100,\"y\":50,\"w\":4,\"h\":4}]}"
+  },
+  "redact: overhanging the image by exactly the margin (rect rule)": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":-100,\"y\":-100,\"w\":200,\"h\":80}]}"
+  },
+  "redact: flush with the far edge plus the margin": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":700,\"y\":620,\"w\":200,\"h\":80}]}"
+  },
+  "redact: covering the whole image": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":0,\"y\":0,\"w\":800,\"h\":600}]}"
+  },
+  "redact: integer-valued floats (100.0)": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":100,\"y\":50,\"w\":200,\"h\":80}]}"
+  },
+  "redact: together with a crop, outside the crop (original-space bounds)": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":100,\"y\":50,\"w\":200,\"h\":80}],\"crop\":{\"x\":0,\"y\":0,\"w\":50,\"h\":50}}"
+  },
+  "redact: text control chars elsewhere are still sanitised alongside": {
+    "schema": true,
+    "ok": true,
+    "category": "ok",
+    "persisted": "{\"version\":1,\"rev\":3,\"shapes\":[{\"id\":\"b1\",\"type\":\"redact\",\"x\":100,\"y\":50,\"w\":200,\"h\":80},{\"id\":\"a3\",\"type\":\"text\",\"x\":500,\"y\":60,\"text\":\"ab\",\"fontSize\":28}]}"
+  },
+  "redact: fractional x": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: fractional width": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: width one below the minimum": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: height one below the minimum": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: zero size": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: negative width": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: NaN": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: Infinity": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: numeric strings": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
+  },
+  "redact: missing a side": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0"
+  },
+  "redact: extra key (a style — there is exactly one)": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/style"
+  },
+  "redact: extra key (opacity — a block is opaque)": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/opacity"
+  },
+  "redact: rect fields mixed with arrow fields": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/x2"
+  },
+  "redact: huge integer": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "shape b1 is outside the image bounds"
+  },
+  "redact: one pixel past the margin on the left": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "shape b1 is outside the image bounds"
+  },
+  "redact: one pixel past the margin on the bottom": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "shape b1 is outside the image bounds"
+  },
+  "redact: right edge past the margin": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "shape b1 is outside the image bounds"
+  },
+  "redact: valid block but a text out of bounds still fails on the text": {
+    "schema": true,
+    "ok": false,
+    "category": "bounds",
+    "reason": "shape a3 is outside the image bounds"
+  },
+  "redact: type with different case": {
+    "schema": false,
+    "ok": false,
+    "category": "schema",
+    "reason": "invalid annotation document at /shapes/0/type"
   }
 }

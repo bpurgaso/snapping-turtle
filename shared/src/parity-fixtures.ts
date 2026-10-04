@@ -2,8 +2,10 @@ import { ANNOTATION_SCHEMA_VERSION } from './constants.js';
 import {
   annotationSizes,
   effectiveWidth,
+  redactionPixelRect,
   type AnnotationDocument,
   type CropRect,
+  type PixelRect,
   type Shape,
 } from './annotations.js';
 
@@ -25,6 +27,9 @@ import {
  * without a narrow crop (the sizes must follow the *effective* width, §9),
  * and shapes inside, outside and straddling the crop edge (the clip must be
  * identical in both renderers). A fixture with `crop` renders `crop.w × crop.h`.
+ * `redactFixtures()` (E9) adds redaction blocks — alone, under every other
+ * shape, and clipped by a crop — with the zero-tolerance probes the parity
+ * spec and the server goldens check inside them (§10 E9).
  */
 
 export interface ParityFixture {
@@ -50,6 +55,22 @@ export interface ParityFixture {
    * proven on real pixels, not just on the function.
    */
   strokeBand?: { x: number; yFrom: number; yTo: number; px: number };
+  /**
+   * Redaction probes (E9, §10): output-space rectangles that must be
+   * *exactly* `REDACTION_STYLE.fill` on both renderers, with no tolerance —
+   * a differing pixel inside a block is the original showing through, a
+   * privacy bug and not rasterization noise. Chosen inside the blocks and
+   * away from any shape drawn over them. When absent, `fixtureFillRegions()`
+   * uses every block, clipped to the output (a fixture with nothing but
+   * blocks is checked over all of them).
+   */
+  fillProbes?: PixelRect[];
+  /**
+   * The order rule proven on pixels (E9, §9): output-space pixels that must
+   * be exactly `color` on both renderers because a shape drawn *over* a block
+   * covers it there — an arrow or a rect stroke crossing a redaction.
+   */
+  overProbes?: Array<{ x: number; y: number; color: string }>;
 }
 
 const doc = (shapes: Shape[]): Shape[] => shapes;
@@ -194,6 +215,81 @@ function cropFixtures(): ParityFixture[] {
   ];
 }
 
+/**
+ * Redaction fixtures (E9). `redact-only` has nothing but blocks — one in the
+ * middle, one at the minimum size, one running off the bottom-right edge
+ * within the margin — so the whole of every block is checked. `redact-order`
+ * lists the block *last* in the document with a rect whose top stroke crosses
+ * it, an arrow whose head lands in it and a text run over it: both renderers
+ * must draw the block first (`renderOrder()`), so the probes inside the block
+ * away from those shapes are pure fill and the `overProbes` on the rect's red
+ * core and the arrowhead are red — nothing peeks from under a block, and a
+ * block never covers a shape. `redact-crop` puts blocks inside, straddling
+ * two edges, and wholly outside the E4 crop; the visible parts must be
+ * covered exactly in the cropped output.
+ */
+function redactFixtures(): ParityFixture[] {
+  const width = 1280;
+  const height = 720;
+  const crop: CropRect = { x: 400, y: 200, w: 300, h: 220 };
+  return [
+    {
+      name: 'redact-only',
+      width,
+      height,
+      background: BG,
+      hasText: false,
+      shapes: [
+        { id: 'b1', type: 'redact', x: 200, y: 150, w: 400, h: 200 },
+        { id: 'b-min', type: 'redact', x: 50, y: 50, w: 4, h: 4 },
+        { id: 'b-edge', type: 'redact', x: 1150, y: 620, w: 200, h: 150 },
+      ],
+    },
+    {
+      name: 'redact-order',
+      width,
+      height,
+      background: BG,
+      hasText: true,
+      shapes: [
+        { id: 'r1', type: 'rect', x: 300, y: 300, w: 400, h: 250 },
+        { id: 'a1', type: 'arrow', x1: 900, y1: 600, x2: 650, y2: 380 },
+        { id: 't1', type: 'text', x: 420, y: 330, text: 'hidden?', fontSize: annotationSizes(width).defaultFontSize },
+        // Listed last on purpose: the document's order is not the drawing order.
+        { id: 'b1', type: 'redact', x: 400, y: 250, w: 300, h: 150 },
+      ],
+      fillProbes: [
+        { x: 410, y: 255, w: 280, h: 40 }, // the band above the rect's top stroke, text starts lower
+        { x: 560, y: 312, w: 60, h: 40 }, // right of the text, above the arrowhead
+        { x: 410, y: 250, w: 280, h: 2 }, // the block's top edge rows
+        { x: 410, y: 398, w: 230, h: 2 }, // the bottom edge rows, left of the arrowhead
+        { x: 400, y: 255, w: 2, h: 40 }, // the left edge columns
+        { x: 698, y: 255, w: 2, h: 40 }, // the right edge columns
+      ],
+      overProbes: [
+        // The rect's red core where its top edge crosses the block (path at y 304, red 302–306).
+        { x: 550, y: 304, color: '#e03131' },
+        // Inside the arrowhead's red fill, 12 px behind the tip along the shaft.
+        { x: 659, y: 388, color: '#e03131' },
+      ],
+    },
+    {
+      name: 'redact-crop',
+      width,
+      height,
+      background: BG,
+      hasText: false,
+      shapes: [
+        { id: 'inside', type: 'redact', x: 450, y: 250, w: 100, h: 60 },
+        { id: 'straddle-right-bottom', type: 'redact', x: 600, y: 350, w: 200, h: 150 },
+        { id: 'straddle-left-top', type: 'redact', x: 300, y: 100, w: 150, h: 150 },
+        { id: 'outside', type: 'redact', x: 0, y: 0, w: 100, h: 100 },
+      ],
+      crop,
+    },
+  ];
+}
+
 export const PARITY_FIXTURES: ParityFixture[] = [
   {
     name: 'rect',
@@ -274,6 +370,7 @@ export const PARITY_FIXTURES: ParityFixture[] = [
   },
   ...matrixFixtures(),
   ...cropFixtures(),
+  ...redactFixtures(),
 ];
 
 /** Output size of a fixture: the crop when it has one (E4), else the image. */
@@ -285,4 +382,29 @@ export function fixtureDocument(f: ParityFixture): AnnotationDocument {
   const doc: AnnotationDocument = { version: ANNOTATION_SCHEMA_VERSION, rev: 1, shapes: f.shapes };
   if (f.crop) doc.crop = f.crop;
   return doc;
+}
+
+/**
+ * The regions of a fixture's output that must be exactly the redaction fill
+ * on both renderers (E9, §10): the declared `fillProbes`, or — for a fixture
+ * with nothing but blocks — every block's pixel rect translated into output
+ * (cropped) coordinates and clipped to the output. Empty for fixtures without
+ * blocks. A block wholly outside the crop contributes nothing, by design.
+ */
+export function fixtureFillRegions(f: ParityFixture): PixelRect[] {
+  if (f.fillProbes) return f.fillProbes;
+  const out = fixtureOutputSize(f);
+  const ox = f.crop?.x ?? 0;
+  const oy = f.crop?.y ?? 0;
+  const regions: PixelRect[] = [];
+  for (const s of f.shapes) {
+    if (s.type !== 'redact') continue;
+    const p = redactionPixelRect(s);
+    const x0 = Math.max(0, p.x - ox);
+    const y0 = Math.max(0, p.y - oy);
+    const x1 = Math.min(out.width, p.x + p.w - ox);
+    const y1 = Math.min(out.height, p.y + p.h - oy);
+    if (x1 > x0 && y1 > y0) regions.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
+  return regions;
 }
