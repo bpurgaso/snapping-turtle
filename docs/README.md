@@ -31,7 +31,7 @@ shaped a design decision, or a contract the code is held to.
 | [extension/STORE_SUBMISSION.md](../extension/STORE_SUBMISSION.md)       | M8, E2, E8 | Chrome Web Store unlisted listing (copy, permission justifications, data-use disclosure, the live privacy-policy URL, the generated screenshot set) and AMO signing + self-distribution, as a human checklist |
 | [extension/store-assets/README.md](../extension/store-assets/README.md) | E8         | The generated listing screenshots: what each shows, the fixture page they are made from, how `listing-shots` regenerates them                                                                                 |
 | [web/content/privacy.md](../web/content/privacy.md)                     | E8         | The canonical privacy policy — the owner's text, served at `/privacy`; the store kit and the page both point here                                                                                             |
-| [extension/TESTING.md](../extension/TESTING.md)                         | M2, M6     | What automation covers and the manual checklist for what needs a real browser gesture (capture), per browser                                                                                                  |
+| [extension/TESTING.md](../extension/TESTING.md)                         | M2, M6, E9 | What automation covers and the manual checklist for what needs a real browser gesture (capture), per browser; §10 is the redaction private-window and unfurl checklist                                        |
 | [firefox-capturetab-probe.md](firefox-capturetab-probe.md)              | M6, E5     | Measured `tabs.captureTab({ rect, scale })` semantics, and (E5) which manifest permission makes `captureTab` exist at all — only `<all_urls>`, so Firefox stitches                                            |
 
 ## The Linux client
@@ -51,7 +51,8 @@ shaped a design decision, or a contract the code is held to.
 
 ## Contracts enforced by tests
 
-- Annotation schema and validation outcomes: `shared/test/fixtures/annotation-corpus.ts` (105 documents, snapshotted across the TypeBox 1.x migration).
+- Annotation schema and validation outcomes: `shared/test/fixtures/annotation-corpus.ts` (167 documents, snapshotted across the TypeBox 1.x migration; the E4 crop rows and the E9 redact rows were appended with every earlier row byte-unchanged).
+- Redaction (E9): `server/test/integration/redaction.test.ts` (the pixel-leak matrix on served bytes, the route audit as anonymous / another account / an admin, cache correctness with a staged stale flat); `web/test/parity/redact-editor.spec.ts` (the Redact tool in the real editor across both crop views, deletion restoring the pixels); the `redact-*` parity fixtures with zero tolerance inside a block (PLAN.md §10 E9).
 - Renderer parity: `pnpm test:parity` goldens under `web/test/` and `server/test/golden/` (PLAN.md §10 tolerances).
 - Uniform 404 on `/s/*`: `server/test/unit/secret-404.test.ts` and the lifecycle equality test in `server/test/integration/purge.test.ts`.
 - Security-event taxonomy ↔ `docs/security-events.md`: `server/test/unit/security-events.test.ts`.

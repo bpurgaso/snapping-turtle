@@ -1,4 +1,4 @@
-# Extension manual test checklist (M2 + M6 + E1 + E7)
+# Extension manual test checklist (M2 + M6 + E1 + E7 + E9)
 
 What automation covers and what a human must still do.
 
@@ -271,6 +271,27 @@ Known limitations of the suggestions (documented, not bugs to file):
   the next Region capture. Positions are read fresh on every move.
 - **Touch** has no hover: a tap on a qualifying element captures it without
   a preview highlight. Untested, like everything else on Android.
+
+## 10. Redaction (E9 — server + web; the extension only produces the capture)
+
+A **Redact** block hides a region of a capture from everyone who holds the
+link: it is a solid black rectangle drawn under every other annotation, in
+the editor exactly as viewers get it. It is a shape — delete, undo, autosave
+and the crop views all work on it — and **it is not an edit of the stored
+image**: the original stays reachable to the owner (that is what makes it
+deletable), and the guarantee is that no link ever serves the pixels under
+it (PLAN.md §12 E9). Automation covers the served pixels, the route audit and
+the editor under Playwright (`redaction.test.ts`, `redact-editor.spec.ts`);
+what needs a human is the private window and the chat unfurl.
+
+| #    | Check                                                                                                                                                                                                                                                                                                                                                                        | Chrome     | Firefox    |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------- |
+| 10.1 | Capture a page with something legible (an inbox, a settings page). In the editor click **Redact** and drag over the text. While dragging the block is see-through enough to line up; on release it is solid black. Draw an arrow pointing at it and a rectangle crossing it: both stay fully visible over the block, nothing of the text shows                               | unverified | unverified |
+| 10.2 | **Private window:** copy the page link and the image link, open each in a private window (or another browser). The page's image and the PNG both show the solid block with nothing of the text visible, at the exact edges too; the page source names only `…/image.png` (no `/original` anywhere). Owner page in the signed-in window still shows the editor with the block | unverified | unverified |
+| 10.3 | **Discord unfurl:** paste the page link in a channel. The unfurl's image shows the redacted (black-blocked) picture, not the original. Note: a link pasted _before_ the redaction keeps its old unfurl there (Discord's media proxy fetched it once) — the guarantee is prospective, so re-post the link after redacting if the old unfurl matters                           | unverified | unverified |
+| 10.4 | Move and resize the block with its handles: translucent while dragging, solid on release, snapped to whole pixels; reload as owner and in the private window: the new position is what both show, and the image link's bytes changed (a hard refresh in the private window shows the new render; no stale pre-redaction image)                                               | unverified | unverified |
+| 10.5 | **Crop + redaction:** apply a crop that cuts through the block. Collapsed view and private-window image both show the block's visible part covered right up to the crop edge; expand with **Crop** again — the whole block is there, still solid                                                                                                                             | unverified | unverified |
+| 10.6 | Select the block and press Delete, then **Undo**: the text is back for viewers after Delete (private-window hard refresh), hidden again after Undo. Deleting the capture removes everything as before                                                                                                                                                                        | unverified | unverified |
 
 ## Running the live-server Playwright checks yourself
 
