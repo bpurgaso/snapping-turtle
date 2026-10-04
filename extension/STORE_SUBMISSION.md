@@ -8,7 +8,11 @@ so this is a checklist with the copy drafted, the permission justifications
 written, and the data-use disclosure filled in truthfully.
 
 Status of every step below: **unverified** — nobody has submitted yet. Tick
-them off as you go and record the dates/versions at the bottom.
+them off as you go and record the dates/versions at the bottom. Since E8 the
+two inputs the console demands beyond the zip — a privacy-policy URL and
+screenshots — come from the repository: the policy is served live at
+`/privacy` from its canonical file, and the screenshots are generated into
+`store-assets/` by a script.
 
 ## 0. Build the artifacts
 
@@ -47,9 +51,10 @@ release. Signing stays local.
    _Developer Tools_). Language: English.
 5. **Privacy practices** tab — single purpose, permission justifications and
    data disclosures below. A **privacy policy URL** is mandatory because the
-   extension handles user data; host the text from §"Privacy policy" at any
-   URL you control (the repository's `docs/` on GitHub works, as does a page
-   on the snapping-turtle host).
+   extension handles user data: enter
+   `https://$PUBLIC_HOST:$PUBLIC_PORT/privacy` — the server serves the policy
+   there (§"Privacy policy" below). Before you paste it, load it once from
+   outside your network and read it as the reviewer will.
 6. **Distribution** tab — Visibility: **Unlisted**. Payments: free. Regions:
    all (or your choice). Unlisted items are reachable only by direct link and
    never appear in search, which is the intent for a friends-only server.
@@ -86,9 +91,21 @@ release. Signing stays local.
   > server software is open source at <repository URL>.
 
 - **Icon:** `extension/icons/icon-128.png`.
-- **Screenshots (at least one, 1280×800 or 640×400):** take them from a real
-  install — the popup over a page, the options page, an annotated capture
-  page. Make sure no screenshot contains a real capture link or token.
+- **Screenshots (at least one, 1280×800 or 640×400; JPEG or 24-bit PNG, no
+  alpha; up to five):** upload the generated set in
+  [`store-assets/`](store-assets/) — `01-capture-page.png` (a capture as a
+  viewer sees it), `02-editor.png` (the owner's editor mid-annotation, toolbar
+  showing) and `03-popup.png` (the toolbar popup on a neutral backdrop), each
+  exactly 1280×800. They are a build artifact, not a one-off:
+  `pnpm --filter extension listing-shots` boots a throwaway server, uploads
+  the bundled fixture page (`store-assets/fixture/demo-page.html`, invented
+  content, `example.com` addresses), annotates it through the API and
+  re-captures all three, so every listing update ships matching screenshots
+  (`store-assets/README.md`). Never replace them with a screenshot of a real
+  capture or a real page.
+- **Promotional images (optional, not produced here):** the console also
+  accepts a small promo tile (440×280) and a marquee (1400×560), JPEG or
+  24-bit PNG. The listing publishes without them.
 
 ### Single purpose
 
@@ -135,30 +152,24 @@ Certifications (all three are true and must be ticked):
 - I do not use or transfer user data to determine creditworthiness or for
   lending purposes.
 
-### Privacy policy (host this text at the URL you enter)
+### Privacy policy (the URL you enter)
 
-> **snapping-turtle browser extension — privacy policy**
->
-> The extension sends data only to the snapping-turtle server configured in
-> its options — by default the server it was built for, otherwise the one the
-> user entered. It never sends anything to the extension's authors or to any
-> third party, and it contains no analytics, telemetry or advertising.
->
-> What is sent, and only when the user triggers a capture: the screenshot
-> image, the URL and title of the captured page, and the user's API token
-> (as an authorization header). The server stores the image, the URL, the
-> title, the uploading account, the token used and the upload IP address,
-> and deletes the image when its retention period ends (30 days by default,
-> extendable by the owner; the server's operator controls the policy).
->
-> What is stored in the browser: the server address, the API token, the
-> last-used capture mode and whether region suggestions are switched on, in
-> the extension's local storage on this device. Removing the extension
-> deletes them.
->
-> Who can see a capture: anyone who has its link. Links are unguessable;
-> treat them as you would the screenshot itself. The server's operator (the
-> person running it) can see every capture uploaded to it.
+The policy is **one file**, `web/content/privacy.md` in this repository. The
+web build copies it into the bundle and the server renders it at
+`https://$PUBLIC_HOST:$PUBLIC_PORT/privacy` — an ordinary public page
+(indexable, cacheable, same CSP), linked from the home page's footer. That
+URL is what goes into the console; this document deliberately does not repeat
+the text, and `server/test/unit/privacy-page.test.ts` fails if the URL here,
+the route and the file drift apart.
+
+The text is the owner's: it is what you certify to Google, so wording changes
+are made in that one file, by you or with your sign-off, never silently — and
+a change ships with the app (`docker compose … up -d --build`), not with the
+extension. The policy describes the whole product (both extensions and the
+Linux desktop client), so one URL serves every listing.
+
+The URL embeds the deployment's host and port: a domain migration must update
+it in the console (`docs/runbooks/domain-migration.md` step 4).
 
 ## 2. Firefox — AMO signing and self-distribution
 
@@ -237,3 +248,12 @@ reason.
 | Date | Version | Chrome item id / status | AMO version status | Notes |
 | ---- | ------- | ----------------------- | ------------------ | ----- |
 | —    | —       | not yet submitted       | not yet signed     | —     |
+
+Listing inputs on record — fill in when first entered, update when they change
+(a domain migration changes the first; every regenerated screenshot set the
+second):
+
+| Input              | Value                                                                          | Entered / last updated |
+| ------------------ | ------------------------------------------------------------------------------ | ---------------------- |
+| Privacy policy URL | `https://$PUBLIC_HOST:$PUBLIC_PORT/privacy` (write the real host; not yet set) | —                      |
+| Screenshot set     | `extension/store-assets/` at commit `…` (the `listing-shots` run that made it) | —                      |

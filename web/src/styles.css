@@ -127,6 +127,37 @@ a.button {
   justify-content: center;
   margin-top: 1.5rem;
 }
+.foot {
+  margin-top: 2.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ---- document pages (the privacy policy, E8) ---------------------------- */
+body.doc .card {
+  max-width: 42rem;
+}
+.crumbs {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.prose h1 {
+  font-size: 1.5rem;
+}
+.prose h2 {
+  margin-top: 1.75rem;
+}
+.prose p,
+.prose li {
+  line-height: 1.6;
+}
+.prose ul {
+  padding-left: 1.25rem;
+}
+.prose li + li {
+  margin-top: 0.35rem;
+}
 
 /* ---- centred card pages (login / signup / account) --------------------- */
 body.page {

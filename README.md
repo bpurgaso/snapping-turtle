@@ -16,7 +16,11 @@ rules: [CLAUDE.md](CLAUDE.md). All docs: [docs/README.md](docs/README.md).
 
 **Status:** v1 complete (milestones M0–M8, PLAN.md §16). What remains is
 human-gated: store submission and AMO signing with the owner's accounts
-([extension/STORE_SUBMISSION.md](extension/STORE_SUBMISSION.md)).
+([extension/STORE_SUBMISSION.md](extension/STORE_SUBMISSION.md)). The two
+listing inputs the store needs beyond the build come from the repository: the
+privacy policy is served live at `/privacy` from `web/content/privacy.md`
+(linked from the home page's footer), and the listing screenshots are
+generated into `extension/store-assets/` by `pnpm --filter extension listing-shots`.
 
 ## How it works
 

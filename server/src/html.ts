@@ -1,4 +1,4 @@
-import type { CropRect } from '@snapping-turtle/shared';
+import { PRIVACY_PATH, type CropRect } from '@snapping-turtle/shared';
 
 /**
  * Server-rendered HTML for the secret routes. Everything interpolated goes
@@ -271,6 +271,37 @@ export function renderHomePage(m: HomePageModel): string {
             <a href="/login">Sign in</a>
             <a href="/account">Account</a>
           </nav>
+          <footer class="foot"><a href="${PRIVACY_PATH}">Privacy policy</a></footer>
+        </main>
+      </body>
+    </html> `;
+}
+
+/** The privacy policy page (E8): the rendered canonical text in the shared page chrome. */
+export interface PrivacyPageModel {
+  /** Server-built fragment from renderMarkdown(web/content/privacy.md) — already escaped. */
+  body: string;
+  assets: PageAssets;
+}
+
+/**
+ * An ordinary public document page: indexable, cacheable, under the same CSP
+ * as everything else. The body is the Markdown renderer's output and nothing
+ * else — no user data reaches this page.
+ */
+export function renderPrivacyPage(m: PrivacyPageModel): string {
+  return html`<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Privacy policy · snapping-turtle</title>
+        ${assetTags(m.assets)}
+      </head>
+      <body class="page doc">
+        <main class="card prose">
+          <p class="crumbs"><a href="/">snapping-turtle</a></p>
+          ${raw(m.body)}
         </main>
       </body>
     </html> `;

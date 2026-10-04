@@ -11,6 +11,7 @@
     "build:firefox": "pnpm run shared && tsx scripts/build.ts firefox",
     "build:release": "pnpm run shared && tsx scripts/release.ts",
     "sign:firefox": "pnpm run shared && tsx scripts/sign-firefox.ts",
+    "listing-shots": "pnpm run shared && pnpm --filter @snapping-turtle/web build && pnpm build:chrome && tsx scripts/listing-shots.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:smoke": "playwright test"
@@ -22,8 +23,10 @@
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@types/node": "22.20.1",
+    "@types/pngjs": "6.0.5",
     "@types/webextension-polyfill": "0.12.6",
     "fflate": "0.8.3",
+    "pngjs": "7.0.0",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
     "vite": "8.2.2",

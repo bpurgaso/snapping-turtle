@@ -61,6 +61,40 @@ test.describe('static pages under production CSP', () => {
     expect(errors).toEqual([]);
   });
 
+  test('privacy policy renders from its canonical file as a public page under the same CSP (E8)', async ({
+    page,
+  }) => {
+    const { violations, errors } = watch(page);
+    const response = await page.goto('/privacy');
+    expect(response?.status()).toBe(200);
+    const headers = response?.headers() ?? {};
+    expect(headers['content-security-policy']).toContain("default-src 'self'");
+    expect(headers['referrer-policy']).toBe('no-referrer');
+    // The one indexable, cacheable page: no robots directive, no no-store.
+    expect(headers['x-robots-tag']).toBeUndefined();
+    expect(headers['cache-control']).toBe('public, max-age=300');
+
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'snapping-turtle privacy policy',
+    );
+    await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'snapping-turtle' })).toHaveAttribute('href', '/');
+    // The stylesheet reached the page: the card layout, not browser defaults.
+    const display = await page.locator('body').evaluate((b) => getComputedStyle(b).display);
+    expect(display).toBe('flex');
+    expect(await page.locator('script').count()).toBe(0);
+
+    // And the home page footer leads here.
+    await page.goto('/');
+    await expect(page.getByRole('link', { name: 'Privacy policy' })).toHaveAttribute(
+      'href',
+      '/privacy',
+    );
+
+    expect(violations).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
   test('login page builds its form from script (no inline handlers)', async ({ page }) => {
     const { violations, errors } = watch(page);
     const response = await page.goto('/login');

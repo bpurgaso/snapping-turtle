@@ -314,6 +314,18 @@ the store; once the listing is approved put its URL in `CHROME_EXTENSION_URL`
 in `deploy/.env` and `docker compose up -d` — the home page's Chrome card
 flips from "coming soon" to an install button. Both cards always render.
 
+The privacy policy the store listings point at is served by the app at
+`https://$PUBLIC_HOST:$PUBLIC_PORT/privacy` (E8), rendered from the one
+canonical file `web/content/privacy.md` that the web build bakes into the
+app image; the home page's footer links it. It is the one page that is
+indexable and publicly cacheable (`Cache-Control: public, max-age=300`) —
+everything else, the secret pages first, stays `noindex` and `no-store`. A
+wording change is therefore an app deploy, `docker compose … up -d --build`,
+not an extension release; after the first deploy that carries it, open the
+URL from outside the network before pasting it into the Chrome console
+(`extension/STORE_SUBMISSION.md`). The URL embeds the host and port, so a
+domain migration updates the listing (`docs/runbooks/domain-migration.md`).
+
 ## Notes
 
 - Caddy runs as root inside its container (the stock image's default; it

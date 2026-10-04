@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Getting started · Example Docs</title>
+    <!--
+      Fixture page for the store listing screenshots (extension/scripts/listing-shots.ts).
+      Entirely invented content: a generic documentation site, no real product, person,
+      organisation or address. Rendered at 1280×800 by Playwright and uploaded as the demo
+      capture; nothing here is served by the app, so inline CSS is fine.
+    -->
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f7f5;
+        --fg: #1f2328;
+        --muted: #656d76;
+        --line: #d8dee4;
+        --panel: #ffffff;
+        --brand: #2f6fed;
+        --brand-soft: #e8f0fe;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        font-size: 15px;
+        line-height: 1.55;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      header {
+        height: 56px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        padding: 0 32px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+      }
+      .logo i {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: var(--brand);
+        display: inline-block;
+      }
+      header nav {
+        display: flex;
+        gap: 20px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      header nav b {
+        color: var(--fg);
+        font-weight: 600;
+        border-bottom: 2px solid var(--brand);
+        padding-bottom: 16px;
+        margin-bottom: -18px;
+      }
+      .search {
+        margin-left: auto;
+        width: 260px;
+        height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--bg);
+        color: var(--muted);
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 240px 1fr 200px;
+        gap: 40px;
+        padding: 32px;
+        max-width: 1280px;
+      }
+      aside h4 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      aside ul {
+        list-style: none;
+        margin: 0 0 24px;
+        padding: 0;
+        font-size: 14px;
+      }
+      aside li {
+        padding: 6px 10px;
+        border-radius: 6px;
+        color: var(--muted);
+      }
+      aside li.on {
+        background: var(--brand-soft);
+        color: var(--brand);
+        font-weight: 600;
+      }
+      main h1 {
+        font-size: 30px;
+        margin: 0 0 8px;
+        letter-spacing: -0.01em;
+      }
+      main .lede {
+        color: var(--muted);
+        margin: 0 0 24px;
+        font-size: 16px;
+      }
+      main h2 {
+        font-size: 20px;
+        margin: 28px 0 10px;
+      }
+      .callout {
+        background: var(--brand-soft);
+        border: 1px solid #c7d7fb;
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin: 16px 0;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: center;
+      }
+      .callout p {
+        margin: 0;
+      }
+      .button {
+        background: var(--brand);
+        color: #fff;
+        border-radius: 8px;
+        padding: 9px 14px;
+        font-weight: 600;
+        font-size: 14px;
+        white-space: nowrap;
+      }
+      ol {
+        padding-left: 22px;
+      }
+      ol li {
+        margin: 6px 0;
+      }
+      pre {
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 10px;
+        padding: 14px 16px;
+        font-size: 13px;
+        line-height: 1.5;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        margin: 12px 0;
+        overflow: hidden;
+      }
+      pre .k {
+        color: #7dd3fc;
+      }
+      pre .s {
+        color: #fde68a;
+      }
+      .toc h4 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .toc a {
+        display: block;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 13px;
+        padding: 4px 0;
+      }
+      .toc a.on {
+        color: var(--brand);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 14px;
+        margin: 8px 0;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo"><i></i> Example Docs</div>
+      <nav><b>Guides</b><span>API reference</span><span>Changelog</span><span>Support</span></nav>
+      <div class="search">Search the docs…</div>
+    </header>
+    <div class="layout">
+      <aside>
+        <h4>Guides</h4>
+        <ul>
+          <li>Overview</li>
+          <li class="on">Getting started</li>
+          <li>Projects and workspaces</li>
+          <li>Inviting your team</li>
+          <li>Notifications</li>
+        </ul>
+        <h4>Configuration</h4>
+        <ul>
+          <li>Environment variables</li>
+          <li>Access tokens</li>
+          <li>Webhooks</li>
+        </ul>
+      </aside>
+      <main>
+        <h1>Getting started</h1>
+        <p class="lede">
+          Set up a workspace, create your first project and connect a client in about five minutes.
+        </p>
+        <div class="callout" id="callout">
+          <p>
+            <strong>Before you begin,</strong> create a personal access token. Every client
+            authenticates with one, and it is shown only once.
+          </p>
+          <span class="button" id="primary-button">Create a token</span>
+        </div>
+        <h2 id="step-heading">1. Create a workspace</h2>
+        <p>
+          A workspace groups projects and the people who can see them. Pick a short name; you can
+          rename it later without breaking any links.
+        </p>
+        <pre><span class="k">example</span> workspace create <span class="s">"Design review"</span>
+<span class="k">example</span> project add <span class="s">"Mobile app"</span> --workspace <span class="s">"Design review"</span></pre>
+        <h2>2. Connect a client</h2>
+        <p>
+          Paste the token into the client's settings and press <em>Test connection</em>. A green
+          check means the client can reach the workspace.
+        </p>
+        <table id="plan-table">
+          <tr>
+            <th>Setting</th>
+            <th>Where</th>
+            <th>Default</th>
+          </tr>
+          <tr>
+            <td>Workspace address</td>
+            <td>Client settings</td>
+            <td>Filled in for you</td>
+          </tr>
+          <tr>
+            <td>Access token</td>
+            <td>Client settings</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>Retention</td>
+            <td>Project page</td>
+            <td>30 days</td>
+          </tr>
+        </table>
+        <h2>3. Share your first item</h2>
+        <p>
+          Every item gets a private link. Anyone who has the link can view it; nobody else can find
+          it.
+        </p>
+      </main>
+      <nav class="toc">
+        <h4>On this page</h4>
+        <a class="on">Create a workspace</a>
+        <a>Connect a client</a>
+        <a>Share your first item</a>
+        <a>Next steps</a>
+      </nav>
+    </div>
+  </body>
+</html>

@@ -73,6 +73,9 @@ describe('build layout the server relies on', () => {
       if (!chunk) return [];
       return [...(chunk.imports ?? []).flatMap((i) => cssOf(i, seen)), ...(chunk.css ?? [])];
     };
+    // The privacy page (E8) is server-rendered too; its entry yields the stylesheet the server links.
+    expect(manifest['src/privacy.ts']?.file).toMatch(/^assets\/privacy-[\w-]+\.js$/);
+    expect(cssOf('src/privacy.ts').some((f) => f.endsWith('.css'))).toBe(true);
     // The home page is server-rendered (E2); its entry carries the shared stylesheet.
     const home = manifest['src/home.ts'];
     expect(home?.file).toMatch(/^assets\/home-[\w-]+\.js$/);
@@ -88,5 +91,12 @@ describe('build layout the server relies on', () => {
     const editorCss = cssOf('src/editor.ts');
     expect(editorCss.some((f) => f.endsWith('.css'))).toBe(true);
     for (const f of editorCss) expect(existsSync(join(outDir, f))).toBe(true);
+  });
+
+  it('copies the canonical privacy policy into dist verbatim (publicDir), where the server reads it (E8)', () => {
+    const source = readFileSync(join(webRoot, 'content', 'privacy.md'), 'utf8');
+    expect(readFileSync(join(outDir, 'privacy.md'), 'utf8')).toBe(source);
+    // content/ holds the policy and nothing else that would land in dist.
+    expect(readdirSync(join(webRoot, 'content'))).toEqual(['privacy.md']);
   });
 });

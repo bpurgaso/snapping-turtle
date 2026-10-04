@@ -19,10 +19,16 @@ import type { Db } from './db/client.js';
 import { registerErrorHandler, HttpError } from './errors.js';
 import { EXT_XPI_PATH, resolveLatestFirefoxXpi } from './ext-updates.js';
 import { Guard, sendGuardBlocked } from './guard.js';
-import { renderHomePage, type PageAssets } from './html.js';
+import { renderHomePage, renderPrivacyPage, type PageAssets } from './html.js';
 import { FlatRenderer } from './images/flat.js';
 import { ImageStore } from './images/storage.js';
 import { redactSecretPath } from './log.js';
+import {
+  PRIVACY_ASSET_ENTRY,
+  PRIVACY_CACHE_CONTROL,
+  PRIVACY_PATH,
+  privacyBodyLoader,
+} from './privacy.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { captureRoutes } from './routes/captures.js';
@@ -95,10 +101,14 @@ export async function buildApp(opts: AppOptions): Promise<App> {
     strictTransportSecurity: { maxAge: 31_536_000, includeSubDomains: true },
   });
 
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('X-Robots-Tag', 'noindex, nofollow');
-    // Default to no-store; only routes that opt in (hashed assets) set their
-    // own policy before this hook runs.
+  app.addHook('onSend', async (req, reply) => {
+    // Every response is noindex unless its route is declared `indexable` —
+    // the privacy policy (E8) is the one that is. Secret routes never are.
+    if (req.routeOptions?.config?.indexable !== true) {
+      reply.header('X-Robots-Tag', 'noindex, nofollow');
+    }
+    // Default to no-store; only routes that opt in (hashed assets, /ext/,
+    // /privacy) set their own policy before this hook runs.
     if (!reply.hasHeader('cache-control')) {
       reply.header('Cache-Control', 'private, no-store');
     }
@@ -296,9 +306,37 @@ function registerHome(app: App, config: Config): void {
   });
 }
 
+/**
+ * The privacy policy (E8, §8): web/content/privacy.md, copied into web/dist
+ * by the web build and rendered here through the strict Markdown subset. An
+ * ordinary public page — indexable and publicly cacheable, which no other
+ * page is — under the same CSP and the same remaining headers as everything
+ * else. The store listings carry this URL (extension/STORE_SUBMISSION.md).
+ */
+function registerPrivacy(app: App, config: Config): void {
+  const assets = assetLoader(config, PRIVACY_ASSET_ENTRY);
+  const body = privacyBodyLoader(config);
+  app.get(PRIVACY_PATH, { config: { indexable: true } }, async (_req, reply) => {
+    const rendered = body();
+    if (!rendered) {
+      return reply
+        .code(503)
+        .type('text/plain')
+        .send('web bundle not built — run `pnpm --filter web build`\n');
+    }
+    // The page has no behaviour of its own: link the stylesheet, not the script.
+    const page = renderPrivacyPage({ body: rendered, assets: { css: assets().css } });
+    return reply
+      .header('Cache-Control', PRIVACY_CACHE_CONTROL)
+      .type('text/html; charset=utf-8')
+      .send(page);
+  });
+}
+
 /** Serve the Vite bundle from web/dist: pages → their HTML, `/assets/*` → hashed files. */
 async function registerWeb(app: App, config: Config): Promise<void> {
   registerHome(app, config);
+  registerPrivacy(app, config);
 
   const built = PAGES.some(([, file]) => existsSync(join(config.webDistDir, file)));
   if (!built) {

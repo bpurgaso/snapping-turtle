@@ -126,6 +126,28 @@ open the extension options, enter `https://NEW:PORT`, and get the one-time
 host permission prompt for the new origin (PLAN.md §15). Their API tokens
 are unchanged — tokens belong to accounts, not hosts.
 
+**Update the store listings' origin-bearing fields.** The privacy-policy URL
+the listings carry is `https://OLD:PORT/privacy` (E8: the policy is a page
+served by the app, so its address moved with everything else):
+
+- Chrome Web Store developer console → the item → **Privacy practices** →
+  privacy policy URL: enter `https://NEW:PORT/privacy`. While the old-domain
+  redirect lives the old URL still resolves (a 308 to the new one), so the
+  listing is not broken in the meantime — but the console is the record of
+  what you certified, and the redirect is temporary (§6).
+- Any other field in that listing that names the old origin (a homepage or
+  support URL pointing at the server): same change.
+- AMO (addons.mozilla.org developer hub) — the add-on is self-distributed and
+  unlisted, so there is normally nothing there; if you entered a privacy
+  policy or homepage URL on the add-on's hub page, update it the same way.
+
+Record the new value in the "Listing inputs on record" table in
+`extension/STORE_SUBMISSION.md` §3. Then confirm from outside the network:
+
+```sh
+curl -sS -o /dev/null -w '%{http_code}\n' https://NEW:PORT/privacy       # 200
+```
+
 ## 5. What users see
 
 - **Everyone is signed out.** Session cookies are scoped to OLD; the browser

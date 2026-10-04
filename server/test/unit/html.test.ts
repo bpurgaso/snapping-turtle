@@ -6,6 +6,7 @@ import {
   raw,
   renderCapturePage,
   renderHomePage,
+  renderPrivacyPage,
 } from '../../src/html.js';
 
 describe('html escaping (CLAUDE.md rule 5)', () => {
@@ -228,6 +229,29 @@ describe('renderHomePage (E2)', () => {
     expect(out).not.toMatch(/\son[a-z]+=/i);
     expect(out).toContain('<script type="module" src="/assets/home-abc.js"></script>');
     expect(renderHomePage({ assets: { css: [] } })).not.toContain('<script');
+  });
+
+  it('links the privacy policy in its footer (E8)', () => {
+    expect(renderHomePage({ assets })).toContain(
+      '<footer class="foot"><a href="/privacy">Privacy policy</a></footer>',
+    );
+  });
+});
+
+describe('renderPrivacyPage (E8)', () => {
+  const assets = { css: ['/assets/privacy-abc.css'] };
+
+  it('wraps the rendered body in the shared chrome with a way home, no script, nothing inline', () => {
+    const out = renderPrivacyPage({ body: '<h1>Policy</h1>\n<p>Text &amp; more.</p>', assets });
+    expect(out).toContain('<title>Privacy policy · snapping-turtle</title>');
+    expect(out).toContain('<body class="page doc">');
+    expect(out).toContain('<p class="crumbs"><a href="/">snapping-turtle</a></p>');
+    expect(out).toContain('<h1>Policy</h1>\n<p>Text &amp; more.</p>');
+    expect(out).toContain('<link rel="stylesheet" href="/assets/privacy-abc.css" />');
+    expect(out).not.toContain('<script');
+    expect(out).not.toMatch(/<style\b|\sstyle=|\son[a-z]+=/i);
+    // Public page: no robots meta either (the header is the route's business).
+    expect(out).not.toContain('noindex');
   });
 });
 

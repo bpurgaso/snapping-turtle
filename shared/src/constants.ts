@@ -68,6 +68,13 @@ export const EXT_ROUTE_PREFIX = '/ext/';
 export const EXT_UPDATES_MANIFEST = 'updates.json';
 /** Stable install link under EXT_ROUTE_PREFIX: redirects to the newest .xpi in updates.json (E2). */
 export const EXT_FIREFOX_LATEST = 'firefox-latest';
+/**
+ * The privacy policy page (E8): one public, indexable page rendered by the
+ * server from web/content/privacy.md. The store listings carry
+ * `${PUBLIC_ORIGIN}${PRIVACY_PATH}` (extension/STORE_SUBMISSION.md), which is
+ * why a domain migration must update them (docs/runbooks/domain-migration.md).
+ */
+export const PRIVACY_PATH = '/privacy';
 /** Signed Firefox artifact name for a version; also what updates.json links to. */
 export function firefoxXpiFilename(version: string): string {
   return `snapping-turtle-firefox-${version}.xpi`;
