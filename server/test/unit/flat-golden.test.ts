@@ -1,10 +1,11 @@
-import { PARITY_FIXTURES } from '@snapping-turtle/shared/parity-fixtures';
+import { REDACTION_STYLE } from '@snapping-turtle/shared/annotations';
+import { PARITY_FIXTURES, fixtureFillRegions } from '@snapping-turtle/shared/parity-fixtures';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
-import { measuredStrokeBand } from '../helpers/measure.js';
+import { fillLeakPixels, measuredStrokeBand, rgbAt } from '../helpers/measure.js';
 import { renderFixturePng } from '../helpers/render-fixture.js';
 
 /**
@@ -27,11 +28,31 @@ describe('flat renderer goldens', () => {
       // Clamp proof (§9 E1): the rect fixtures promise a stroke band of
       // exactly annotationSizes(width).outerStrokeWidth pixels — 6 on the
       // 300 px floor, 48 on the 10,000 px ceiling — measured on real pixels.
-      const band = measuredStrokeBand(PNG.sync.read(rendered), fixture);
+      const png = PNG.sync.read(rendered);
+      const band = measuredStrokeBand(png, fixture);
       if (band) {
         expect(band.px, `${fixture.name}: stroke band ${band.px}px, expected ${band.expected}px`).toBe(
           band.expected,
         );
+      }
+      // Redaction proof (§10 E9): every probe region is exactly the fill —
+      // zero tolerance, a leaked pixel here is the original showing through —
+      // and every over-probe is the shape drawn over the block.
+      for (const region of fixtureFillRegions(fixture)) {
+        const leak = fillLeakPixels(png, region, REDACTION_STYLE.fill);
+        expect(leak.sampled).toBeGreaterThan(0);
+        expect(
+          leak.leaked,
+          `${fixture.name}: ${leak.leaked} of ${leak.sampled} pixels in ${JSON.stringify(region)} are not the fill; first ${JSON.stringify(leak.first)}`,
+        ).toBe(0);
+      }
+      for (const probe of fixture.overProbes ?? []) {
+        const n = Number.parseInt(probe.color.slice(1), 16);
+        expect(rgbAt(png, probe.x, probe.y), `${fixture.name}: over-probe at (${probe.x}, ${probe.y})`).toEqual([
+          (n >> 16) & 0xff,
+          (n >> 8) & 0xff,
+          n & 0xff,
+        ]);
       }
       const goldenPath = `${goldenDir}${fixture.name}.png`;
       if (update || !existsSync(goldenPath)) {

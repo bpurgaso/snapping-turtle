@@ -1,13 +1,17 @@
 import {
   ANNOTATION_STYLE as S,
   ANNOTATION_TEXT_LAYOUT as T,
+  REDACTION_STYLE as R,
   annotationSizes,
   cropBoundsError,
   effectiveWidth,
+  redactionPixelRect,
+  renderOrder,
   type AnnotationDocument,
   type AnnotationSizes,
   type ArrowShape,
   type RectShape,
+  type RedactShape,
   type Shape,
   type TextShape,
 } from '@snapping-turtle/shared';
@@ -19,7 +23,9 @@ import {
  * Fabric 6.9.1 behavior (see web/src/editor/shapes.ts and
  * ANNOTATION_TEXT_LAYOUT in shared/): rect and text boxes include their
  * strokeWidth, so paths sit at +strokeWidth/2; arrows draw at absolute
- * endpoint coordinates; element order is exactly canvas draw order.
+ * endpoint coordinates; element order is exactly canvas draw order — which
+ * since E9 is `renderOrder()` from shared/: every redaction block first,
+ * then everything else, in both renderers (§9 E9).
  *
  * Every size comes from `annotationSizes(effectiveWidth(image, crop))` in
  * shared/ (§9, E1 + E4) — the same call the editor makes — so a stroke is as
@@ -115,8 +121,30 @@ function textSvg(s: TextShape, z: AnnotationSizes): string {
   return out;
 }
 
+/**
+ * Redaction block (E9, §9; threat model §12). A **solid opaque fill**, and
+ * deliberately nothing cleverer: blur, pixelation and mosaic are all computed
+ * from the pixels they cover and therefore carry information about them —
+ * depixelating or deblurring text is a practical attack — so the output must
+ * contain zero information from the covered region. The rectangle is the
+ * integer pixel rect from `redactionPixelRect()` (floor top-left, ceil
+ * bottom-right: any disagreement covers more, never less) and it is drawn
+ * with `shape-rendering="crispEdges"` so librsvg paints whole pixels with no
+ * partial coverage on the edge rows and columns. No stroke, so none of the
+ * width-derived sizes apply; the block is identical at every capture width.
+ */
+function redactSvg(s: RedactShape): string {
+  const p = redactionPixelRect(s);
+  return (
+    `<rect x="${num(p.x)}" y="${num(p.y)}" width="${num(p.w)}" height="${num(p.h)}" ` +
+    `fill="${R.fill}" shape-rendering="crispEdges"/>`
+  );
+}
+
 function shapeSvg(s: Shape, z: AnnotationSizes): string {
   switch (s.type) {
+    case 'redact':
+      return redactSvg(s);
     case 'rect':
       return rectSvg(s, z);
     case 'arrow':
@@ -156,7 +184,11 @@ export function buildOverlaySvg(
     throw new Error('crop outside the image in annotation document');
   }
   const sizes = annotationSizes(effectiveWidth({ width: w }, crop));
-  const body = doc.shapes.map((s) => shapeSvg(s, sizes)).join('');
+  // Image → every redaction → every other shape (E9): an arrow or a text may
+  // point at a block, nothing ever shows from under one.
+  const body = renderOrder(doc.shapes)
+    .map((s) => shapeSvg(s, sizes))
+    .join('');
   const view = crop ?? { x: 0, y: 0, w, h };
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${view.w}" height="${view.h}" ` +

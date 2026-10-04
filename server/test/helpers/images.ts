@@ -11,6 +11,32 @@ export async function makePng(width = 64, height = 48): Promise<Buffer> {
     .toBuffer();
 }
 
+/**
+ * A high-contrast capture for the redaction leak tests (E9, §10): a 1 px
+ * checkerboard of white and orange with a blue diagonal, so every pixel has
+ * at least one channel at 255 and **no pixel is black** — any black pixel in
+ * a served render is the redaction fill and nothing else, and any non-black
+ * pixel inside a block is the original showing through. The 1 px alternation
+ * means an edge row or column off by one is never hidden by a uniform area.
+ */
+export async function makeContrastPng(width = 240, height = 160): Promise<Buffer> {
+  const raw = Buffer.alloc(width * height * 3);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 3;
+      const onDiagonal = Math.abs(x - y) < 3;
+      const checker = (x + y) & 1;
+      const [r, g, b] = onDiagonal ? [40, 90, 255] : checker ? [255, 255, 255] : [255, 120, 0];
+      raw[i] = r!;
+      raw[i + 1] = g!;
+      raw[i + 2] = b!;
+    }
+  }
+  return sharp(raw, { raw: { width, height, channels: 3 } })
+    .png()
+    .toBuffer();
+}
+
 /** A JPEG carrying EXIF (and an ICC profile) — what a camera or editor would emit. */
 export async function makeJpegWithExif(width = 64, height = 48): Promise<Buffer> {
   return sharp({

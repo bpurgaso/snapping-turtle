@@ -87,3 +87,51 @@ export function inkBBox(png: Rgba, background: string, tolerance = 6): InkBox | 
 export function inkBoxDelta(a: InkBox, b: InkBox): number {
   return Math.max(Math.abs(a.x0 - b.x0), Math.abs(a.y0 - b.y0), Math.abs(a.x1 - b.x1), Math.abs(a.y1 - b.y1));
 }
+
+/** The RGB triple at one pixel; throws outside the image rather than reading garbage. */
+export function rgbAt(png: Rgba, x: number, y: number): [number, number, number] {
+  if (x < 0 || y < 0 || x >= png.width || y >= png.height) {
+    throw new Error(`pixel (${x}, ${y}) is outside a ${png.width}×${png.height} image`);
+  }
+  const i = (y * png.width + x) * 4;
+  return [png.data[i]!, png.data[i + 1]!, png.data[i + 2]!];
+}
+
+/**
+ * Redaction leak probe (E9, §10): the number of pixels inside `rect` (clipped
+ * to the image) that are not *exactly* the fill colour — no tolerance, because
+ * a pixel in a redaction that is not the fill is a pixel of the original
+ * showing through, a privacy bug rather than rasterization noise. A pixel that
+ * is not fully opaque is a leak too: a transparent (0, 0, 0, 0) canvas pixel
+ * is "nothing painted yet", never the fill. Returns the first offending pixel
+ * for the failure message.
+ */
+export function fillLeakPixels(
+  png: Rgba,
+  rect: { x: number; y: number; w: number; h: number },
+  fillHex: string,
+): { leaked: number; sampled: number; first: { x: number; y: number; rgb: [number, number, number] } | null } {
+  const [fr, fg, fb] = hexToRgb(fillHex);
+  const x0 = Math.max(0, rect.x);
+  const y0 = Math.max(0, rect.y);
+  const x1 = Math.min(png.width, rect.x + rect.w);
+  const y1 = Math.min(png.height, rect.y + rect.h);
+  let leaked = 0;
+  let sampled = 0;
+  let first: { x: number; y: number; rgb: [number, number, number] } | null = null;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      sampled++;
+      const i = (y * png.width + x) * 4;
+      const r = png.data[i]!;
+      const g = png.data[i + 1]!;
+      const b = png.data[i + 2]!;
+      const a = png.data[i + 3]!;
+      if (r !== fr || g !== fg || b !== fb || a !== 255) {
+        leaked++;
+        first ??= { x, y, rgb: [r, g, b] };
+      }
+    }
+  }
+  return { leaked, sampled, first };
+}

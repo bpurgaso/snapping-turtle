@@ -1,7 +1,9 @@
 import {
   ANNOTATION_STYLE as S,
   ANNOTATION_TEXT_LAYOUT as T,
+  REDACTION_STYLE as R,
   annotationSizes,
+  redactionPixelRect,
   type Shape,
   type TextShape,
 } from '@snapping-turtle/shared';
@@ -219,5 +221,73 @@ describe('crop viewport (E4, §10)', () => {
         { width: 1280, height: 720 },
       ),
     ).toThrow(/crop outside the image/);
+  });
+});
+
+describe('redaction (E9, §9/§10)', () => {
+  const block: Shape = { id: 'b1', type: 'redact', x: 100, y: 50, w: 200, h: 80 };
+
+  it('is one opaque crisp-edged rect at the integer pixel rect, with no stroke', () => {
+    const svg = overlay([block]);
+    const rects = svg.match(/<rect [^>]+>/g)!;
+    expect(rects).toHaveLength(1);
+    expect(rects[0]).toBe(
+      `<rect x="100" y="50" width="200" height="80" fill="${R.fill}" shape-rendering="crispEdges"/>`,
+    );
+    expect(rects[0]).not.toContain('stroke');
+    expect(rects[0]).not.toContain('opacity');
+    expect(rects[0]).not.toContain('filter');
+  });
+
+  it('is identical at every capture width: no size from the curve touches it', () => {
+    const at = (w: number) => overlay([block], w, 200).match(/<rect [^>]+>/g)![0];
+    expect(at(300)).toBe(at(1280));
+    expect(at(1280)).toBe(at(10_000));
+  });
+
+  it('goes through redactionPixelRect: an in-process float block rounds outward', () => {
+    // The schema only admits integers, but the renderer does not rely on it.
+    const svg = buildOverlaySvg(
+      { shapes: [{ ...block, x: 10.4, y: 20.6, w: 30.2, h: 5.1 } as Shape] },
+      { width: 480, height: 360 },
+    );
+    expect(svg).toContain(`<rect x="10" y="20" width="31" height="6" fill="${R.fill}"`);
+    expect(svg).toContain(`x="10" y="20" width="31" height="6"`);
+    expect(redactionPixelRect({ x: 10.4, y: 20.6, w: 30.2, h: 5.1 })).toEqual({
+      x: 10,
+      y: 20,
+      w: 31,
+      h: 6,
+    });
+  });
+
+  it('draws every block before every other shape whatever the document order', () => {
+    const rect: Shape = { id: 'r', type: 'rect', x: 96, y: 72, w: 240, h: 150 };
+    const arrow: Shape = { id: 'a', type: 'arrow', x1: 0, y1: 100, x2: 200, y2: 100 };
+    const b2: Shape = { id: 'b2', type: 'redact', x: 0, y: 0, w: 10, h: 10 };
+    const svg = overlay([rect, block, text('over'), arrow, b2]);
+    const inner = svg.slice(svg.indexOf('>') + 1, svg.lastIndexOf('</svg>'));
+    const elements = inner.match(/<(rect|line|path|text) [^>]*>/g)!;
+    // Two crisp-edged fills first (b1 then b2 — document order within the group),
+    // then the rect's white+red pair, the text, and the arrow's four parts.
+    expect(elements[0]).toContain(`x="100" y="50" width="200" height="80" fill="${R.fill}"`);
+    expect(elements[1]).toContain(`x="0" y="0" width="10" height="10" fill="${R.fill}"`);
+    expect(elements.slice(2).some((e) => e.includes(R.fill) && e.includes('crispEdges'))).toBe(
+      false,
+    );
+    expect(elements[2]).toContain(`stroke="${S.white}"`);
+    expect(elements[3]).toContain(`stroke="${S.red}"`);
+    expect(elements[4]).toMatch(/^<text /);
+    expect(elements[5]).toMatch(/^<line /);
+    expect(elements).toHaveLength(2 + 2 + 1 + 4);
+  });
+
+  it('clips by the crop viewBox like everything else (no special casing)', () => {
+    const svg = buildOverlaySvg(
+      { shapes: [block], crop: { x: 150, y: 60, w: 100, h: 100 } },
+      { width: 480, height: 360 },
+    );
+    expect(svg).toContain('viewBox="150 60 100 100"');
+    expect(svg).toContain(`<rect x="100" y="50" width="200" height="80" fill="${R.fill}"`);
   });
 });
