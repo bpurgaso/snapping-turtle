@@ -253,7 +253,8 @@ Listing inputs on record — fill in when first entered, update when they change
 (a domain migration changes the first; every regenerated screenshot set the
 second):
 
-| Input              | Value                                                                          | Entered / last updated |
-| ------------------ | ------------------------------------------------------------------------------ | ---------------------- |
-| Privacy policy URL | `https://$PUBLIC_HOST:$PUBLIC_PORT/privacy` (write the real host; not yet set) | —                      |
-| Screenshot set     | `extension/store-assets/` at commit `…` (the `listing-shots` run that made it) | —                      |
+| Input              | Value                                                                                                                                            | Entered / last updated |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| Privacy policy URL | `https://$PUBLIC_HOST:$PUBLIC_PORT/privacy` (write the real host; not yet set)                                                                   | —                      |
+| Screenshot set     | `extension/store-assets/` at commit `…` (the `listing-shots` run that made it)                                                                   | —                      |
+| Screenshot set     | regenerated after E9 (the editor toolbar gained **Redact**; `listing-shots` run on top of `c53738b`) — upload this set with the first submission | 2026-10-03             |
