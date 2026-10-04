@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { REDACTION_STYLE } from '@snapping-turtle/shared/annotations';
 import {
   PARITY_FIXTURES,
+  fixtureFillRegions,
   fixtureOutputSize,
   type ParityFixture,
 } from '@snapping-turtle/shared/parity-fixtures';
@@ -8,7 +10,13 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
-import { inkBBox, inkBoxDelta, measuredStrokeBand } from '../../../server/test/helpers/measure.js';
+import {
+  fillLeakPixels,
+  inkBBox,
+  inkBoxDelta,
+  measuredStrokeBand,
+  rgbAt,
+} from '../../../server/test/helpers/measure.js';
 import { renderFixturePng } from '../../../server/test/helpers/render-fixture.js';
 
 /**
@@ -34,6 +42,14 @@ import { renderFixturePng } from '../../../server/test/helpers/render-fixture.js
  * text. Deliberate faults: +2 px rect → box delta 2 everywhere, ratio 16–37%
  * below 3,200 px; +3 px text baseline → box delta 2–4, ratio 9–44%.
  *
+ * 3. **Redaction probes (E9) — zero tolerance.** Inside a redaction block the
+ *    two renders must be *exactly* `REDACTION_STYLE.fill`, pixel for pixel,
+ *    edges included (`fixtureFillRegions`), and the `overProbes` — where a
+ *    shape is drawn over a block — must be exactly that shape's colour on
+ *    both. No ratio, no threshold: a differing pixel inside a block is the
+ *    original showing through on one renderer, which is a privacy bug, not
+ *    rasterization noise (§10 E9). `maxRedactLeakPixels` is 0 and stays 0.
+ *
  * History: until E1 the harness never loaded Inter (`document.fonts.check`
  * is true when no such face exists) and compared Chromium's fallback font
  * against the server's Inter — text ran ~11% narrower — under a 5%-of-image
@@ -51,6 +67,11 @@ const PER_PIXEL_THRESHOLD = 0.1;
 const maxInkDiffRatio = (_f: ParityFixture): number => 0.3;
 /** Largest allowed per-edge difference of the painted extent, in pixels. */
 const maxInkBoxDeltaPx = (_f: ParityFixture): number => 1;
+/**
+ * Pixels inside a redaction block that may differ from the fill, per region,
+ * per renderer: none. A leak here is a privacy bug (E9, §10) — do not raise it.
+ */
+const maxRedactLeakPixels = 0;
 
 /** Pixels either renderer painted (differs from the fixture background in any channel by > 6). */
 function inkPixels(a: PNG, b: PNG, background: string): number {
@@ -93,6 +114,26 @@ for (const fixture of PARITY_FIXTURES) {
     if (editorBand && serverBand) {
       expect(editorBand.px, `editor stroke band for ${fixture.name}`).toBe(editorBand.expected);
       expect(serverBand.px, `server stroke band for ${fixture.name}`).toBe(serverBand.expected);
+    }
+
+    // Redaction proof (E9): every fill region is exactly the fill on *both*
+    // renders, and every over-probe is the shape drawn over the block on both.
+    for (const region of fixtureFillRegions(fixture)) {
+      for (const [side, png] of [['editor', editor], ['server', server]] as const) {
+        const leak = fillLeakPixels(png, region, REDACTION_STYLE.fill);
+        expect(leak.sampled, `${fixture.name}: empty fill region ${JSON.stringify(region)}`).toBeGreaterThan(0);
+        expect(
+          leak.leaked,
+          `${side} leaks ${leak.leaked} of ${leak.sampled} pixels in redaction region ${JSON.stringify(region)} ` +
+            `(first ${JSON.stringify(leak.first)}) — a privacy bug, limit ${maxRedactLeakPixels}`,
+        ).toBeLessThanOrEqual(maxRedactLeakPixels);
+      }
+    }
+    for (const probe of fixture.overProbes ?? []) {
+      const n = Number.parseInt(probe.color.slice(1), 16);
+      const want = [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+      expect(rgbAt(editor, probe.x, probe.y), `editor over-probe (${probe.x}, ${probe.y})`).toEqual(want);
+      expect(rgbAt(server, probe.x, probe.y), `server over-probe (${probe.x}, ${probe.y})`).toEqual(want);
     }
 
     const diff = new PNG({ width: out.width, height: out.height });

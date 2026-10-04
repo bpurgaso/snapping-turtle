@@ -1,4 +1,9 @@
-import type { ArrowShape, RectShape, TextShape } from '@snapping-turtle/shared/annotations';
+import type {
+  ArrowShape,
+  RectShape,
+  RedactShape,
+  TextShape,
+} from '@snapping-turtle/shared/annotations';
 import { describe, expect, it } from 'vitest';
 import { MIN_CROP_PX } from '@snapping-turtle/shared/constants';
 import {
@@ -12,6 +17,8 @@ import {
   normalizeCrop,
   rectGeom,
   rectToShape,
+  redactGeom,
+  redactToShape,
   round2,
   sceneToCanvas,
   textGeom,
@@ -204,5 +211,34 @@ describe('editor viewport (E6)', () => {
 
   it('never fits narrower than the 320 px floor', () => {
     expect(editorViewport(null, image, 100).zoom).toBe(0.4);
+  });
+});
+
+describe('redaction block (E9)', () => {
+  const block: RedactShape = { id: 'b1', type: 'redact', x: 120, y: 80, w: 300, h: 140 };
+
+  it('a stored block survives shape -> geom -> shape unchanged', () => {
+    expect(redactToShape(block.id, redactGeom(block))).toEqual(block);
+  });
+
+  it('a finished drag is stored as the outward-rounded integer rect — never a float', () => {
+    const stored = redactToShape('b', { left: 10.2, top: 20.9, width: 30.1, height: 5.05 });
+    expect(stored).toEqual({ id: 'b', type: 'redact', x: 10, y: 20, w: 31, h: 6 });
+    // Covers at least the dragged rectangle on every side.
+    expect(stored.x).toBeLessThanOrEqual(10.2);
+    expect(stored.y).toBeLessThanOrEqual(20.9);
+    expect(stored.x + stored.w).toBeGreaterThanOrEqual(10.2 + 30.1);
+    expect(stored.y + stored.h).toBeGreaterThanOrEqual(20.9 + 5.05);
+  });
+
+  it('a drag on the collapsed crop view is already in original space: no rebasing happens here', () => {
+    // The viewport maps the pointer back to scene coordinates (E6); the
+    // block mapping sees original-space geometry and only snaps it.
+    const v = editorViewport({ x: 200, y: 100, w: 400, h: 300 }, { width: 800, height: 500 }, 1200);
+    const p = canvasToScene(v, { x: 50.5, y: 60.5 });
+    const stored = redactToShape('b', { left: p.x, top: p.y, width: 40, height: 20 });
+    expect(stored.x).toBe(250);
+    expect(stored.y).toBe(160);
+    expect([stored.w, stored.h]).toEqual([41, 21]);
   });
 });

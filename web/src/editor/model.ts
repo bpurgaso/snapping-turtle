@@ -1,4 +1,12 @@
-import type { ArrowShape, CropRect, RectShape, Shape, TextShape } from '@snapping-turtle/shared/annotations';
+import {
+  redactionPixelRect,
+  type ArrowShape,
+  type CropRect,
+  type RectShape,
+  type RedactShape,
+  type Shape,
+  type TextShape,
+} from '@snapping-turtle/shared/annotations';
 import { MIN_CROP_PX } from '@snapping-turtle/shared/constants';
 
 /**
@@ -54,6 +62,23 @@ export function textToShape(id: string, g: TextGeom): TextShape {
 
 export function textGeom(s: TextShape): TextGeom {
   return { left: s.x, top: s.y, text: s.text, fontSize: s.fontSize };
+}
+
+// ---- Redaction block (E9) -------------------------------------------------------
+
+/**
+ * A finished drag or gesture → the stored block (E9, §9): whole pixels through
+ * the one shared outward-rounding function, so the editor stores exactly the
+ * rectangle both renderers fill and never a float that one of them would
+ * round differently. The inverse is the identity on a valid document.
+ */
+export function redactToShape(id: string, g: RectGeom): RedactShape {
+  const p = redactionPixelRect({ x: g.left, y: g.top, w: g.width, h: g.height });
+  return { id, type: 'redact', x: p.x, y: p.y, w: p.w, h: p.h };
+}
+
+export function redactGeom(s: RedactShape): RectGeom {
+  return { left: s.x, top: s.y, width: s.w, height: s.h };
 }
 
 // ---- Crop viewport (E4) -------------------------------------------------------

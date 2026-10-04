@@ -2,13 +2,15 @@ import {
   ANNOTATION_LIMITS,
   ANNOTATION_STYLE as S,
   ANNOTATION_TEXT_LAYOUT,
+  REDACTION_STYLE as R,
   annotationSizes,
+  redactionPixelRect,
   stripAnnotationControlChars,
   type AnnotationSizes,
   type Shape,
 } from '@snapping-turtle/shared/annotations';
 import { Control, FabricObject, IText, Point, Rect, util } from 'fabric';
-import { arrowToShape, newShapeId, rectToShape, textToShape } from './model.js';
+import { arrowToShape, newShapeId, rectToShape, redactToShape, textToShape } from './model.js';
 
 /**
  * Fabric objects for the three annotation shapes (§9). Every shape draws the
@@ -70,6 +72,68 @@ export class AnnoRect extends Rect {
     ctx.strokeStyle = S.red;
     ctx.lineWidth = this.sizes.strokeWidth;
     ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/**
+ * Editor-only presentation of a block while it is being placed (E9, §7): the
+ * block is opaque at rest — WYSIWYG, the owner sees exactly what every viewer
+ * gets — and only this transparent while actively drawn, dragged or resized,
+ * so what is being covered can be lined up. Screen chrome, never persisted,
+ * never rendered by the server; the resting state is always opaque.
+ */
+export const REDACTION_EDIT_OPACITY = 0.45;
+
+/**
+ * Redaction block (E9, §9; threat model §12): a **solid opaque fill** and
+ * nothing cleverer — blur, pixelation and mosaic are computed from the
+ * covered pixels and leak them (depixelating text is a practical attack), so
+ * the block carries zero information from the region. No stroke, so none of
+ * the width-derived sizes apply. Geometry snaps to whole pixels through the
+ * shared `redactionPixelRect()` when a gesture ends (`settle()`), which is
+ * exactly what gets stored and exactly what both renderers fill. Object
+ * caching is off so the fill is painted straight onto the canvas with no
+ * resampling, and the stacking order keeps every block under every other
+ * shape (the editor inserts blocks at the redaction layer, §9 E9).
+ */
+export class AnnoRedact extends Rect {
+  constructor(options: { left: number; top: number; width: number; height: number }) {
+    super({
+      ...options,
+      fill: R.fill,
+      stroke: '',
+      strokeWidth: R.strokeWidth,
+      objectCaching: false,
+      lockRotation: true,
+      lockScalingFlip: true,
+      transparentCorners: false,
+    });
+    this.setControlsVisibility({ mtr: false });
+  }
+
+  /** Semi-transparent while a gesture is in progress; opaque otherwise (§7). */
+  setEditing(active: boolean): void {
+    this.set({ opacity: active ? REDACTION_EDIT_OPACITY : 1 });
+  }
+
+  /** Bake any scale and snap to the integer pixel rect both renderers fill. */
+  settle(): void {
+    const p = redactionPixelRect({
+      x: this.left,
+      y: this.top,
+      w: this.width * this.scaleX,
+      h: this.height * this.scaleY,
+    });
+    this.set({ left: p.x, top: p.y, width: p.w, height: p.h, scaleX: 1, scaleY: 1, opacity: 1 });
+    this.setCoords();
+    this.dirty = true;
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    ctx.fillStyle = R.fill;
+    ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
     ctx.restore();
   }
 }
@@ -253,6 +317,10 @@ const clampFont = (n: number): number =>
 /** Bake any in-progress scale into real geometry so the schema stays scale-free. */
 export function normalizeScaling(obj: FabricObject): void {
   if (obj instanceof AnnoArrow) return; // scaling is locked; endpoints are the geometry
+  if (obj instanceof AnnoRedact) {
+    obj.settle(); // whole pixels, opaque again (E9)
+    return;
+  }
   if (obj instanceof AnnoRect) {
     obj.set({
       width: Math.max(1, obj.width * obj.scaleX),
@@ -272,6 +340,14 @@ export function normalizeScaling(obj: FabricObject): void {
 /** Canvas object -> schema shape; null for anything we do not persist. */
 export function shapeOf(obj: FabricObject): Shape | null {
   if (obj instanceof AnnoArrow) return arrowToShape(ensureShapeId(obj), obj.getEndpoints());
+  if (obj instanceof AnnoRedact) {
+    return redactToShape(ensureShapeId(obj), {
+      left: obj.left,
+      top: obj.top,
+      width: obj.width * obj.scaleX,
+      height: obj.height * obj.scaleY,
+    });
+  }
   if (obj instanceof AnnoRect) {
     return rectToShape(ensureShapeId(obj), {
       left: obj.left,
@@ -298,6 +374,11 @@ export function shapeOf(obj: FabricObject): Shape | null {
 /** Schema shape -> canvas object (the load half of the round trip). */
 export function objectFromShape(s: Shape, sizes: AnnotationSizes): FabricObject {
   switch (s.type) {
+    case 'redact': {
+      const b = new AnnoRedact({ left: s.x, top: s.y, width: s.w, height: s.h });
+      setShapeId(b, s.id);
+      return b;
+    }
     case 'rect': {
       const r = new AnnoRect({ left: s.x, top: s.y, width: s.w, height: s.h }, sizes);
       setShapeId(r, s.id);

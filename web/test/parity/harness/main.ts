@@ -1,4 +1,4 @@
-import { effectiveWidth } from '@snapping-turtle/shared/annotations';
+import { effectiveWidth, renderOrder } from '@snapping-turtle/shared/annotations';
 import type { ParityFixture } from '@snapping-turtle/shared/parity-fixtures';
 import { StaticCanvas } from 'fabric';
 import { annotationSizes, objectFromShape } from '../../../src/editor/shapes.js';
@@ -46,7 +46,9 @@ async function render(fixture: ParityFixture, fontDataUrl: string): Promise<stri
     // The same per-width sizes the editor computes for a capture (§9 E1),
     // from the effective width — the crop's when there is one (E4).
     const sizes = annotationSizes(effectiveWidth(fixture, fixture.crop));
-    for (const shape of fixture.shapes) canvas.add(objectFromShape(shape, sizes));
+    // The one drawing order (E9, §9): every redaction block under everything
+    // else — the same `renderOrder()` the SVG renderer and the editor apply.
+    for (const shape of renderOrder(fixture.shapes)) canvas.add(objectFromShape(shape, sizes));
     canvas.renderAll();
     // The editor draws the whole image in original space and the crop is a
     // viewport onto it (§9 E4): export exactly that window, like the flat render.

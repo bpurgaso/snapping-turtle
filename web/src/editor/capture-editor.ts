@@ -1,7 +1,8 @@
-import { ANNOTATION_SCHEMA_VERSION, MIN_CROP_PX } from '@snapping-turtle/shared/constants';
+import { ANNOTATION_SCHEMA_VERSION, MIN_CROP_PX, MIN_REDACT_PX } from '@snapping-turtle/shared/constants';
 import {
   annotationSizes,
   effectiveWidth,
+  renderOrder,
   type AnnotationDocument,
   type AnnotationSizes,
   type CropRect,
@@ -16,6 +17,7 @@ import { cropGeom, editorViewport, isWholeImage, newShapeId, normalizeCrop } fro
 import {
   AnnoArrow,
   AnnoRect,
+  AnnoRedact,
   makeText,
   normalizeScaling,
   objectFromShape,
@@ -37,7 +39,7 @@ export interface EditorOptions {
   retentionMaxDays: number;
 }
 
-type Tool = 'select' | 'rect' | 'arrow' | 'text' | 'crop';
+type Tool = 'select' | 'rect' | 'arrow' | 'text' | 'redact' | 'crop';
 type SaveState = 'saved' | 'pending' | 'saving' | 'error';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
@@ -62,6 +64,15 @@ const DAY_MS = 86_400_000;
  * document never changes at a transition; only Apply and Clear commit (one
  * undo step, one autosave, like a shape). Drawing sizes follow the effective
  * width (§9) in both views, so nothing but the viewport changes between them.
+ *
+ * Redaction (E9, §7/§9): the Redact tool draws like the rectangle tool and
+ * the result is an `AnnoRedact` — an ordinary shape in the document, so
+ * delete, undo/redo, autosave, the `rev` conflict reload and both crop views
+ * come for free. Two rules are the editor's to keep: every block sits under
+ * every other shape (new blocks are inserted at the redaction layer and a
+ * reload goes through `renderOrder()`, the same order the server draws), and
+ * a block is opaque at rest — WYSIWYG — going translucent only while being
+ * drawn, dragged or resized, then snapping opaque and to whole pixels.
  */
 export class CaptureEditor {
   private canvas!: Canvas;
@@ -164,6 +175,10 @@ export class CaptureEditor {
     });
     this.canvas.on('object:moving', (o) => {
       if (o.target instanceof CropFrame) this.keepFrameInside(o.target);
+      if (o.target instanceof AnnoRedact) o.target.setEditing(true);
+    });
+    this.canvas.on('object:scaling', (o) => {
+      if (o.target instanceof AnnoRedact) o.target.setEditing(true);
     });
     document.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('resize', () => this.fit());
@@ -209,6 +224,7 @@ export class CaptureEditor {
       toolButton('rect', 'Rectangle'),
       toolButton('arrow', 'Arrow'),
       toolButton('text', 'Text'),
+      toolButton('redact', 'Redact'),
       toolButton('crop', 'Crop'),
       this.cropActions,
       el('span', { className: 'sep' }),
@@ -338,20 +354,46 @@ export class CaptureEditor {
       t.enterEditing();
       return; // committed on editing:exited
     }
-    const obj: FabricObject =
-      this.tool === 'rect'
-        ? new AnnoRect({ left: p.x, top: p.y, width: 1, height: 1 }, this.sizes)
-        : new AnnoArrow(p.x, p.y, p.x + 1, p.y + 1, this.sizes);
+    let obj: FabricObject;
+    if (this.tool === 'redact') {
+      // Translucent while being drawn out, so the owner can see what the
+      // block is landing on; opaque the moment the gesture ends (E9, §7).
+      const block = new AnnoRedact({ left: p.x, top: p.y, width: 1, height: 1 });
+      block.setEditing(true);
+      obj = block;
+    } else {
+      obj =
+        this.tool === 'rect'
+          ? new AnnoRect({ left: p.x, top: p.y, width: 1, height: 1 }, this.sizes)
+          : new AnnoArrow(p.x, p.y, p.x + 1, p.y + 1, this.sizes);
+    }
     setShapeId(obj, newShapeId());
     this.addShape(obj);
     this.drawing = { origin: { x: p.x, y: p.y }, obj };
   }
 
-  /** Add a shape under the crop shade, which always stays on top (E4). */
+  /**
+   * Add a shape under the crop shade, which always stays on top (E4). A
+   * redaction block goes in at the redaction layer — above the other blocks,
+   * below every other shape — so the canvas stacking is the render order
+   * (E9, §9): nothing is ever drawn under a block, a block never covers a shape.
+   */
   private addShape(obj: FabricObject): void {
-    this.canvas.add(obj);
+    if (obj instanceof AnnoRedact) {
+      const layer = this.canvas.getObjects().filter((o) => o instanceof AnnoRedact).length;
+      this.canvas.insertAt(layer, obj);
+    } else {
+      this.canvas.add(obj);
+    }
     this.canvas.bringObjectToFront(this.shade);
     if (this.cropFrame) this.canvas.bringObjectToFront(this.cropFrame);
+  }
+
+  /** Every block is opaque and on whole pixels once no gesture is in progress (E9). */
+  private settleRedactions(): void {
+    for (const obj of this.canvas.getObjects()) {
+      if (obj instanceof AnnoRedact && obj.opacity !== 1) obj.settle();
+    }
   }
 
   private onMouseMove(o: TPointerEventInfo): void {
@@ -374,6 +416,9 @@ export class CaptureEditor {
   }
 
   private onMouseUp(): void {
+    // A dragged or resized block snaps opaque on release whether or not the
+    // gesture changed anything (object:modified only fires when it did).
+    this.settleRedactions();
     if (!this.drawing) return;
     const { obj } = this.drawing;
     this.drawing = null;
@@ -393,10 +438,13 @@ export class CaptureEditor {
       this.canvas.requestRenderAll();
       return;
     }
+    if (obj instanceof AnnoRedact) obj.settle(); // whole pixels, then the minimum applies to those
     const tooSmall =
       obj instanceof AnnoArrow
         ? Math.hypot(obj.rx2 - obj.rx1, obj.ry2 - obj.ry1) < 4
-        : obj.width < 4 && obj.height < 4;
+        : obj instanceof AnnoRedact
+          ? obj.width < MIN_REDACT_PX || obj.height < MIN_REDACT_PX
+          : obj.width < 4 && obj.height < 4;
     this.setTool('select');
     if (tooSmall) {
       this.canvas.remove(obj);
@@ -481,7 +529,9 @@ export class CaptureEditor {
     this.cropFrame = null;
     this.crop = doc.crop ?? null;
     this.refreshSizes();
-    for (const s of doc.shapes) {
+    // Blocks first, then everything else (E9): the canvas stacking is the
+    // render order, the same `renderOrder()` the flat renderer applies.
+    for (const s of renderOrder(doc.shapes)) {
       const obj = objectFromShape(s, this.sizes);
       if (obj instanceof IText) this.wireText(obj);
       this.canvas.add(obj);
