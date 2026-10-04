@@ -1,9 +1,5 @@
 # snapping-turtle — Dependency PR triage playbook (v2, reusable)
 
-Paste everything below this line into Claude Code, started from the repo root. This is the recurring ritual for clearing `chore(deps)` batches — run it whenever they accumulate (the checklist says weekly). Commit this file over `docs/prompts/dependency-triage.md`; it supersedes the first edition, updated for the repo as it now is: polyglot (TS + Rust), pin-checked, golden-guarded, contract-pinned.
-
----
-
 Read CLAUDE.md before acting; its invariants apply to CI changes too. Your task: investigate and resolve every currently open dependency PR — each on its own evidence, using `gh` (`pr list`, `pr view --json`, `pr checks`, `run view --log-failed`). Conclusions come from diffs, release notes, and logs — not from PR titles and not from this playbook's expectations.
 
 ## Hard rules — policy, not questions to investigate
