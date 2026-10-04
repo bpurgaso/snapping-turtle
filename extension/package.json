@@ -11,6 +11,7 @@
     "build:firefox": "pnpm run shared && tsx scripts/build.ts firefox",
     "build:release": "pnpm run shared && tsx scripts/release.ts",
     "sign:firefox": "pnpm run shared && tsx scripts/sign-firefox.ts",
+    "version:check": "pnpm run shared && tsx scripts/amo-preflight.ts",
     "listing-shots": "pnpm run shared && pnpm --filter @snapping-turtle/web build && pnpm build:chrome && tsx scripts/listing-shots.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

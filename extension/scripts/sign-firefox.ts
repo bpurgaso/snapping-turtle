@@ -12,6 +12,8 @@ import {
 import { join, relative, resolve } from 'node:path';
 import { EXT_UPDATES_MANIFEST, firefoxXpiFilename } from '@snapping-turtle/shared';
 import { MIN_FIREFOX, type Manifest } from '../src/manifest.js';
+import { runAmoPreflight } from './amo-preflight.js';
+import { FLAG_FIRST_SIGNING, FLAG_SKIP } from './lib/amo-preflight.js';
 import { loadDeployEnv, pkgRoot, repoRoot, resolveBuildInputs } from './lib/env.js';
 import { parseUpdatesManifest, updateLinkFor, upsertUpdate } from './lib/firefox-updates.js';
 import { checkReleaseInputs } from './lib/release-audit.js';
@@ -20,6 +22,11 @@ import { checkReleaseInputs } from './lib/release-audit.js';
  * `pnpm --filter extension sign:firefox` (M8, PLAN.md §15 — self-distributed
  * Firefox build):
  *
+ *   0. preflight (E10, scripts/amo-preflight.ts): ask AMO which versions it
+ *      already holds under EXTENSION_GECKO_ID and refuse unless the local
+ *      version is strictly greater; a 404 (first signing OR a mismatched id,
+ *      which would orphan every installed copy) needs --first-signing or a
+ *      typed confirmation. --skip-version-preflight bypasses it, loudly.
  *   1. submit dist/firefox (from build:release) to AMO for signing on the
  *      unlisted channel with web-ext, using the API credentials from the
  *      environment — WEB_EXT_API_KEY / WEB_EXT_API_SECRET, issued at
@@ -29,19 +36,38 @@ import { checkReleaseInputs } from './lib/release-audit.js';
  *      /ext/ (EXT_PUBLISH_DIR, default deploy/ext — the compose bind mount)
  *      and upsert this version into its updates.json with the file's sha256.
  *
- *   --xpi <path>   skip step 1 and publish an .xpi already signed by AMO
- *                  (downloaded from the developer hub, for instance).
+ *   --xpi <path>   skip steps 0 and 1 and publish an .xpi already signed by
+ *                  AMO (downloaded from the developer hub, for instance):
+ *                  nothing is uploaded, so there is nothing to gate.
  */
 const args = process.argv.slice(2);
+const KNOWN_FLAGS = new Set(['--xpi', FLAG_FIRST_SIGNING, FLAG_SKIP]);
+for (const a of args) {
+  if (a.startsWith('--') && !KNOWN_FLAGS.has(a)) fail(`unknown flag ${a}`);
+}
 const xpiFlag = args.indexOf('--xpi');
 const presigned = xpiFlag >= 0 ? args[xpiFlag + 1] : undefined;
 if (xpiFlag >= 0 && !presigned) fail('--xpi needs a path');
 
 loadDeployEnv();
 const inputs = resolveBuildInputs();
-const preflight = checkReleaseInputs(inputs);
-if (preflight.length > 0) fail(`release inputs invalid:\n  - ${preflight.join('\n  - ')}`);
+const problems = checkReleaseInputs(inputs);
+if (problems.length > 0) fail(`release inputs invalid:\n  - ${problems.join('\n  - ')}`);
 const geckoId = inputs.geckoId!;
+
+if (presigned) {
+  console.log(
+    'sign:firefox: --xpi given — publishing a file AMO already signed, so the version preflight does not apply',
+  );
+} else {
+  // Step 0: exits with status 1 when uploading must not happen.
+  await runAmoPreflight({
+    inputs: { ...inputs, geckoId },
+    argv: args,
+    interactive: true,
+    label: 'sign:firefox',
+  });
+}
 
 const sourceDir = join(pkgRoot, 'dist', 'firefox');
 const manifestPath = join(sourceDir, 'manifest.json');

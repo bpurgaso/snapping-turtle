@@ -226,6 +226,62 @@ possible when the validator flags something), the CLI times out waiting;
 download the signed file from the developer hub once it is approved and
 publish it with `pnpm --filter extension sign:firefox --xpi <path>`.
 
+### The preflight: version and add-on id (E10)
+
+`sign:firefox` uploads nothing until a preflight has passed, and
+`pnpm --filter extension version:check` runs the same preflight on its own
+(exit 0 = would upload, 1 = would refuse). It reads the version from
+`extension/package.json` — the single source, never a built manifest — and
+asks AMO, with the same `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`, which
+versions already exist under `EXTENSION_GECKO_ID` (the authenticated versions
+list, listed and unlisted channels). Then:
+
+- **local > latest on AMO** → proceeds.
+- **local ≤ latest on AMO** → refuses, naming both versions. Bump `"version"`
+  in `extension/package.json`, commit, `build:release`, sign again.
+- **AMO has no add-on under the id (HTTP 404)** → never proceeds by default.
+  This is either the genuine first signing _or_ an `EXTENSION_GECKO_ID` that
+  differs from the one that published before — and a mismatched id silently
+  creates a brand-new add-on that no installed Firefox will ever update to.
+  Open the Developer Hub with the publishing account and compare the add-on's
+  id with `deploy/.env` byte for byte; then pass `--first-signing`, or type
+  the id back when the script asks on a terminal. Without a terminal and
+  without the flag it refuses.
+- **401, 403, unreachable, or an answer the script does not understand** →
+  refuses with a distinct message each; nothing is guessed. Signing needs AMO
+  anyway, so fail-closed costs nothing. A 403 means the credentials are not a
+  developer of that id — the same mismatch, seen from the account side.
+- `--skip-version-preflight` skips the AMO query, for genuine AMO API
+  weirdness only, and says so loudly on every line it prints.
+- `--xpi <path>` publishes a file AMO already signed; nothing is uploaded, so
+  the preflight does not run.
+
+Two warnings print and never block: the live
+`https://$PUBLIC_HOST:$PUBLIC_PORT/ext/updates.json` already lists a version
+≥ local (the publish pipeline is ahead of, or level with, this checkout —
+another machine signed, or this one is behind), and a dirty tree or a HEAD
+that is on no remote branch (the incident this guards against was a signed
+artifact whose source was never pushed; "what source produced the .xpi" has
+to stay answerable).
+
+The credentials and the JWT minted from them never appear in anything the
+preflight prints, failures included (CLAUDE.md rule 3). The decision is a
+pure function (`extension/scripts/lib/amo-preflight.ts`) unit-tested against
+mocked AMO answers; CI never signs and holds no credentials.
+
+### Switching dev machines
+
+1. `git pull`; `git status` clean; HEAD on a commit that `origin` has.
+2. `deploy/.env` carries `EXTENSION_GECKO_ID` and `PUBLIC_HOST` + `PUBLIC_PORT`
+   (or `PUBLIC_ORIGIN`) **byte-identical** to the machine that published
+   before — copy them, do not retype them. A different id is a new add-on and
+   orphaned installs; a different origin is a different baked default server
+   and an `update_link` pointing somewhere else.
+3. Export the AMO credentials in this shell (above). Never from a file.
+4. `pnpm --filter extension version:check` tells you where you stand: what AMO
+   holds under the id, what the server serves, whether this checkout is
+   behind. Only then `build:release` and `sign:firefox`.
+
 The manifest declares `data_collection_permissions: { required:
 ["websiteContent", "browsingActivity"] }` — the honest categories for
 "screenshots and the page URL/title, sent to the user's own server" — which

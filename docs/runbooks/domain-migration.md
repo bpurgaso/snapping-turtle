@@ -111,7 +111,10 @@ pnpm --filter extension build:release          # bakes https://NEW:PORT; audits 
 # Chrome: upload extension/dist/snapping-turtle-chrome-<version>.zip as a new
 #         version in the Web Store developer dashboard (extension/STORE_SUBMISSION.md);
 #         the store pushes it to installed copies.
-# Firefox: bump extension/package.json version first (AMO refuses a re-used version),
+# Firefox: bump extension/package.json version first (AMO refuses a re-used version;
+#          the sign:firefox preflight refuses earlier and says so — `version:check` shows it).
+#          EXTENSION_GECKO_ID is unchanged, so AMO must find the add-on: a 404 here means
+#          the id drifted — stop, do not pass --first-signing (extension/STORE_SUBMISSION.md).
 WEB_EXT_API_KEY=… WEB_EXT_API_SECRET=… pnpm --filter extension sign:firefox
 #         → deploy/ext/ gets the new .xpi and updates.json; installed copies
 #           pick it up from https://NEW:PORT/ext/updates.json (the old build's
