@@ -6,8 +6,13 @@
     <!--
       Region suggestions (E7), the conservative contract: an ordinary article
       on a plain background — headings (one underlined), paragraphs, links, a
-      list, a quote with a side rule, a rule, inline code with a hairline
-      border, a borderless table, a small icon — must yield ZERO suggestions.
+      list, a paragraph with a side rule, a rule, inline code with a hairline
+      border, a presentational (layout) table, a nav bar, a small icon — must
+      yield ZERO suggestions. Since E11 the structure signals widen the model:
+      a real <table> and a <blockquote> are self-contained units by markup and
+      live in suggest-semantic.html, asserted suggestible; here the quote is a
+      plain paragraph with the same side rule (one side is still not a box) and
+      the table carries role="presentation", which switches its meaning off.
     -->
     <style>
       html,
@@ -28,7 +33,7 @@
         border-bottom: 1px solid #ddd;
         padding-bottom: 8px;
       }
-      blockquote {
+      .quote {
         margin: 16px 0;
         padding: 4px 16px;
         border-left: 4px solid #ccc;
@@ -84,17 +89,17 @@
         pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt
         mollit anim id est laborum.
       </p>
-      <blockquote>
-        A quotation set off by a rule down its left side, which is one side, not a box.
-      </blockquote>
+      <p class="quote">
+        A paragraph set off by a rule down its left side, which is one side, not a box.
+      </p>
       <ul>
         <li>First item of a list</li>
         <li>Second item of a list</li>
         <li>Third item of a list</li>
       </ul>
       <hr />
-      <h2 id="three">A table without a frame</h2>
-      <table>
+      <h2 id="three">A layout table without a frame</h2>
+      <table role="presentation">
         <tr>
           <th>Name</th>
           <th>Value</th>

@@ -7,13 +7,25 @@ import { expect, openFixture, test } from './fixtures.js';
  * promise resolves, so it can never appear in the capture that follows.
  */
 
-/** Start a selection; resolves with the result once the drag/Esc finishes. */
+/**
+ * Start a selection with the assist off; resolves with the result once the
+ * drag/Esc finishes. These are the M6 drag mechanics. With the assist on
+ * (the default since E7, with edge snapping since E11) the coloured bands of
+ * long-page are suggestible and a drag edge within 6 px of one snaps to it —
+ * region-suggest.spec.ts and structure-suggest.spec.ts assert that behaviour,
+ * including on this fixture.
+ */
 function startSelection(page: Parameters<typeof openFixture>[0]) {
   return page.evaluate(() => {
     window.__stTest['paints'] = [];
-    return window.__stHarness.selectRegion(document, {
-      onPaint: (rect, readout) => (window.__stTest['paints'] as unknown[]).push({ rect, readout }),
-    });
+    return window.__stHarness.selectRegion(
+      document,
+      {
+        onPaint: (rect, readout) =>
+          (window.__stTest['paints'] as unknown[]).push({ rect, readout }),
+      },
+      { suggestions: false },
+    );
   });
 }
 
