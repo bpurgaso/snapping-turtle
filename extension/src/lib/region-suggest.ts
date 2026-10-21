@@ -54,7 +54,15 @@ export const MEDIA_TAGS: ReadonlySet<string> = new Set([
 /** Float noise below this is not a partial pixel worth a whole extra row or column. */
 const ROUND_EPSILON = 1e-3;
 
-export type SuggestionKind = 'media' | 'border' | 'shadow';
+/**
+ * Why an element is a confident target. `media`, `border` and `shadow` are
+ * E7's (this module); the rest are E11's structure signals, decided once per
+ * scan in lib/structure-scan.ts: a self-contained semantic unit, a box set
+ * apart by its background, a rounded box with a shadow, an item of a
+ * repeating grid/flex set, or the set itself.
+ */
+export type SuggestionKind =
+  'media' | 'border' | 'shadow' | 'semantic' | 'background' | 'rounded' | 'item' | 'set';
 
 /** Box edges in viewport CSS px, as `getBoundingClientRect()` reports them. */
 export interface Edges {
@@ -189,6 +197,29 @@ function splitTopLevel(text: string, separator: ',' | ' '): string[] {
 
 const LENGTH = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?(px)?$/;
 
+/** One layer of a computed `box-shadow`: its colour's alpha and its lengths in computed order. */
+export interface ShadowLayer {
+  alpha: number;
+  /** offset-x, offset-y, blur, spread — as many as the layer spelled out. */
+  lengths: number[];
+}
+
+/** The layers of a computed `box-shadow`; empty for `none`. Colours with commas inside do not split layers. */
+export function shadowLayers(boxShadow: string): ShadowLayer[] {
+  const value = boxShadow.trim().toLowerCase();
+  if (value === '' || value === 'none') return [];
+  return splitTopLevel(value, ',').map((layer) => {
+    let alpha = 1;
+    const lengths: number[] = [];
+    for (const token of splitTopLevel(layer, ' ')) {
+      if (token === 'inset') continue;
+      if (LENGTH.test(token)) lengths.push(Number.parseFloat(token));
+      else alpha = colorAlpha(token);
+    }
+    return { alpha, lengths };
+  });
+}
+
 /**
  * True when a computed `box-shadow` draws a box around the element: at least
  * one layer whose colour is not transparent and that has a blur or a spread,
@@ -200,16 +231,7 @@ const LENGTH = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?(px)?$/;
  * leave on unshadowed elements (`0 0 #0000`).
  */
 export function shadowDrawsBox(boxShadow: string): boolean {
-  const value = boxShadow.trim().toLowerCase();
-  if (value === '' || value === 'none') return false;
-  return splitTopLevel(value, ',').some((layer) => {
-    let alpha = 1;
-    const lengths: number[] = [];
-    for (const token of splitTopLevel(layer, ' ')) {
-      if (token === 'inset') continue;
-      if (LENGTH.test(token)) lengths.push(Number.parseFloat(token));
-      else alpha = colorAlpha(token);
-    }
+  return shadowLayers(boxShadow).some(({ alpha, lengths }) => {
     // Computed order is offset-x, offset-y, blur, spread.
     const [, , blur = 0, spread = 0] = lengths;
     return alpha > 0 && (blur > 0 || spread > 0);
@@ -317,7 +339,7 @@ export function passesSizeGuards(
   );
 }
 
-const contains = (rect: CssRect, point: { x: number; y: number }): boolean =>
+export const contains = (rect: CssRect, point: { x: number; y: number }): boolean =>
   point.x >= rect.x &&
   point.x <= rect.x + rect.width &&
   point.y >= rect.y &&
@@ -329,7 +351,11 @@ const contains = (rect: CssRect, point: { x: number; y: number }): boolean =>
  * by the viewport or a scroll container — is not an edge of the element, and
  * being near it says nothing about the element.
  */
-function ownEdgeDistance(rect: CssRect, box: Edges, point: { x: number; y: number }): number {
+export function ownEdgeDistance(
+  rect: CssRect,
+  box: Edges,
+  point: { x: number; y: number },
+): number {
   const distances: number[] = [];
   if (rect.x === box.left) distances.push(point.x - rect.x);
   if (rect.x + rect.width === box.right) distances.push(rect.x + rect.width - point.x);
