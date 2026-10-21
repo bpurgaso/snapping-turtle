@@ -1,4 +1,4 @@
-# Extension manual test checklist (M2 + M6 + E1 + E7 + E9)
+# Extension manual test checklist (M2 + M6 + E1 + E7 + E9 + E11)
 
 What automation covers and what a human must still do.
 
@@ -30,8 +30,22 @@ reaching the background in the built Chrome extension. The same **browser**
 specs also run in Firefox's engine on request:
 `ST_GECKO=1 pnpm --filter extension test:smoke --project=browser-gecko`
 (Playwright's Firefox — it cannot load the extension, but the overlay is
-plain DOM code and this is where engines differ). Last run: 44 / 44 on
-Playwright Firefox 155, 2026-09-30.
+plain DOM code and this is where engines differ). Last run: 65 / 65 on
+Playwright Firefox 155, 2026-10-20.
+Since E11 (the structure pre-scan, 0.4.0): the scan engine is unit-tested
+(`test/structure-scan.test.ts` — colour parsing and compositing, the semantic
+and presentational roles, the kind precedence, repetition clustering, the
+spatial index in both anchor spaces, the sliced walk against a synthetic
+tree with the node cap and the time budget hit, viewport scoping, fixed
+anchoring, hover precedence, snapping); **browser** drives it in fixture
+pages (`structure-suggest.spec.ts`: semantic units with zero styling and the
+page chrome that must not qualify, an occluding cover, grid/flex sets and
+their gutters, borderless cards by background or radius+shadow and their
+look-alikes, a canvas app yielding zero, a feed that grows, shrinks and
+restyles under the open overlay, the heavy-DOM fixture whose scan and hover
+timings it prints, and magnetic drag edges with Alt held before and
+mid-drag); the M6 drag specs run with the assist off because long-page's
+coloured bands are now candidates.
 
 **Not automatable.** Anything past the `activeTab` grant — the toolbar click
 or keyboard shortcut — because Chrome's `captureVisibleTab` accepts only
@@ -218,6 +232,11 @@ the two captures.
 
 ## 9. Smart region suggestions (E7, 0.2.0 — needs a real gesture)
 
+> Since 0.4.0 (E11) the highlights come from a structure pre-scan and more
+> things qualify (§11). Every row below still holds — the E7 fixtures run
+> unchanged — and "overlay: verified" now means verified against the new
+> engine.
+
 In Region mode the overlay highlights a confident target under the pointer —
 an image / video / canvas / svg, or a box with a visible border or shadow —
 with a **green outline and a green `W × H` badge** at its top-left corner
@@ -266,9 +285,11 @@ Known limitations of the suggestions (documented, not bugs to file):
   on the capture page.
 - **`pointer-events: none` elements** are skipped by the browser's hit test,
   so a decorative image styled that way suggests whatever is behind it.
-- **Styles are read once per element** while the overlay is up; a page that
-  restyles an element under the open overlay keeps its first answer until
-  the next Region capture. Positions are read fresh on every move.
+- **Styles are read during the scan**, and re-read for a subtree the page
+  mutates (class, style, hidden, open, role, aria-label changes and
+  childList changes trigger a throttled rescan — E11). Positions come from
+  the index, refreshed on scroll, resize and mutation; a click re-reads the
+  element's live position.
 - **Touch** has no hover: a tap on a qualifying element captures it without
   a preview highlight. Untested, like everything else on Android.
 
@@ -292,6 +313,63 @@ what needs a human is the private window and the chat unfurl.
 | 10.4 | Move and resize the block with its handles: translucent while dragging, solid on release, snapped to whole pixels; reload as owner and in the private window: the new position is what both show, and the image link's bytes changed (a hard refresh in the private window shows the new render; no stale pre-redaction image)                                               | unverified | unverified |
 | 10.5 | **Crop + redaction:** apply a crop that cuts through the block. Collapsed view and private-window image both show the block's visible part covered right up to the crop edge; expand with **Crop** again — the whole block is there, still solid                                                                                                                             | unverified | unverified |
 | 10.6 | Select the block and press Delete, then **Undo**: the text is back for viewers after Delete (private-window hard refresh), hidden again after Undo. Deleting the capture removes everything as before                                                                                                                                                                        | unverified | unverified |
+
+## 11. Structure pre-scan and magnetic edges (E11, 0.4.0 — needs a real gesture)
+
+In Region mode the overlay now scans the visible page once when it opens and
+highlights **more** than §9 did, with the same green outline and badge: a
+self-contained unit by markup (an article, figure, table, code block, quote,
+aside, a section with its own heading), an item of a repeating grid or feed
+(and, in the gaps between items, the whole set), and a borderless card set
+apart by its background or by rounded corners with a shadow. A plain
+paragraph, a heading, a nav bar, a page header or footer still highlight
+nothing. During a **manual drag** each edge of the rectangle snaps to a
+nearby highlighted boundary (within ~6 px) and a short green guide line marks
+the snapped edge; **hold Alt** to drag pixel-perfect without snapping. The
+one switch — **Smart region suggestions** — turns all of it off together.
+
+Suggested pages: a **feed-style site** (a social timeline, reddit, a news
+front page with card rows — items in a column or grid, mostly borderless); a
+**docs/article-style site** (MDN or a GitHub README: tables, code blocks,
+figures, quotes, `<article>`); a **dashboard** with tiles. On Linux, note
+that some desktops grab Alt+drag for window moves — try Alt pressed _after_
+the drag has started, which this extension also honours.
+
+"overlay" in the status columns means driven in fixture pages by Playwright
+(Chromium, and Playwright's Firefox for the Firefox column); neither is the
+installed extension after a real gesture.
+
+| #     | Check                                                                                                                                                                                                                                                                                  | Chrome                                                                                               | Firefox                                                              |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 11.1  | **Feed-style site**: `Alt+Shift+R`, hover a post or card with no border → the whole card is highlighted; hover the gap between two cards → the whole column/grid is highlighted (or nothing, if it fills more than 90% of the window); click a card → the capture is exactly that card | overlay: verified (grid, flex and feed fixtures); real site after a gesture: unverified              | overlay: verified (Playwright Firefox); in the extension: unverified |
+| 11.2  | **Docs/article site**: hover a table, a code block, a figure or a blockquote with no visible border → highlighted; hover a paragraph or heading → nothing; the site header/footer/nav → nothing                                                                                        | overlay: verified (semantic fixture); real site: unverified                                          | overlay: verified (Playwright Firefox); in the extension: unverified |
+| 11.3  | **Infinite feed**: with the overlay open, scroll so new posts load → the new posts highlight on hover without closing and reopening Region mode; a post that disappears is no longer highlighted                                                                                       | overlay: verified (dynamic feed fixture); real site: unverified                                      | overlay: verified (Playwright Firefox); in the extension: unverified |
+| 11.4  | **Snap-drag**: drag a rectangle and bring an edge within a few pixels of a highlighted element's border → the edge jumps onto it and a green guide marks it; release → the capture's edge is exactly the element's edge (no sliver of the neighbour, no shaved border)                 | overlay: verified (snap fixtures); pixels of a real capture: unverified                              | overlay: verified (Playwright Firefox); in the extension: unverified |
+| 11.5  | **Alt**: the same drag with Alt held → no snapping, the rectangle follows the pointer exactly; press Alt mid-drag → the snapped edges let go at once; release Alt → they snap again                                                                                                    | overlay: verified; in the extension: unverified                                                      | overlay: verified (Playwright Firefox); in the extension: unverified |
+| 11.6  | **Heavy page** (a long dashboard, a dense admin table): Region mode opens with no visible freeze, highlights appear within a moment, moving the pointer stays smooth                                                                                                                   | budgets + timings: verified (heavy fixture, numbers printed); real page: unverified                  | overlay: verified (Playwright Firefox); in the extension: unverified |
+| 11.7  | **The switch** off: no highlights at all (an image, a card, a table), no snapping while dragging, the §5 hint text; on again: both are back                                                                                                                                            | overlay: verified; built extension: verified for the highlight (smoke); snap via gesture: unverified | unverified                                                           |
+| 11.8  | **Canvas app** (a map, a whiteboard, a game): hovering drawn "cards" highlights nothing; a drag still works                                                                                                                                                                            | overlay: verified (canvas fixture); real app: unverified                                             | overlay: verified (Playwright Firefox); in the extension: unverified |
+| 11.9  | **Covered content**: hover a card that a sticky header or an open dialog overlaps, on the overlapped part → the header/dialog or nothing is highlighted, never the card underneath                                                                                                     | overlay: verified (occlusion fixture); real site: unverified                                         | overlay: verified (Playwright Firefox); in the extension: unverified |
+| 11.10 | After updating from 0.3.0 (Firefox: automatic from `/ext/`; Chrome: store update) the stored server address, token and the suggestions preference are unchanged                                                                                                                        | unverified                                                                                           | unverified                                                           |
+
+Known limitations of the structure scan (documented, not bugs to file):
+
+- **Pixels are not elements.** A canvas application, a CSS background image
+  used as a picture, text drawn inside one big `<canvas>`: nothing to find
+  (11.8). Drag, or capture Visible and crop.
+- **Frames and shadow DOM** exactly as in §9: not inspected, the frame or
+  host itself suggestible only if it qualifies on its own.
+- **Moving without a mutation.** An element moved by a CSS transition or
+  animation alone keeps its indexed position until the next rescan (a
+  scroll, a resize or any DOM change triggers one); a click still captures
+  where the element really is.
+- **`pointer-events: none`** elements are off the browser's hit path and are
+  never suggested, even when the scan found them.
+- **Dark pages with no body background** are judged against white (the
+  browser's default canvas), so very dark cards on such a page may count as
+  distinct when they would not on a page that paints its background.
+- **Alt on Linux desktops** may be claimed by the window manager for
+  Alt+drag; pressing Alt after the drag has started works regardless.
 
 ## Running the live-server Playwright checks yourself
 

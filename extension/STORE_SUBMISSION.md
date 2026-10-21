@@ -139,9 +139,11 @@ Tick, truthfully:
 Leave unticked: personally identifiable information, health, financial,
 personal communications, location, user activity (no clicks, keystrokes or
 browsing are recorded — only the one page the user captures). Region mode's
-element suggestions (0.2.0) change none of this: they read the layout of the
-tab the user invoked the extension on, locally, to draw a highlight, and
-what leaves the browser is still only the captured image, its URL and title.
+element suggestions (0.2.0), and the structure pre-scan and edge snapping
+behind them since 0.4.0, change none of this: they read the layout of the
+tab the user invoked the extension on, locally, to draw a highlight and to
+snap a drag, and what leaves the browser is still only the captured image,
+its URL and title.
 
 Certifications (all three are true and must be ticked):
 

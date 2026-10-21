@@ -96,7 +96,7 @@ async function init(main: HTMLElement): Promise<void> {
   tokenInput.insertAdjacentElement('afterend', showToggle);
 
   const suggestInput = checkbox(fields, 'suggest', 'Smart region suggestions', {
-    hint: 'In Region mode, highlight images and bordered or shadowed boxes under the pointer; a click captures the highlighted element. Dragging a region works either way.',
+    hint: 'In Region mode, highlight images, cards, articles, tables and other distinct elements under the pointer — a click captures the highlighted element — and snap the edges of a dragged region to them (hold Alt to drag without snapping). Dragging a region works either way.',
   });
 
   const actions = document.createElement('div');
