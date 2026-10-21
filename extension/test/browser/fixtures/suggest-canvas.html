@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>suggestions: canvas app fixture</title>
+    <!--
+      Structure pre-scan (E11), a documented limit: an application drawn into
+      one viewport-sized canvas. The "cards" are pixels, not elements, and the
+      canvas itself is over the near-viewport ceiling — nothing is suggested
+      anywhere on this page. Drag, or capture Visible and crop.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="app" width="1280" height="720"></canvas>
+    <script>
+      const ctx = document.getElementById('app').getContext('2d');
+      ctx.fillStyle = '#f4f4f4';
+      ctx.fillRect(0, 0, 1280, 720);
+      // Six card-like boxes with borders and shadows, drawn as pixels.
+      for (let i = 0; i < 6; i++) {
+        const x = 40 + (i % 3) * 400;
+        const y = 60 + Math.floor(i / 3) * 300;
+        ctx.shadowColor = 'rgba(0,0,0,0.25)';
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetY = 4;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(x, y, 360, 240);
+        ctx.shadowColor = 'transparent';
+        ctx.strokeStyle = '#999';
+        ctx.strokeRect(x + 0.5, y + 0.5, 359, 239);
+        ctx.fillStyle = '#333';
+        ctx.font = '20px system-ui';
+        ctx.fillText('Card ' + (i + 1), x + 20, y + 40);
+      }
+    </script>
+  </body>
+</html>

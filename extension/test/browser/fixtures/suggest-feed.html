@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>suggestions: dynamic feed fixture</title>
+    <!--
+      Structure pre-scan (E11), dynamic pages: a flex-column feed of
+      borderless, uniform cards (items by repetition) that grows and changes
+      while the overlay is open. window.__feed drives it from the spec:
+      append(n) adds n cards, appendArticle() adds an <article> of a different
+      size (a semantic unit, not an item), remove(id) drops a card, and
+      tint(on) toggles a class on #lone that gives it a background — an
+      attribute mutation that must invalidate its cached style. Cards are
+      600 × 120 at x = 40 from y = 40, 16 px apart.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+        color: #222;
+        font:
+          14px/1.4 system-ui,
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      p {
+        margin: 0;
+      }
+      #feed {
+        position: absolute;
+        left: 40px;
+        top: 40px;
+        width: 600px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .card {
+        width: 600px;
+        height: 120px;
+        padding: 12px;
+      }
+      article {
+        width: 600px;
+        height: 90px;
+        padding: 12px;
+      }
+      #lone {
+        position: absolute;
+        left: 700px;
+        top: 40px;
+        width: 400px;
+        height: 200px;
+        padding: 12px;
+      }
+      #lone.tinted {
+        background: #f0f0f0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="feed"></div>
+    <div id="lone"><p id="lone-text">A lone div that may be tinted later.</p></div>
+    <script>
+      let next = 0;
+      const feed = document.getElementById('feed');
+      const card = () => {
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.id = 'card-' + next;
+        const p = document.createElement('p');
+        p.textContent = 'Card ' + next;
+        p.id = 'card-text-' + next;
+        el.append(p);
+        next++;
+        return el;
+      };
+      window.__feed = {
+        append(n) {
+          for (let i = 0; i < n; i++) feed.append(card());
+        },
+        appendArticle() {
+          const el = document.createElement('article');
+          el.id = 'article-' + next;
+          const p = document.createElement('p');
+          p.textContent = 'Article ' + next;
+          el.append(p);
+          next++;
+          feed.append(el);
+          return el.id;
+        },
+        remove(id) {
+          document.getElementById(id).remove();
+        },
+        tint(on) {
+          document.getElementById('lone').classList.toggle('tinted', on);
+        },
+      };
+      window.__feed.append(3);
+    </script>
+  </body>
+</html>

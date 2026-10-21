@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>suggestions: borderless cards fixture</title>
+    <!--
+      Structure pre-scan (E11), visual distinctness judged once during the
+      scan: a background that differs from what is behind it by at least
+      SUGGEST_BG_MIN_CHANNEL_DELTA (6 of 255) on some channel, a background
+      image, or a border radius together with a shadow of any geometry. The
+      borderless cards E7 could not see. Controls: a background too close to
+      the page, white on white, a radius alone, an offset-only shadow alone
+      (E7's rule), a translucent wash too faint to see. Absolutely positioned
+      so the specs can name exact rects (1280 × 720).
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+        color: #222;
+        font:
+          14px/1.4 system-ui,
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body > *,
+      .card {
+        position: absolute;
+        margin: 0;
+        padding: 12px;
+      }
+      p {
+        margin: 0;
+      }
+      /* GitHub's canvas-subtle on white: 9 of 255 on the red channel. */
+      #tint {
+        left: 40px;
+        top: 40px;
+        width: 300px;
+        height: 180px;
+        background: #f6f8fa;
+      }
+      /* 2 of 255: a card nobody can see. */
+      #faint {
+        left: 380px;
+        top: 40px;
+        width: 300px;
+        height: 180px;
+        background: #fdfdfd;
+      }
+      /* A grey section with a white card: both differ from what is behind them. */
+      #section {
+        left: 720px;
+        top: 40px;
+        width: 500px;
+        height: 300px;
+        background: #f0f0f0;
+      }
+      #white-card {
+        left: 20px;
+        top: 20px;
+        width: 300px;
+        height: 160px;
+        background: #fff;
+      }
+      /* A radius with an offset-only shadow: a rule is never rounded. */
+      #rounded-shadow {
+        left: 40px;
+        top: 260px;
+        width: 300px;
+        height: 120px;
+        border-radius: 8px;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+      }
+      #radius-only {
+        left: 380px;
+        top: 260px;
+        width: 300px;
+        height: 120px;
+        border-radius: 8px;
+      }
+      /* E7's look-alike, unchanged: an offset-only shadow alone is a rule. */
+      #offset-shadow-only {
+        left: 40px;
+        top: 420px;
+        width: 300px;
+        height: 120px;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+      }
+      #gradient {
+        left: 380px;
+        top: 420px;
+        width: 300px;
+        height: 120px;
+        background: linear-gradient(#ffffff, #e8e8e8);
+      }
+      /* A dark theme: GitHub's dark canvas and its card, 9–11 of 255 apart. */
+      #dark {
+        left: 720px;
+        top: 380px;
+        width: 500px;
+        height: 300px;
+        background: #0d1117;
+        color: #eee;
+      }
+      #dark-card {
+        left: 20px;
+        top: 20px;
+        width: 300px;
+        height: 160px;
+        background: #161b22;
+      }
+      #same-as-page {
+        left: 40px;
+        top: 580px;
+        width: 300px;
+        height: 100px;
+        background: #fff;
+      }
+      /* A 3% black wash composites to 247: 8 of 255. */
+      #alpha {
+        left: 380px;
+        top: 580px;
+        width: 300px;
+        height: 100px;
+        background: rgba(0, 0, 0, 0.03);
+      }
+      /* A 1% wash composites to 252: 3 of 255. */
+      #alpha-faint {
+        left: 1100px;
+        top: 40px;
+        width: 160px;
+        height: 100px;
+        background: rgba(0, 0, 0, 0.01);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="tint"><p id="tint-text">A tinted card on a white page.</p></div>
+    <div id="faint"><p id="faint-text">A card two shades off white.</p></div>
+    <div id="section">
+      <div id="white-card" class="card">
+        <p id="white-card-text">A white card on a grey section.</p>
+      </div>
+      <p id="section-text" style="position: absolute; left: 20px; top: 220px">Section text.</p>
+    </div>
+    <div id="rounded-shadow"><p id="rounded-shadow-text">Rounded with a hairline shadow.</p></div>
+    <div id="radius-only"><p id="radius-only-text">Rounded corners alone draw nothing.</p></div>
+    <div id="offset-shadow-only">
+      <p id="offset-shadow-only-text">An offset-only shadow is a rule.</p>
+    </div>
+    <div id="gradient"><p id="gradient-text">A gradient background is an image.</p></div>
+    <div id="dark">
+      <div id="dark-card" class="card">
+        <p id="dark-card-text">A dark card on a dark section.</p>
+      </div>
+      <p id="dark-text" style="position: absolute; left: 20px; top: 220px">Dark section text.</p>
+    </div>
+    <div id="same-as-page"><p id="same-as-page-text">White on white.</p></div>
+    <div id="alpha"><p id="alpha-text">A three-percent wash.</p></div>
+    <div id="alpha-faint"><p id="alpha-faint-text">A one-percent wash.</p></div>
+  </body>
+</html>

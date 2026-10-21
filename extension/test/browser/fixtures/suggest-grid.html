@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>suggestions: repetition fixture</title>
+    <!--
+      Structure pre-scan (E11), repetition: children of a grid or flex
+      container with uniform geometry are items and the container is the
+      set; hovering an item suggests the item, hovering the gutter or padding
+      between items suggests the set. Nothing here has a border, a shadow or a
+      background. Controls: two items are not a set, three ragged children are
+      not, a block container is not a set however uniform its children, and in
+      a mixed container only the uniform children are items. Absolutely
+      positioned so the specs can name exact rects (1280 × 720).
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+        color: #222;
+        font:
+          14px/1.4 system-ui,
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body > * {
+        position: absolute;
+        margin: 0;
+      }
+      p {
+        margin: 0;
+      }
+      /* 3 × 2 grid, 16 px padding, 24 px gaps: items 200 × 140 at 56,56 / 280,56 / 504,56 / 56,220 … */
+      #grid {
+        left: 40px;
+        top: 40px;
+        display: grid;
+        grid-template-columns: repeat(3, 200px);
+        grid-auto-rows: 140px;
+        gap: 24px;
+        padding: 16px;
+      }
+      #grid img {
+        display: block;
+        width: 200px;
+        height: 140px;
+      }
+      /* A flex row of three 200 × 120 items, no padding: the set is exactly the items plus the gaps. */
+      #flex {
+        left: 40px;
+        top: 420px;
+        display: flex;
+        gap: 24px;
+      }
+      #flex > div {
+        width: 200px;
+        height: 120px;
+      }
+      /* Two items are not a set. */
+      #two {
+        left: 760px;
+        top: 40px;
+        display: grid;
+        grid-template-columns: repeat(2, 200px);
+        grid-auto-rows: 120px;
+        gap: 24px;
+      }
+      /* Three children of different sizes are not a set. */
+      #ragged {
+        left: 760px;
+        top: 200px;
+        display: flex;
+        gap: 24px;
+      }
+      /* A block container: uniform children, no repetition context. */
+      #block {
+        left: 760px;
+        top: 320px;
+        width: 424px;
+      }
+      #block > div {
+        width: 424px;
+        height: 60px;
+      }
+      /* Three uniform children and one odd one: the three are items, the odd one is not, the container is the set. */
+      #mixed {
+        left: 760px;
+        top: 540px;
+        display: grid;
+        grid-template-columns: repeat(4, 110px);
+        gap: 10px;
+      }
+      #mixed > div {
+        height: 100px;
+      }
+      #mixed > .odd {
+        height: 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="grid">
+      <div id="g0"><p>Item one</p></div>
+      <div id="g1"><p>Item two</p></div>
+      <div id="g2"><p>Item three</p></div>
+      <div id="g3"><p>Item four</p></div>
+      <div id="g4"><p>Item five</p></div>
+      <div id="g5">
+        <img
+          id="g5-img"
+          alt=""
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='140'%3E%3Crect width='100%25' height='100%25' fill='%2316a085'/%3E%3C/svg%3E"
+        />
+      </div>
+    </div>
+    <div id="flex">
+      <div id="f0"><p>Flex one</p></div>
+      <div id="f1"><p>Flex two</p></div>
+      <div id="f2"><p>Flex three</p></div>
+    </div>
+    <div id="two">
+      <div id="t0"><p>Only</p></div>
+      <div id="t1"><p>two</p></div>
+    </div>
+    <div id="ragged">
+      <div id="r0" style="width: 200px; height: 120px"><p>Wide</p></div>
+      <div id="r1" style="width: 150px; height: 120px"><p>Narrower</p></div>
+      <div id="r2" style="width: 200px; height: 60px"><p>Short</p></div>
+    </div>
+    <div id="block">
+      <div id="b0"><p>Row one</p></div>
+      <div id="b1"><p>Row two</p></div>
+      <div id="b2"><p>Row three</p></div>
+    </div>
+    <div id="mixed">
+      <div id="m0"><p>A</p></div>
+      <div id="m1"><p>B</p></div>
+      <div id="m2"><p>C</p></div>
+      <div id="m3" class="odd"><p>odd</p></div>
+    </div>
+  </body>
+</html>

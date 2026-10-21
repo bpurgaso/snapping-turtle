@@ -7,3 +7,15 @@ interface Window {
   /** Scratch space the specs use to pass results out of page.evaluate. */
   __stTest: Record<string, unknown>;
 }
+
+interface Window {
+  /** suggest-feed.html: drives the dynamic fixture from the spec. */
+  __feed: {
+    append(n: number): void;
+    appendArticle(): string;
+    remove(id: string): void;
+    tint(on: boolean): void;
+  };
+  /** suggest-heavy.html: the generated page's shape. */
+  __heavy: { elements: number; inViewport: number };
+}
