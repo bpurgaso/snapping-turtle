@@ -75,6 +75,46 @@
   background: var(--panel);
   color: var(--fg);
 }
+.rotated-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin: 0.5rem 1rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+.rotated-link[hidden] {
+  display: none;
+}
+.rotated-link input {
+  flex: 1 1 20rem;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.rotated-link button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}
+.save-state.gone {
+  color: var(--accent);
+  font-weight: 600;
+}
 .save-state {
   font-size: 0.85rem;
   color: var(--muted);

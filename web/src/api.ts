@@ -14,6 +14,7 @@ import type {
   PatchCaptureResponse,
   PutAnnotationsResponse,
   RegistrationSetting,
+  RotateLinkResponse,
   SessionInfo,
   SetPasswordRequest,
   TokenListResponse,
@@ -103,6 +104,13 @@ export const annotations = {
 /** Owner capture management (§7): retention changes and delete. */
 export const patchCapture = (viewId: string, body: PatchCaptureRequest, csrf: string) =>
   request<PatchCaptureResponse | undefined>('PATCH', `/api/v1/captures/${viewId}`, body, csrf);
+
+/**
+ * Rotate a capture's link (E12, §6): the server mints a new view_id and the
+ * old URLs die into the uniform 404. Owner-only; returns the new URLs.
+ */
+export const rotateLink = (viewId: string, csrf: string) =>
+  request<RotateLinkResponse>('POST', `/api/v1/captures/${viewId}/rotate`, undefined, csrf);
 
 /** Admin panel client (§11). Every mutation sends the CSRF token. */
 export const admin = {

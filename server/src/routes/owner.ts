@@ -5,6 +5,7 @@ import {
   PatchCaptureRequest,
   PatchCaptureResponse,
   PutAnnotationsResponse,
+  RotateLinkResponse,
   validateAnnotationDocument,
 } from '@snapping-turtle/shared';
 import { Type } from 'typebox';
@@ -17,10 +18,11 @@ import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
 import { captures } from '../db/schema.js';
 import { HttpError } from '../errors.js';
-import { VIEW_ID_PATTERN } from '../ids.js';
+import { newViewId, VIEW_ID_PATTERN } from '../ids.js';
 import type { ImageStore } from '../images/storage.js';
 import { logSecurityEvent } from '../security-events.js';
 import type { App, Clock } from '../types.js';
+import { captureUrls } from '../urls.js';
 import { ifNoneMatchHits } from './secret.js';
 
 export interface OwnerRouteDeps {
@@ -213,6 +215,52 @@ export async function ownerRoutes(app: App, deps: OwnerRouteDeps): Promise<void>
       }
       const row = await findOwned(req, req.params.viewId);
       return saveAnnotations(row, parsed.document);
+    },
+  );
+
+  /**
+   * Rotate the link (E12, §6): a new `view_id` from the same CSPRNG path as
+   * the original, for the remedy the capability model otherwise lacks — a
+   * link that travelled further than intended. The old id is simply gone:
+   * `findLive` never matches it again, so both old URLs answer with the
+   * uniform 404 like a link that never existed (no redirect, no hint — the
+   * dead link *is* the feature) and misses on it charge the guard like any
+   * other. Nothing else moves: the row keeps its annotations, revision,
+   * crop, retention and attribution, and every on-disk artifact — the
+   * original and the flat cache — is keyed by the internal id (§10), so the
+   * new image URL serves the cached bytes without a re-render. Owner-only
+   * like every other write to a capture (rule 8): admins delete, they do not
+   * manage links. The guarded UPDATE fails safe if two of the owner's tabs
+   * rotate at once — the loser gets 404 for the id it held, which is true.
+   */
+  app.post(
+    '/api/v1/captures/:viewId/rotate',
+    {
+      preHandler: [auth.requireSession, auth.requireCsrf],
+      schema: { params: CaptureParams, response: { 200: RotateLinkResponse } },
+    },
+    async (req) => {
+      const row = await findOwned(req, req.params.viewId);
+      const viewId = newViewId();
+      const updated = await db
+        .update(captures)
+        .set({ viewId })
+        .where(
+          and(
+            eq(captures.id, row.id),
+            eq(captures.viewId, req.params.viewId),
+            isNull(captures.deletedAt),
+          ),
+        )
+        .returning({ id: captures.id });
+      if (updated.length === 0) throw new HttpError(404, 'not_found', 'no such capture');
+      logSecurityEvent(req.log, {
+        tag: 'sec.capture.link_rotated',
+        captureId: row.id,
+        userId: req.session!.userId,
+        ip: req.ip,
+      });
+      return captureUrls(config.publicOrigin, viewId);
     },
   );
 

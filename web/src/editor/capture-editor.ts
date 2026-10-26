@@ -10,8 +10,15 @@ import {
 } from '@snapping-turtle/shared/annotations';
 import { RETENTION_CHOICES_DAYS } from '@snapping-turtle/shared/api';
 import { Canvas, FabricImage, IText, type FabricObject, type TPointerEventInfo } from 'fabric';
-import { ApiError, annotations as annotationsApi, describeError, patchCapture } from '../api.js';
-import { el } from '../dom.js';
+import {
+  ApiError,
+  annotations as annotationsApi,
+  describeError,
+  patchCapture,
+  rotateLink,
+} from '../api.js';
+import { setLinkTargets } from '../copy.js';
+import { copyText, el, flash } from '../dom.js';
 import { CropFrame, CropShade } from './crop.js';
 import { cropGeom, editorViewport, isWholeImage, newShapeId, normalizeCrop } from './model.js';
 import {
@@ -40,7 +47,7 @@ export interface EditorOptions {
 }
 
 type Tool = 'select' | 'rect' | 'arrow' | 'text' | 'redact' | 'crop';
-type SaveState = 'saved' | 'pending' | 'saving' | 'error';
+type SaveState = 'saved' | 'pending' | 'saving' | 'error' | 'gone';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const RETRY_MS = 5000;
@@ -64,6 +71,15 @@ const DAY_MS = 86_400_000;
  * document never changes at a transition; only Apply and Clear commit (one
  * undo step, one autosave, like a shape). Drawing sizes follow the effective
  * width (§9) in both views, so nothing but the viewport changes between them.
+ *
+ * Rotate link (E12, §6/§7): the owner's remedy for a link that travelled.
+ * The server mints a new view_id; this editor then re-targets itself —
+ * `viewId` is mutable for exactly this reason — swaps the header's link
+ * fields, rewrites the address bar and shows the new link once with a copy
+ * button. Pending saves are flushed first so no autosave lands on the dead id.
+ * Any other tab still open on the old URL learns of it the honest way: its
+ * next save is a 404, which the editor reports as "link rotated or capture
+ * deleted" and stops retrying (`gone`) — there is nothing to retry against.
  *
  * Redaction (E9, §7/§9): the Redact tool draws like the rectangle tool and
  * the result is an `AnnoRedact` — an ordinary shape in the document, so
@@ -97,6 +113,13 @@ export class CaptureEditor {
     attrs: { role: 'status', 'aria-live': 'polite' },
   });
   private readonly toolButtons = new Map<Tool, HTMLButtonElement>();
+  /** The capture's current view_id: replaced by a rotation (E12). */
+  private viewId: string;
+  /** Shown once after a rotation with the new page link and a copy button (E12). */
+  private readonly rotated = el('div', {
+    className: 'rotated-link',
+    attrs: { hidden: '', role: 'status', 'aria-live': 'polite' },
+  });
   /**
    * Drawing sizes for the *effective* width (§9 adaptive sizing, E4): the
    * crop's width when there is one, else the capture's. Recomputed when the
@@ -109,6 +132,7 @@ export class CaptureEditor {
     private readonly opts: EditorOptions,
   ) {
     this.rev = opts.doc.rev;
+    this.viewId = opts.viewId;
     this.crop = opts.doc.crop ?? null;
     this.refreshSizes();
     this.shade = new CropShade(opts, () => this.shownCrop());
@@ -146,7 +170,7 @@ export class CaptureEditor {
   async mount(): Promise<void> {
     const canvasEl = el('canvas');
     const wrap = el('div', { className: 'canvas-wrap' }, [canvasEl]);
-    this.root.replaceChildren(this.buildToolbar(), wrap);
+    this.root.replaceChildren(this.buildToolbar(), this.rotated, wrap);
 
     this.canvas = new Canvas(canvasEl, {
       selection: false,
@@ -238,6 +262,11 @@ export class CaptureEditor {
       this.status,
       el('span', { className: 'spacer' }),
       this.buildRetention(),
+      el('button', {
+        text: 'Rotate link',
+        attrs: { type: 'button', title: "Replace this capture's link; the current one stops working" },
+        on: { click: () => void this.rotateLink() },
+      }),
       el('button', {
         text: 'Delete capture',
         className: 'danger',
@@ -588,13 +617,13 @@ export class CaptureEditor {
   }
 
   private async save(): Promise<void> {
-    if (this.saving) return; // the running save reschedules if still dirty
+    if (this.saving || this.gone) return; // the running save reschedules if still dirty
     window.clearTimeout(this.retryTimer);
     this.saving = true;
     this.dirty = false;
     this.setStatus('saving', 'Saving…');
     try {
-      const res = await annotationsApi.put(this.opts.viewId, this.document(), this.opts.csrfToken);
+      const res = await annotationsApi.put(this.viewId, this.document(), this.opts.csrfToken);
       this.rev = res.rev;
       if (!this.dirty) this.setStatus('saved', 'Saved');
     } catch (err) {
@@ -602,6 +631,11 @@ export class CaptureEditor {
         // Another of the owner's tabs saved first: last writer wins, so this
         // tab reloads the server document and the local edits are dropped (§9).
         await this.reloadFromServer();
+      } else if (err instanceof ApiError && err.status === 404) {
+        // The id this tab holds no longer names a live capture: the link was
+        // rotated from another tab, or the capture was deleted (E12). Nothing
+        // to retry against — say so, keep the canvas, stop saving.
+        this.markGone();
       } else {
         this.dirty = true;
         this.setStatus('error', 'Save failed — retrying');
@@ -616,10 +650,31 @@ export class CaptureEditor {
     }
   }
 
+  /** No live capture behind this tab's id any more (E12): saves stop, the canvas stays. */
+  private gone = false;
+  private markGone(): void {
+    this.gone = true;
+    this.dirty = false;
+    window.clearTimeout(this.saveTimer);
+    window.clearTimeout(this.retryTimer);
+    this.setStatus(
+      'gone',
+      'Not saved — this link was rotated or the capture was deleted. Reopen the current link.',
+    );
+  }
+
+  /** Wait for autosave to settle (used before a rotation so no save lands on the old id). */
+  private async flushSaves(): Promise<void> {
+    window.clearTimeout(this.saveTimer);
+    window.clearTimeout(this.retryTimer);
+    for (let i = 0; i < 50 && this.saving; i++) await new Promise((r) => window.setTimeout(r, 100));
+    if (this.dirty && !this.gone) await this.save();
+  }
+
   private async reloadFromServer(): Promise<void> {
     if (this.tool === 'crop') this.setTool('select'); // an in-progress crop is a local edit: dropped too
     try {
-      const doc = await annotationsApi.get(this.opts.viewId);
+      const doc = await annotationsApi.get(this.viewId);
       this.rev = doc.rev;
       this.loadDoc(doc);
       this.undoStack = [this.snapshot()];
@@ -635,7 +690,7 @@ export class CaptureEditor {
   private beacon(): void {
     if (!this.dirty) return;
     navigator.sendBeacon(
-      `/api/v1/captures/${this.opts.viewId}/annotations`,
+      `/api/v1/captures/${this.viewId}/annotations`,
       JSON.stringify({ csrfToken: this.opts.csrfToken, document: this.document() }),
     );
   }
@@ -669,12 +724,63 @@ export class CaptureEditor {
 
   private async changeRetention(days: number): Promise<void> {
     try {
-      const res = await patchCapture(this.opts.viewId, { retentionDays: days }, this.opts.csrfToken);
+      const res = await patchCapture(this.viewId, { retentionDays: days }, this.opts.csrfToken);
       const until = res ? new Date(res.retentionUntil).toLocaleDateString() : '';
       this.setStatus('saved', until ? `Expires ${until}` : 'Retention updated');
     } catch (err) {
       this.setStatus('error', describeError(err));
     }
+  }
+
+  /**
+   * Rotate the link (E12): confirm in plain words, flush pending saves so
+   * nothing lands on the id about to die, then re-target this editor at the
+   * new id and surface the new page link once with a copy button.
+   */
+  private async rotateLink(): Promise<void> {
+    const sure = window.confirm(
+      "Rotate this capture's link?\n\n" +
+        'Everyone with the current link loses access — including anywhere you have already posted it. ' +
+        'The capture itself, its annotations, crop and retention are kept, and you get a new link.',
+    );
+    if (!sure) return;
+    try {
+      await this.flushSaves();
+      if (this.gone) return;
+      const res = await rotateLink(this.viewId, this.opts.csrfToken);
+      this.viewId = res.pageUrl.slice(res.pageUrl.lastIndexOf('/') + 1);
+      setLinkTargets(res);
+      window.history.replaceState(null, '', res.pageUrl);
+      this.showRotated(res.pageUrl);
+      this.setStatus('saved', 'Link rotated — the old link no longer works');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) this.markGone();
+      else this.setStatus('error', describeError(err));
+    }
+  }
+
+  private showRotated(pageUrl: string): void {
+    const input = el('input', {
+      attrs: { type: 'text', readonly: '', value: pageUrl, 'aria-label': 'New page link' },
+    });
+    const copy = el('button', {
+      text: 'Copy new link',
+      attrs: { type: 'button' },
+      on: {
+        click: () => {
+          void copyText(pageUrl, input).then((ok) => flash(copy, ok ? 'Copied' : 'Select & copy'));
+        },
+      },
+    });
+    this.rotated.replaceChildren(
+      el('strong', { text: 'New link. ' }),
+      el('span', {
+        text: 'The previous link now shows "Not found" to everyone who had it. ',
+      }),
+      input,
+      copy,
+    );
+    this.rotated.hidden = false;
   }
 
   private async deleteCapture(): Promise<void> {
@@ -683,7 +789,7 @@ export class CaptureEditor {
     );
     if (!sure) return;
     try {
-      await patchCapture(this.opts.viewId, { delete: true }, this.opts.csrfToken);
+      await patchCapture(this.viewId, { delete: true }, this.opts.csrfToken);
       window.location.replace('/');
     } catch (err) {
       this.setStatus('error', describeError(err));

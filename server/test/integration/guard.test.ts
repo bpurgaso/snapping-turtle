@@ -267,6 +267,41 @@ describe('invalid-lookup budget → escalating persisted ban (§12)', () => {
   });
 });
 
+describe('a rotated-away id is an ordinary miss (§6, E12)', () => {
+  it('lookups on the old id count against the invalid-lookup budget and trip a ban like any other; the new id keeps serving', async () => {
+    // A clean aggregate minute: earlier suites' misses must not open the breaker here.
+    advanceMinutes(2);
+    // Rotate the owner's capture through the real route.
+    const oldPath = validPath;
+    const rotated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/captures/${oldPath.slice('/s/'.length)}/rotate`,
+      headers: { cookie: ownerCookie, [CSRF_HEADER]: ownerCsrf },
+      remoteAddress: '192.0.2.10',
+    });
+    expect(rotated.statusCode).toBe(200);
+    validPath = new URL(rotated.json().pageUrl).pathname; // later suites use the live link
+
+    const IP = '10.7.7.7';
+    for (let i = 0; i < BUDGET; i++) {
+      const res = await get(app, oldPath, IP);
+      expect(res.statusCode).toBe(404);
+      expect(res.body).toBe(NOT_FOUND_HTML);
+    }
+    // Within budget the same IP still reaches the live link…
+    expect((await get(app, validPath, IP)).statusCode).toBe(200);
+    // …one more miss on the dead id trips the ban exactly as a never-existed id would.
+    expect((await get(app, `${oldPath}/image.png`, IP)).statusCode).toBe(404);
+    const [row] = await handle.db.select().from(ipBans).where(eq(ipBans.ipPrefix, IP));
+    expect(row).toMatchObject({ strikes: 1 });
+    expect((await get(app, validPath, IP)).statusCode).toBe(429);
+    // Everyone else is untouched, and the old id is dead for them too.
+    expect((await get(app, validPath, '10.7.7.8')).statusCode).toBe(200);
+    expect((await get(app, oldPath, '10.7.7.8')).statusCode).toBe(404);
+    advanceMinutes(16); // leave the IP unbanned for later suites
+  });
+});
+
 describe('X-Forwarded-For is trusted only from the proxy network (§12)', () => {
   let xffApp: App;
   beforeAll(async () => {

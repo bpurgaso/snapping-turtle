@@ -47,6 +47,9 @@ export type SecurityEvent =
     }
   | { tag: 'sec.auth.link_rejected'; ip: string }
   | { tag: 'sec.auth.link_consumed'; userId: number; linkId: number; purpose: string; ip: string }
+  // ---- capture links (§6, E12) ----------------------------------------------
+  /** The owner regenerated a capture's view_id; the old link is now the uniform 404. */
+  | { tag: 'sec.capture.link_rotated'; captureId: number; userId: number; ip: string }
   // ---- guard alerting (§12, E12) --------------------------------------------
   /** The outbound webhook refused or failed a delivery; the guard itself was unaffected. */
   | { tag: 'sec.alert.delivery_failed'; eventClass: string; status: number | null }
@@ -96,6 +99,7 @@ export const SECURITY_EVENT_LEVEL: Record<SecurityTag, Level> = {
   'sec.auth.forbidden': 'warn',
   'sec.auth.link_rejected': 'warn',
   'sec.auth.link_consumed': 'info',
+  'sec.capture.link_rotated': 'info',
   'sec.alert.delivery_failed': 'warn',
   'sec.admin.mutation': 'info',
   'sec.purge.completed': 'info',

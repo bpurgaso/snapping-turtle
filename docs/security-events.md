@@ -110,6 +110,12 @@ a limit tripped, `error` = something needs an operator.
 | `sec.auth.link_rejected` | warn | `ip` | `POST /api/v1/auth/set-password` with a malformed, unknown, consumed or expired token (counts against the invalid-lookup budget) |
 | `sec.auth.link_consumed` | info | `userId`, `linkId`, `purpose`, `ip` | One-time link used; other sessions of the user were revoked |
 
+### Capture links (§6, E12)
+
+| Tag | Level | Fields | When |
+| --- | --- | --- | --- |
+| `sec.capture.link_rotated` | info | `captureId`, `userId`, `ip` | The owner rotated a capture's link (`POST /api/v1/captures/:viewId/rotate`); the old `view_id` now answers with the uniform 404. Neither id appears — the capture is named by its internal row id |
+
 ### Guard alerting (§12, E12)
 
 | Tag | Level | Fields | When |

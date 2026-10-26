@@ -163,6 +163,23 @@ export const CreateCaptureResponse = Type.Object(
 );
 export type CreateCaptureResponse = Static<typeof CreateCaptureResponse>;
 
+/**
+ * POST /api/v1/captures/:viewId/rotate (E12, §6): the capture's new
+ * capability URLs. The old `view_id` is gone the moment this returns — it
+ * answers with the uniform 404 like a link that never existed — and nothing
+ * else about the capture changes (annotations, crop, retention, attribution).
+ */
+export const RotateLinkResponse = Type.Object(
+  {
+    /** The new capture page URL. Treat as a secret, like the one it replaces. */
+    pageUrl: Type.String(),
+    /** The new flat image URL. */
+    imageUrl: Type.String(),
+  },
+  { additionalProperties: false, $id: 'RotateLinkResponse' },
+);
+export type RotateLinkResponse = Static<typeof RotateLinkResponse>;
+
 // ---- Annotations (§8, §9) ---------------------------------------------------
 
 /** Successful PUT/beacon save: the new server revision. */

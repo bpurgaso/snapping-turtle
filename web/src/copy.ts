@@ -16,3 +16,25 @@ export function wireCopyButtons(): void {
     });
   }
 }
+
+/**
+ * Point the header's link fields and copy buttons at new URLs (E12): after a
+ * rotation the server-rendered page still shows the dead link until this
+ * runs. The buttons read `data-copy` at click time, so updating the
+ * attribute is enough; values come from the server's response, never from
+ * user-supplied content.
+ */
+export function setLinkTargets(urls: { pageUrl: string; imageUrl: string }): void {
+  const apply = (kind: 'page' | 'image', url: string) => {
+    for (const input of document.querySelectorAll<HTMLInputElement>(`input[data-link="${kind}"]`)) {
+      input.value = url;
+    }
+    for (const button of document.querySelectorAll<HTMLButtonElement>(
+      `button[data-link="${kind}"]`,
+    )) {
+      button.dataset['copy'] = url;
+    }
+  };
+  apply('page', urls.pageUrl);
+  apply('image', urls.imageUrl);
+}

@@ -177,13 +177,17 @@ export function renderCapturePage(m: CapturePageModel): string {
           <div class="links">
             <label class="link">
               <span>Page link</span>
-              <input type="text" readonly value="${m.pageUrl}" />
-              <button type="button" data-copy="${m.pageUrl}">Copy page link</button>
+              <input type="text" readonly data-link="page" value="${m.pageUrl}" />
+              <button type="button" data-link="page" data-copy="${m.pageUrl}">
+                Copy page link
+              </button>
             </label>
             <label class="link">
               <span>Image link</span>
-              <input type="text" readonly value="${m.imageUrl}" />
-              <button type="button" data-copy="${m.imageUrl}">Copy image link</button>
+              <input type="text" readonly data-link="image" value="${m.imageUrl}" />
+              <button type="button" data-link="image" data-copy="${m.imageUrl}">
+                Copy image link
+              </button>
             </label>
           </div>
         </header>

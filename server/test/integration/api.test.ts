@@ -25,6 +25,7 @@ import { apiTokens, captures, sessions, settings, users } from '../../src/db/sch
 import { seedAdmin } from '../../src/db/seed-admin.js';
 import { NOT_FOUND_HTML } from '../../src/html.js';
 import { sha256Hex } from '../../src/ids.js';
+import { FlatRenderer } from '../../src/images/flat.js';
 import { ImageStore } from '../../src/images/storage.js';
 import { flatEtag } from '../../src/routes/secret.js';
 import { PurgeJob } from '../../src/jobs/purge.js';
@@ -76,6 +77,7 @@ const config = loadConfig({
 
 let handle: DbHandle;
 let app: App;
+let flat: FlatRenderer;
 const store = new ImageStore(imagesDir);
 
 const ADMIN = { username: 'admin', password: 'admin-password-integration-1' };
@@ -89,7 +91,10 @@ beforeAll(async () => {
   await handle.sql`create schema public`;
   await runMigrations(handle);
   await seedAdmin(handle.db, ADMIN);
-  app = await buildApp({ config, db: handle.db, now: () => clock });
+  // Injected so the rotation suite can prove the flat cache survives a
+  // rotation without a re-render (gate.started is the observable).
+  flat = new FlatRenderer({ db: handle.db, store });
+  app = await buildApp({ config, db: handle.db, now: () => clock, flat });
 });
 afterAll(async () => {
   await app.close();
@@ -188,6 +193,8 @@ async function createToken(
 }
 
 const viewIdOf = (pageUrl: string) => pageUrl.slice(`${ORIGIN}/s/`.length);
+/** Absolute URL from the API → the path app.inject takes. */
+const path = (abs: string) => abs.slice(ORIGIN.length);
 
 // ---- signup / login / sessions ---------------------------------------------
 
@@ -739,8 +746,6 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
     captureId = row!.id;
   });
 
-  const path = (abs: string) => abs.slice(ORIGIN.length);
-
   it('renders the view-only page with escaped data, the source link and copy targets', async () => {
     const res = await app.inject({ method: 'GET', url: path(pageUrl) });
     expect(res.statusCode).toBe(200);
@@ -819,7 +824,7 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
     expect(head.headers['content-type']).toBe('image/png');
   });
 
-  it('every lifecycle state is a byte-identical 404: never-existed, owner-deleted, expired-and-purged, hard-deleted, missing-file, malformed', async () => {
+  it('every lifecycle state is a byte-identical 404: never-existed, owner-deleted, expired-and-purged, hard-deleted, rotated-away, missing-file, malformed', async () => {
     const alice = await login(ALICE);
     const t = await createToken(alice, '404-tests');
     const mk = async () => viewIdOf((await upload(t.token, await makePng(8, 8))).json().pageUrl);
@@ -891,6 +896,19 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
       await store.remove(await idOf(v));
     }
 
+    // Rotated away (E12): the capture is alive under a new id; the old one must
+    // be indistinguishable from an id that never existed.
+    const rotatedAwayId = await mk();
+    const rotated = await app.inject({
+      method: 'POST',
+      url: `/api/v1/captures/${rotatedAwayId}/rotate`,
+      headers: { cookie: alice.cookie, [CSRF_HEADER]: alice.csrf },
+    });
+    expect(rotated.statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: 'GET', url: path(rotated.json().pageUrl) })).statusCode,
+    ).toBe(200);
+
     const liveId = await mk();
     const neverId = randomBytes(20).toString('base64url');
 
@@ -902,11 +920,13 @@ describe('GET /s/:viewId and /s/:viewId/image.png (§6, §7)', () => {
       `/s/${ownerDeletedId}`,
       `/s/${expiredId}`,
       `/s/${hardDeletedId}`,
+      `/s/${rotatedAwayId}`,
       '/s/malformed-id',
       `/s/${neverId}/image.png`,
       `/s/${ownerDeletedId}/image.png`,
       `/s/${expiredId}/image.png`,
       `/s/${hardDeletedId}/image.png`,
+      `/s/${rotatedAwayId}/image.png`,
       `/s/${missingId}/image.png`,
       `/s/${missingAnnotatedId}/image.png`,
       `/s/${liveId}/other.png`,
@@ -1270,5 +1290,243 @@ describe('PATCH /api/v1/captures/:viewId (S7, S13)', () => {
       ).statusCode,
     ).toBe(404);
     expect((await patch(id, { delete: true }, asOwner())).statusCode).toBe(404);
+  });
+});
+
+// ---- E12: rotate link --------------------------------------------------------
+
+describe('POST /api/v1/captures/:viewId/rotate (§6, E12)', () => {
+  let alice: Session;
+  let bob: Session;
+  let admin: Session;
+  let token: { id: number; token: string };
+
+  beforeAll(async () => {
+    alice = await login(ALICE);
+    bob = await login(BOB);
+    admin = await login(ADMIN);
+    token = await createToken(alice, 'rotate-tests');
+  });
+
+  const fresh = async (png?: Buffer) => {
+    const res = await upload(token.token, png ?? (await makePng(64, 48)));
+    expect(res.statusCode).toBe(201);
+    return viewIdOf(res.json().pageUrl);
+  };
+  const rotate = (id: string, headers: Record<string, string> = {}) =>
+    app.inject({ method: 'POST', url: `/api/v1/captures/${id}/rotate`, headers });
+  const asOwner = () => ({ cookie: alice.cookie, [CSRF_HEADER]: alice.csrf });
+  const rowOf = async (viewId: string) =>
+    (await handle.db.select().from(captures).where(eq(captures.viewId, viewId)))[0];
+  const strip = (h: Record<string, unknown>) => {
+    const { date: _d, ...rest } = h;
+    return rest;
+  };
+
+  it('authz: anonymous 401; owner without CSRF 403; non-owner and admin 403; unknown 404 — the id never moves', async () => {
+    const id = await fresh();
+    expect((await rotate(id)).statusCode).toBe(401);
+    expect((await rotate(id, { cookie: alice.cookie })).statusCode).toBe(403);
+    expect((await rotate(id, { cookie: bob.cookie, [CSRF_HEADER]: bob.csrf })).statusCode).toBe(
+      403,
+    );
+    // Admins delete captures; they do not manage links (consistent with the annotation rule).
+    expect((await rotate(id, { cookie: admin.cookie, [CSRF_HEADER]: admin.csrf })).statusCode).toBe(
+      403,
+    );
+    expect((await rowOf(id))?.viewId).toBe(id);
+    expect((await rotate(randomBytes(20).toString('base64url'), asOwner())).statusCode).toBe(404);
+    expect((await rotate('malformed', asOwner())).statusCode).toBe(404);
+    // Still reachable under the id it had.
+    expect((await app.inject({ method: 'GET', url: `/s/${id}` })).statusCode).toBe(200);
+  });
+
+  it('the owner gets a fresh 20-byte id; annotations, crop, revision, retention and attribution are untouched', async () => {
+    const id = await fresh();
+    const doc: AnnotationDocument = {
+      version: 1,
+      rev: 0,
+      shapes: [{ id: 'r1', type: 'rect', x: 4, y: 4, w: 20, h: 12 }],
+      crop: { x: 2, y: 2, w: 40, h: 30 },
+    };
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/captures/${id}/annotations`,
+      payload: doc,
+      headers: asOwner(),
+    });
+    expect(put.statusCode).toBe(200);
+    const ret = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/captures/${id}`,
+      payload: { retentionDays: 90 },
+      headers: asOwner(),
+    });
+    expect(ret.statusCode).toBe(200);
+    const before = (await rowOf(id))!;
+
+    const res = await rotate(id, asOwner());
+    expect(res.statusCode).toBe(200);
+    const { pageUrl, imageUrl } = res.json();
+    const newId = viewIdOf(pageUrl);
+    expect(newId).toMatch(new RegExp(`^[A-Za-z0-9_-]{${VIEW_ID_LENGTH}}$`));
+    expect(newId).not.toBe(id);
+    expect(imageUrl).toBe(`${pageUrl}/image.png`);
+    expect(pageUrl.startsWith(`${ORIGIN}/s/`)).toBe(true);
+
+    const after = (await rowOf(newId))!;
+    expect(await rowOf(id)).toBeUndefined();
+    expect(after.id).toBe(before.id);
+    const { viewId: _v1, ...beforeRest } = before;
+    const { viewId: _v2, ...afterRest } = after;
+    expect(afterRest).toEqual(beforeRest); // every other column byte-for-byte
+    expect(after.annotations.shapes).toHaveLength(1);
+    expect(after.annotations.crop).toEqual(doc.crop);
+    expect(after.annotationsRev).toBe(1);
+    expect(after.retentionUntil?.toISOString()).toBe(ret.json().retentionUntil);
+    expect(after.ownerId).toBe(before.ownerId);
+    expect(after.uploadTokenId).toBe(token.id);
+
+    // The new page and image serve; the owner's routes follow the new id.
+    expect((await app.inject({ method: 'GET', url: `/s/${newId}` })).statusCode).toBe(200);
+    const annos = await app.inject({
+      method: 'GET',
+      url: `/api/v1/captures/${newId}/annotations`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(annos.statusCode).toBe(200);
+    expect(annos.json().rev).toBe(1);
+  });
+
+  it('the old id dies into the uniform 404 — page and image byte-identical to never-existed, no redirect', async () => {
+    const id = await fresh();
+    const res = await rotate(id, asOwner());
+    expect(res.statusCode).toBe(200);
+    const never = randomBytes(20).toString('base64url');
+    for (const suffix of ['', '/image.png']) {
+      const dead = await app.inject({ method: 'GET', url: `/s/${id}${suffix}` });
+      const ghost = await app.inject({ method: 'GET', url: `/s/${never}${suffix}` });
+      expect(dead.statusCode).toBe(404);
+      expect(dead.headers['location']).toBeUndefined();
+      expect(dead.body).toBe(NOT_FOUND_HTML);
+      expect(dead.rawPayload.equals(ghost.rawPayload)).toBe(true);
+      expect(strip(dead.headers)).toEqual(strip(ghost.headers));
+      // The response names nothing: not the new id, not the word "rotated".
+      expect(dead.body).not.toContain(viewIdOf(res.json().pageUrl));
+      expect(dead.body.toLowerCase()).not.toContain('rotat');
+    }
+  });
+
+  it('a concurrent editor on the old URL fails safe: every owner route answers 404 for the old id', async () => {
+    const id = await fresh();
+    expect((await rotate(id, asOwner())).statusCode).toBe(200);
+    const doc = { version: 1, rev: 0, shapes: [] };
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/captures/${id}/annotations`,
+      payload: doc,
+      headers: asOwner(),
+    });
+    expect(put.statusCode).toBe(404);
+    expect(put.json().code).toBe('not_found');
+    const beacon = await app.inject({
+      method: 'POST',
+      url: `/api/v1/captures/${id}/annotations`,
+      payload: JSON.stringify({ csrfToken: alice.csrf, document: doc }),
+      headers: { cookie: alice.cookie, 'content-type': 'text/plain' },
+    });
+    expect(beacon.statusCode).toBe(404);
+    for (const sub of ['annotations', 'original']) {
+      const get = await app.inject({
+        method: 'GET',
+        url: `/api/v1/captures/${id}/${sub}`,
+        headers: { cookie: alice.cookie },
+      });
+      expect(get.statusCode, sub).toBe(404);
+    }
+    const patch = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/captures/${id}`,
+      payload: { retentionDays: 90 },
+      headers: asOwner(),
+    });
+    expect(patch.statusCode).toBe(404);
+    // Rotating the dead id again is the same 404: the guarded UPDATE cannot
+    // be replayed, and the capture keeps the id it has now.
+    expect((await rotate(id, asOwner())).statusCode).toBe(404);
+  });
+
+  it('no stale artifact survives at the old id, and the new image URL serves the cached flat without a re-render', async () => {
+    const id = await fresh(await makePng(120, 80));
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/captures/${id}/annotations`,
+      payload: {
+        version: 1,
+        rev: 0,
+        shapes: [{ id: 'a1', type: 'rect', x: 10, y: 10, w: 50, h: 30 }],
+      },
+      headers: asOwner(),
+    });
+    expect(put.statusCode).toBe(200);
+
+    // Render and cache the flat under the old URL.
+    const before = await app.inject({ method: 'GET', url: `/s/${id}/image.png` });
+    expect(before.statusCode).toBe(200);
+    expect(before.headers['etag']).toBe(flatEtag(1));
+    const captureId = (await rowOf(id))!.id;
+    const flatPath = store.pathFor(captureId, 'flat');
+    expect(existsSync(flatPath)).toBe(true);
+    const cachedBytes = readFileSync(flatPath);
+    const rendersBefore = flat.gate.started;
+
+    const res = await rotate(id, asOwner());
+    expect(res.statusCode).toBe(200);
+    const newId = viewIdOf(res.json().pageUrl);
+
+    // The cache is keyed by the internal row id (§10), so nothing moved on
+    // disk and the old path serves nothing: the uniform 404 again.
+    expect(existsSync(flatPath)).toBe(true);
+    expect(readFileSync(flatPath).equals(cachedBytes)).toBe(true);
+    const dead = await app.inject({ method: 'GET', url: `/s/${id}/image.png` });
+    expect(dead.statusCode).toBe(404);
+    expect(dead.body).toBe(NOT_FOUND_HTML);
+
+    // The new URL serves the identical bytes, same ETag, with zero new renders.
+    const after = await app.inject({ method: 'GET', url: `/s/${newId}/image.png` });
+    expect(after.statusCode).toBe(200);
+    expect(after.headers['etag']).toBe(flatEtag(1));
+    expect(after.rawPayload.equals(before.rawPayload)).toBe(true);
+    expect(after.rawPayload.equals(cachedBytes)).toBe(true);
+    expect(flat.gate.started).toBe(rendersBefore);
+    const row = (await rowOf(newId))!;
+    expect(row.flatRev).toBe(1);
+
+    // A client holding the old ETag revalidates against the new URL normally.
+    const reval = await app.inject({
+      method: 'GET',
+      url: `/s/${newId}/image.png`,
+      headers: { 'if-none-match': String(before.headers['etag']) },
+    });
+    expect(reval.statusCode).toBe(304);
+    expect(flat.gate.started).toBe(rendersBefore);
+  });
+
+  it('the rotated page carries the new URLs everywhere and the old URL nowhere', async () => {
+    const id = await fresh();
+    const res = await rotate(id, asOwner());
+    const { pageUrl, imageUrl } = res.json();
+    const page = await app.inject({
+      method: 'GET',
+      url: path(pageUrl),
+      headers: { cookie: alice.cookie },
+    });
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain(`data-copy="${pageUrl}"`);
+    expect(page.body).toContain(`data-copy="${imageUrl}"`);
+    expect(page.body).toContain(`content="${pageUrl}"`); // og:url
+    expect(page.body).toContain(`content="${imageUrl}"`); // og:image
+    expect(page.body).toContain('data-link="page"');
+    expect(page.body).not.toContain(id);
   });
 });
