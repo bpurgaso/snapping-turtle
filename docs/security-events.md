@@ -33,6 +33,43 @@ monitoring stack, just tagged logs): page on any `sec.breaker.opened`,
 `sec.proxy.permissive_trust` or `sec.purge.failed`; review daily counts of
 `sec.ban.created`, `sec.auth.token_rejected` and `sec.auth.forbidden`.
 
+## Webhook alerting (E12)
+
+Set `ALERT_WEBHOOK_URL` in `deploy/.env` (a Discord webhook URL is the
+expected shape; any endpoint that accepts a JSON `POST` with a `content`
+string works) and the app posts the **loud** guard events outbound:
+
+| Event | Alert class | Message |
+| --- | --- | --- |
+| `sec.ban.created` | `ban` | "IP banned for enumerating secret links" — truncated prefix (`198.51.100.x`, `2001:db8::/32`), strike, duration |
+| `sec.breaker.opened` | `breaker_opened` | "breaker OPEN — distributed enumeration; anonymous secret-link traffic refused" — reason, cool-down |
+| `sec.breaker.closed` | `breaker_closed` | "breaker closed — normal service resumed" (the all-clear) |
+
+Nothing else alerts: routine throttles, lazy ban expiries, the admin's own
+unban and half-open probing stay in the log only.
+
+Behaviour, each with a unit test in `server/test/unit/alerts.test.ts`:
+
+- **One message per event class per 10 minutes.** The first event of a quiet
+  window is posted at once; further events of the same class in that window
+  are coalesced into one trailing summary with a count ("3 events coalesced
+  between … and …") at the window's end. An attack cannot turn the alerter
+  into an outbound flood against the webhook provider.
+- **Secret-free payload.** The message names the event class, a count,
+  timestamps, the site's public host and the guard's own fields; the banned
+  address appears only as a truncated prefix. No token, no `view_id`, no full
+  IP, no URL path — the endpoint is a third party, so rule 3 applies with
+  extra force, and the payload is checked against a deny-list.
+- **An observer, never a dependency.** Delivery is fire-and-forget with a 5 s
+  timeout. A refused or failed delivery is one `sec.alert.delivery_failed`
+  line (status or `null`) **without the URL**, which is itself a credential;
+  the guard never waits on it.
+
+The admin panel's Guard section says whether alerting is configured. Unset
+(the default) means no alerting, and the `jq` lines above remain the manual
+path. Local verification of the webhook itself needs a real endpoint — the
+first message into a real channel is the owner's check.
+
 ## Taxonomy
 
 Levels: `info` = expected operational fact, `warn` = someone is misbehaving or
@@ -72,6 +109,12 @@ a limit tripped, `error` = something needs an operator.
 | `sec.auth.forbidden` | warn | `reason` (`admin_required` \| `not_owner`), `userId`, `ip`, `path` | Authenticated user reached a route they may not use |
 | `sec.auth.link_rejected` | warn | `ip` | `POST /api/v1/auth/set-password` with a malformed, unknown, consumed or expired token (counts against the invalid-lookup budget) |
 | `sec.auth.link_consumed` | info | `userId`, `linkId`, `purpose`, `ip` | One-time link used; other sessions of the user were revoked |
+
+### Guard alerting (§12, E12)
+
+| Tag | Level | Fields | When |
+| --- | --- | --- | --- |
+| `sec.alert.delivery_failed` | warn | `eventClass` (`ban` \| `breaker_opened` \| `breaker_closed`), `status` (HTTP status, or `null` for a network failure or timeout) | The outbound webhook (`ALERT_WEBHOOK_URL`) refused or failed a delivery. The guard itself was unaffected; the URL is never logged |
 
 ### Admin panel (§11)
 

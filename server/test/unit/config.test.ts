@@ -86,6 +86,27 @@ describe('loadConfig', () => {
     });
   });
 
+  it('reads ALERT_WEBHOOK_URL only as an https URL; blank means unset; a bad value is never echoed (E12)', () => {
+    expect(loadConfig(minimal).alertWebhookUrl).toBeUndefined();
+    expect(loadConfig({ ...minimal, ALERT_WEBHOOK_URL: '' }).alertWebhookUrl).toBeUndefined();
+    expect(loadConfig({ ...minimal, ALERT_WEBHOOK_URL: '  ' }).alertWebhookUrl).toBeUndefined();
+    const url = 'https://discord.example/api/webhooks/1234567890/not-a-real-token-AbCdEf';
+    expect(loadConfig({ ...minimal, ALERT_WEBHOOK_URL: ` ${url} ` }).alertWebhookUrl).toBe(url);
+    // The URL is a credential (rules 3, 12): plaintext http is refused, and the
+    // refusal names the field, not the value.
+    const bad = 'http://discord.example/api/webhooks/1234567890/not-a-real-token-AbCdEf';
+    let message = '';
+    try {
+      loadConfig({ ...minimal, ALERT_WEBHOOK_URL: bad });
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConfigError);
+      message = (err as Error).message;
+    }
+    expect(message).toContain('alertWebhookUrl');
+    expect(message).not.toContain('not-a-real-token');
+    expect(message).not.toContain('discord.example');
+  });
+
   it('reads CHROME_EXTENSION_URL only as an https URL; blank means unset (E2)', () => {
     expect(loadConfig(minimal).chromeExtensionUrl).toBeUndefined();
     expect(loadConfig({ ...minimal, CHROME_EXTENSION_URL: '' }).chromeExtensionUrl).toBeUndefined();

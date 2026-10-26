@@ -331,6 +331,8 @@ export const GuardStatusResponse = Type.Object(
       retryAfterSeconds: Type.Optional(Type.Integer()),
     }),
     bans: Type.Array(GuardBanEntry),
+    /** Whether ALERT_WEBHOOK_URL is set (E12): ban and breaker events are posted outbound. */
+    alerting: Type.Object({ configured: Type.Boolean() }, { additionalProperties: false }),
   },
   { additionalProperties: false, $id: 'GuardStatusResponse' },
 );

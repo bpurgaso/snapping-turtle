@@ -58,6 +58,14 @@ export const ConfigSchema = Type.Object({
    * only: it lands in an href.
    */
   chromeExtensionUrl: Type.Optional(Type.String({ pattern: '^https://[^\\s]+$' })),
+  /**
+   * Outbound webhook for the loud guard events (E12, §12): `sec.ban.created`,
+   * `sec.breaker.opened` and `sec.breaker.closed`, at most one message per
+   * event class per ten minutes, with a secret-free payload. A Discord
+   * webhook is the expected shape. Unset = no alerting (the default). The
+   * URL is itself a credential: https only, never logged (rules 3, 12).
+   */
+  alertWebhookUrl: Type.Optional(Type.String({ pattern: '^https://[^\\s]+$' })),
   /** Re-encoded originals live here as {shard}/{id}.png (§12). The server chooses every path. */
   imagesDir: Type.String({ minLength: 1 }),
   maxUploadMb: Type.Integer({ minimum: 1, maximum: 1024 }),
@@ -160,6 +168,9 @@ export function loadConfig(env: Env = process.env): Config {
     extDir: env['EXT_DIR'] ?? defaultExtDir,
     ...(env['CHROME_EXTENSION_URL']?.trim()
       ? { chromeExtensionUrl: env['CHROME_EXTENSION_URL'].trim() }
+      : {}),
+    ...(env['ALERT_WEBHOOK_URL']?.trim()
+      ? { alertWebhookUrl: env['ALERT_WEBHOOK_URL'].trim() }
       : {}),
     imagesDir: env['IMAGES_DIR'] ?? defaultImagesDir,
     maxUploadMb: int(env, 'MAX_UPLOAD_MB', MAX_UPLOAD_MB),

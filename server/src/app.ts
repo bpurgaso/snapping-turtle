@@ -23,6 +23,8 @@ import { renderHomePage, renderPrivacyPage, type PageAssets } from './html.js';
 import { FlatRenderer } from './images/flat.js';
 import { ImageStore } from './images/storage.js';
 import { redactSecretPath } from './log.js';
+import { GuardAlerter } from './alerts.js';
+import { ROBOTS_CACHE_CONTROL, ROBOTS_PATH, ROBOTS_TXT } from './robots.js';
 import {
   PRIVACY_ASSET_ENTRY,
   PRIVACY_CACHE_CONTROL,
@@ -138,15 +140,32 @@ export async function buildApp(opts: AppOptions): Promise<App> {
   // ip_bans here so a restart never amnesties anyone; all thresholds come
   // from RATE_* config and the injected clock (CLAUDE.md rule 9 — no
   // bypasses, no special cases).
+  // Guard alerting (E12, §12): an observer on the loud guard events — bans
+  // and breaker transitions — posted to ALERT_WEBHOOK_URL when set. It never
+  // sits in the request path: `onEvent` is synchronous and delivery is
+  // fire-and-forget, so a slow or dead webhook cannot delay or block the
+  // guard, and its payload is secret-free by construction (alerts.ts).
+  const alerter = config.alertWebhookUrl
+    ? new GuardAlerter({
+        url: config.alertWebhookUrl,
+        site: new URL(config.publicOrigin).host,
+        now,
+        log: app.log,
+      })
+    : undefined;
   const guard =
     opts.guard ??
     new Guard({
       db,
       rate: config.rate,
       now,
-      onEvent: (event) => logSecurityEvent(app.log, event),
+      onEvent: (event) => {
+        logSecurityEvent(app.log, event);
+        alerter?.onEvent(event);
+      },
     });
   if (!opts.guard) await guard.init();
+  app.addHook('onClose', async () => alerter?.close());
 
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?', 2)[0]!;
@@ -208,6 +227,15 @@ export async function buildApp(opts: AppOptions): Promise<App> {
       const healthy = Object.values(checks).every(Boolean);
       return reply.code(healthy ? 200 : 503).send({ status: healthy ? 'ok' : 'degraded', checks });
     },
+  );
+
+  // robots.txt (§6): a fixed public file, like /ext/ and /privacy cacheable
+  // for a few minutes; it carries nothing per viewer and nothing configured.
+  app.get(ROBOTS_PATH, async (_req, reply) =>
+    reply
+      .header('Cache-Control', ROBOTS_CACHE_CONTROL)
+      .type('text/plain; charset=utf-8')
+      .send(ROBOTS_TXT),
   );
 
   await app.register(authRoutes, { db, sessions, throttle, auth, guard, now });

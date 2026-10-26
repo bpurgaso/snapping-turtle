@@ -82,6 +82,10 @@ services:
       RATE_BAN_LADDER_MINUTES: ${RATE_BAN_LADDER_MINUTES:-15,60,1440}
       RATE_NOT_FOUND_JITTER_MIN_MS: ${RATE_NOT_FOUND_JITTER_MIN_MS:-30}
       RATE_NOT_FOUND_JITTER_MAX_MS: ${RATE_NOT_FOUND_JITTER_MAX_MS:-150}
+      # Guard alerting webhook (E12, §12): bans and breaker transitions, rate
+      # limited, secret-free. Empty = off. The URL is a credential: it reaches
+      # the app's environment only, never a log line.
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       LOGIN_THROTTLE_FREE_ATTEMPTS: ${LOGIN_THROTTLE_FREE_ATTEMPTS:-5}
       LOGIN_THROTTLE_BASE_SECONDS: ${LOGIN_THROTTLE_BASE_SECONDS:-5}

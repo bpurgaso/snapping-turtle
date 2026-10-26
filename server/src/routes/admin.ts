@@ -481,6 +481,8 @@ export async function adminRoutes(app: App, deps: AdminRouteDeps): Promise<void>
       const rows = await db.select().from(ipBans).orderBy(desc(ipBans.updatedAt)).limit(200);
       return {
         breaker: guard.breakerStatus(),
+        // E12: the owner can tell at a glance whether ban/breaker events go anywhere.
+        alerting: { configured: config.alertWebhookUrl !== undefined },
         bans: rows.map((b) => ({
           ipPrefix: b.ipPrefix,
           strikes: b.strikes,

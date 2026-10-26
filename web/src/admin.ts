@@ -413,9 +413,14 @@ class AdminPage {
           : res.breaker.state === 'half_open'
             ? 'half-open — probing recovery'
             : 'closed — normal service';
+      // E12: whether bans and breaker transitions reach anyone (ALERT_WEBHOOK_URL).
+      const alertingLine = res.alerting.configured
+        ? 'webhook configured — bans and breaker transitions are posted, at most one message per event class per 10 minutes'
+        : 'not configured — set ALERT_WEBHOOK_URL in deploy/.env to be told about bans and breaker trips';
       mount(
         this.guardBox,
         el('p', {}, [el('strong', { text: 'Breaker: ' }), breakerLine]),
+        el('p', {}, [el('strong', { text: 'Alerting: ' }), alertingLine]),
         active.length === 0
           ? el('p', { className: 'empty', text: 'No active bans.' })
           : el('table', {}, [
