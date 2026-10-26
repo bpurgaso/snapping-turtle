@@ -131,7 +131,10 @@ Node is only needed on the machine that builds the extension (below).
    **Visible** (or `Alt+Shift+S`). The capture page opens in a new tab: draw
    a rectangle, an arrow, some text — it autosaves. **Copy page link** shares
    the annotated view; **Copy image link** shares the flat PNG. Open the page
-   link in a private window to see what recipients see. Region
+   link in a private window to see what recipients see. If a link leaked —
+   posted somewhere it should not have been — open the capture and
+   **Rotate link**: the old URL stops working for everyone, immediately, and
+   you get a new one. Region
    (`Alt+Shift+R`) and Full page (`Alt+Shift+F`) work the same way. In
    Region mode, images and bordered or shadowed boxes highlight under the
    pointer and a click captures the highlighted one; drag to select any
@@ -199,6 +202,9 @@ while, flip **Registration** on the admin page (also audited) and off again.
 | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Backups (nightly `pg_dump` + image snapshots, optional restic off-box) and **restore** | [deploy/README.md](deploy/README.md) — run `deploy/backup/verify-restore.sh` after the first night                                                                                   |
 | Someone banned themselves testing links; see bans and breaker state; **unban**         | `/admin` → Guard                                                                                                                                                                     |
+| Be told when someone is enumerating links (a ban, the breaker opening or closing)      | set `ALERT_WEBHOOK_URL` in `deploy/.env` (a Discord webhook) and `docker compose … up -d`; at most one message per event class per 10 min, no secrets in the payload — [docs/security-events.md](docs/security-events.md) "Webhook alerting"; `/admin` → Guard shows whether it is on |
+| A capture link leaked                                                                  | open the capture → **Rotate link** (the old URL is a 404 for everyone from that moment; annotations, crop and retention stay)                                                       |
+| **Quarterly:** re-prove the posture against the live deployment                        | `scripts/verify-live.sh https://shots.example.com:28443` once, from outside your network (≤ 3 invalid probes — never twice within 10 minutes, or your IP is banned; `/admin` → Guard unbans), then `pnpm loadtest ban breaker` against the loadtest profile — [docs/loadtest.md](docs/loadtest.md) |
 | What the app is telling you about attacks and admin actions (`sec.*` log lines)        | [docs/security-events.md](docs/security-events.md); `docker compose -f deploy/docker-compose.yml logs app \| grep '"tag":"sec.'`                                                     |
 | Prove the guard still trips under load                                                 | `pnpm loadtest` — [docs/loadtest.md](docs/loadtest.md)                                                                                                                               |
 | Upgrade the app                                                                        | `git pull && docker compose -f deploy/docker-compose.yml up -d --build` — patch bumps of the Postgres pin flow through Dependabot; **majors** follow the runbook in deploy/README.md |

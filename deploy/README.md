@@ -11,7 +11,7 @@ nothing listens on 80 or 443.
 
 ```sh
 cp deploy/.env.example deploy/.env
-$EDITOR deploy/.env          # PUBLIC_HOST, CLOUDFLARE_API_TOKEN, POSTGRES_PASSWORD, SESSION_SECRET at minimum
+$EDITOR deploy/.env          # PUBLIC_HOST, CLOUDFLARE_API_TOKEN, POSTGRES_PASSWORD, SESSION_SECRET at minimum; ALERT_WEBHOOK_URL to be told about bans
 docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml ps    # wait for app: healthy; caddy shows only PUBLIC_PORT
 docker compose -f deploy/docker-compose.yml logs caddy | grep -E 'certificate obtained|error'
@@ -325,6 +325,35 @@ not an extension release; after the first deploy that carries it, open the
 URL from outside the network before pasting it into the Chrome console
 (`extension/STORE_SUBMISSION.md`). The URL embeds the host and port, so a
 domain migration updates the listing (`docs/runbooks/domain-migration.md`).
+
+## Re-verifying the posture (quarterly)
+
+The tests freeze the link-secrecy posture (PLAN.md §6, §12) at merge time;
+`scripts/verify-live.sh` re-proves it against the running deployment from
+outside, read-only:
+
+```sh
+scripts/verify-live.sh https://shots.example.com:28443                      # from a machine outside your network
+scripts/verify-live.sh https://shots.example.com:28443 https://shots.example.com:28443/s/<a-capture-you-own>   # also checks a live page's headers
+VERIFY_INSECURE=1 scripts/verify-live.sh https://localhost:28443            # a local stack under the internal CA
+```
+
+It asserts the uniform 404 (two `/s/` misses and one `/reset/` miss,
+byte-identical bodies and headers), the secret-page header set, each public
+page's own posture (`/` noindex + no-store, `/privacy` indexable + cacheable,
+`/ext/updates.json` cacheable or not yet published, `/robots.txt` exactly the
+served text), TLS verification, TLS ≤ 1.1 refused, HSTS, and that 80/443 do
+not answer. **It spends exactly 3 invalid lookups against the guard's per-IP
+budget of 5 per 10 minutes** — run it once; a second run inside the window
+bans your IP (15 minutes on the first strike), and `/admin` → Guard →
+Unban is the recovery. Then run `pnpm loadtest ban breaker` against the
+loadtest profile ([docs/loadtest.md](../docs/loadtest.md)) to re-measure the
+guard itself. Put both on a quarterly reminder; the README's "Day-2
+operations" table carries the row.
+
+If `ALERT_WEBHOOK_URL` is set (E12), a ban or a breaker transition also
+arrives in that channel — the posture probe never trips either when run as
+written, so a message during a run means the budget was already partly spent.
 
 ## Notes
 

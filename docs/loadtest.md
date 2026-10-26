@@ -11,6 +11,12 @@ re-measure after guard changes, not to gate every commit.
 
 ## Running it
 
+Besides after a guard change, run the `ban` and `breaker` scenarios
+**quarterly** together with `scripts/verify-live.sh` against production
+(README.md "Day-2 operations", `deploy/README.md` "Re-verifying the
+posture"): the posture probe checks the live deployment from outside, this
+re-measures the guard itself on the loadtest profile.
+
 ```sh
 pnpm loadtest                 # ban, breaker, baseline — ~4 min, tears down after
 pnpm loadtest breaker         # one scenario
