@@ -25,17 +25,23 @@ ARG CADDY_DNS_MODULE=github.com/caddy-dns/cloudflare@v0.2.4
 
 FROM caddy:${CADDY_VERSION}-builder AS builder
 ARG CADDY_DNS_MODULE
-# The --replace line bumps a Go module Caddy 2.11.7 still pins at a version
-# with a fixed HIGH CVE (x/net v0.59.0, CVE-2026-78669 in http2; Trivy gates
-# the built binary in CI). Drop it once a Caddy release carries v0.60.0 or
-# newer. 2.11.7 itself carries x/crypto, x/text, klauspost/compress and
-# grpc at fixed versions, and its builder image ships Go 1.27.3 (stdlib
+# The --replace lines bump Go modules Caddy 2.11.7 still pins at versions
+# with a fixed HIGH CVE (Trivy gates the built binary in CI). Each is
+# dropped once a Caddy release carries the fixed version itself:
+#   - x/net v0.59.0 → v0.61.0: CVE-2026-78669 in http2 (SETTINGS flood).
+#     Still needed on 2026-10-29: 2.11.7 resolves v0.59.0 without it.
+#   - go-jose/v4 v4.1.5 → v4.1.6 (indirect, via certmagic/acmez/smallstep):
+#     CVE-2026-116587 (GHSA-mgcc-cww5-fp2q), DoS parsing JWKs with RSA keys;
+#     turned the scan red on 2026-10-29.
+# 2.11.7 itself carries x/crypto, x/text, klauspost/compress and grpc at
+# fixed versions, and its builder image ships Go 1.27.3 (stdlib
 # CVE-2026-78667 / -78669 / -97031 fixed in 1.27.2), so the earlier
 # replace lines for those are gone.
 RUN xcaddy build \
     --with "${CADDY_DNS_MODULE}" \
     --with github.com/mholt/caddy-ratelimit@5625512f24f6f59d6f64fb3aafe5eecff0b286db \
-    --replace golang.org/x/net=golang.org/x/net@v0.61.0
+    --replace golang.org/x/net=golang.org/x/net@v0.61.0 \
+    --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6
 
 # Named so CI can exclude it from the build cache (ci.yml no-cache-filters):
 # the apk upgrade below only picks up Alpine's fixes when it actually runs,
