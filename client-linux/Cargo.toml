@@ -24,7 +24,7 @@ path = "src/main.rs"
 ashpd = { version = "0.13", default-features = false, features = ["tokio", "screenshot", "open_uri", "notification", "global_shortcuts", "background"] }
 # The DBus stack ashpd is built on; used directly for KWin's
 # org.kde.KWin.ScreenShot2 and for the single-instance control interface.
-zbus = { version = "5", default-features = false, features = ["tokio"] }
+zbus = { version = "6", default-features = false, features = ["tokio"] }
 # The async runtime ashpd, zbus and reqwest need — one runtime, not two.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 # StreamExt for portal signal streams (already in the tree through zbus).
