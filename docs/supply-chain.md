@@ -49,7 +49,7 @@ _with_ a fix fail the build, because the fix is almost always mechanical:
 --no-cache` is the equivalent;
 - the app runtime image drops npm/corepack/yarn (never used at runtime), the
   backup image drops `gosu` — both were pure CVE surface;
-- Go-binary findings (Caddy) mean bumping `CADDY_VERSION` in
+- Go-binary findings (Caddy) mean bumping the Caddy tag and digest (both `FROM` lines) in
   `deploy/Dockerfile.caddy` to the next patch release. When no Caddy release
   carries the fixed module yet, the xcaddy `--replace` lines in that
   Dockerfile pin the one module forward (x/net, and go-jose/v4 since

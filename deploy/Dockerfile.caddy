@@ -15,15 +15,19 @@
 # supply-chain surface. The app guard remains the enforcement layer; the
 # rate limit only sheds dumb floods before they reach Node.
 
-# Exact patch release for both the builder and the runtime image, not a
-# floating minor: what Trivy scanned in CI is what runs.
-ARG CADDY_VERSION=2.11.7
+# Exact patch release *and* manifest digest for both the builder and the
+# runtime image, not a floating minor: what Trivy scanned in CI is what runs,
+# and a digest cannot be re-pointed upstream the way a tag can. Written as
+# literals (no ARG) so Dependabot's docker ecosystem can propose the bump;
+# both FROM lines move together in that PR. Refresh by hand with
+#   docker buildx imagetools inspect caddy:<ver>-builder --format '{{.Manifest.Digest}}'
+# (and the same for caddy:<ver>-alpine).
 # DNS-01 provider module. Zone → Zone → Read plus Zone → DNS → Edit on the
 # one zone is the least privilege the Cloudflare plugin works with
 # (deploy/README.md "TLS").
 ARG CADDY_DNS_MODULE=github.com/caddy-dns/cloudflare@v0.2.4
 
-FROM caddy:${CADDY_VERSION}-builder AS builder
+FROM caddy:2.11.7-builder@sha256:c4cd20eaa0b69112fd5d4f721ffc9671687e1d5d0b155c8620cf7546dbef94c0 AS builder
 ARG CADDY_DNS_MODULE
 # The --replace lines bump Go modules Caddy 2.11.7 still pins at versions
 # with a fixed HIGH CVE (Trivy gates the built binary in CI). Each is
@@ -46,6 +50,22 @@ RUN xcaddy build \
 # Named so CI can exclude it from the build cache (ci.yml no-cache-filters):
 # the apk upgrade below only picks up Alpine's fixes when it actually runs,
 # and a cached layer would serve last month's packages to today's Trivy scan.
-FROM caddy:${CADDY_VERSION}-alpine AS runtime
-RUN apk upgrade --no-cache
+FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS runtime
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+# Non-root runtime (compose runs the container as 1000:1000 with every
+# capability dropped and no-new-privileges; the stock image has no user, so
+# the uid is a number). Two things make that work:
+#   - The builder's xcaddy wrapper stamps cap_net_bind_service=ep onto the
+#     binary as a file capability. Nothing here binds below 1024, and under
+#     no-new-privileges a file capability the process cannot gain makes the
+#     exec itself fail (EPERM, measured 2026-10-31) — so it is stripped.
+#   - /data (certificates, ACME account) and /config (autosave) are owned by
+#     the runtime uid, so a fresh named volume inherits a writable owner. An
+#     existing deployment re-owns its two volumes once (deploy/README.md
+#     "Upgrading an existing deployment to the non-root services").
+RUN apk upgrade --no-cache \
+ && apk add --no-cache --virtual .setcap libcap \
+ && setcap -r /usr/bin/caddy \
+ && apk del .setcap \
+ && chown 1000:1000 /data /config
+USER 1000:1000

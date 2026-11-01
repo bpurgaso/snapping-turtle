@@ -36,7 +36,7 @@ updates:
       # Toolchain majors are migrations, not bumps: TypeScript majors have to
       # move with typescript-eslint/tsx/vitest support (TS 7 is the Go
       # compiler); @types/node must track the runtime major in .nvmrc and the
-      # NODE_IMAGE the app image is built from, never lead it.
+      # node image deploy/Dockerfile is built from, never lead it.
       - dependency-name: typescript
         update-types: [version-update:semver-major]
       - dependency-name: '@types/node'
@@ -78,6 +78,10 @@ updates:
       # deploy/Dockerfile.backup's FROM follows the compose pin above (checked
       # in CI); a Dockerfile-only postgres PR could never pass, so none is asked for.
       - dependency-name: postgres
+      # The Node major is a migration (.nvmrc, @types/node, the npm ignore
+      # above), never a bump; patch and minor digests of node and caddy flow.
+      - dependency-name: node
+        update-types: [version-update:semver-major]
 
   # The Linux client (client-linux/, Rust — PLAN.md §15a). Cargo.lock is
   # committed and every CI cargo call is --locked, so a bump moves Cargo.toml

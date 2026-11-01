@@ -1,11 +1,15 @@
 # Deploying snapping-turtle
 
-Three services (PLAN.md §14): `caddy` (TLS via ACME DNS-01, body limits, the
-coarse rate cap), `app` (Fastify), `postgres`. Postgres is on an internal-only
-network; the app runs as the unprivileged `node` user with a read-only root
-filesystem, `no-new-privileges` and all capabilities dropped. The host
-publishes exactly one port, `PUBLIC_PORT` (28443 by default, TCP + UDP);
-nothing listens on 80 or 443.
+Four services (PLAN.md §14): `caddy` (TLS via ACME DNS-01, body limits, the
+coarse rate cap), `app` (Fastify), `postgres`, and the `backup` sidecar.
+Postgres is on an internal-only network that Caddy is not attached to. Every
+service runs as a fixed non-root uid (`caddy`, `app` and `backup` as 1000,
+`postgres` as 70) with a read-only root filesystem plus a tmpfs for scratch,
+`no-new-privileges`, all capabilities dropped, a memory limit and bounded
+json-file logs; the images are pinned by tag and digest. The host publishes
+exactly one port, `PUBLIC_PORT` (28443 by default, TCP + UDP), on the one
+address `PUBLIC_BIND_IP` names (every interface when unset); nothing listens
+on 80 or 443.
 
 ## Production
 
@@ -18,7 +22,9 @@ docker compose -f deploy/docker-compose.yml logs caddy | grep -E 'certificate ob
 ```
 
 Generate secrets rather than typing them: `openssl rand -base64 48` for
-`SESSION_SECRET`, `openssl rand -hex 24` for `POSTGRES_PASSWORD`.
+`SESSION_SECRET`, `openssl rand -hex 24` for `POSTGRES_PASSWORD`. Set
+`PUBLIC_BIND_IP` to the LAN address the router forwards to, so the listener
+is not also open on the host's other interfaces.
 
 The firewall opens `PUBLIC_PORT` (TCP and UDP) and nothing else — not 80,
 not 443 (see "TLS" below for why neither is needed). Migrations run
@@ -30,6 +36,31 @@ docker compose -f deploy/docker-compose.yml run --rm app node dist/db/seed.js
 
 then remove `ADMIN_BOOTSTRAP_*` from `deploy/.env`. Re-running the seed never
 changes an existing user's password.
+
+### Upgrading an existing deployment to the non-root services
+
+A stack brought up before 2026-11 ran Caddy and Postgres as root, so its
+`caddy_data` / `caddy_config` volumes are root-owned and Caddy, now uid 1000,
+cannot write them (it restart-loops on start). `pgdata` is already owned by
+70 — the root-started entrypoint chowned it — but check rather than assume.
+Once, before the first `up` on the new compose file, from the repo root:
+
+```sh
+git pull
+docker compose -f deploy/docker-compose.yml stop caddy postgres
+docker run --rm -v snapping-turtle_caddy_data:/d -v snapping-turtle_caddy_config:/c \
+  alpine:3.22 chown -R 1000:1000 /d /c
+docker run --rm -v snapping-turtle_pgdata:/p alpine:3.22 sh -c 'ls -ldn /p'   # expect "70 70"; otherwise: chown -R 70:70 /p
+$EDITOR deploy/.env                                   # add PUBLIC_BIND_IP=<the forwarded LAN address>
+docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml ps        # all four healthy; caddy shows <PUBLIC_BIND_IP>:28443 only
+for s in caddy app backup postgres; do docker compose -f deploy/docker-compose.yml exec "$s" id; done   # 1000, 1000, 1000, 70
+```
+
+Rollback is `git revert <the hardening commit>` and `up -d --build`: the
+root-run Caddy reads and writes 1000-owned directories without complaint, so
+nothing has to be re-owned back. A fresh install needs none of this — the
+images own `/data` and `/config` by the runtime uid, so new volumes inherit it.
 
 ## TLS: Let's Encrypt via DNS-01, one high port, no 80/443
 
@@ -244,6 +275,15 @@ same literal. Two reasons for the explicit pin, decided in M8:
   PR (its ignore rule is majors-only), the pin check makes that PR sync the
   other sites before it can go green, and the deploy picks it up on the next
   `up -d`. Patch upgrades within a major are safe on the existing data volume.
+- **An exact image, not an exact name.** The pin carries the manifest digest
+  (`postgres:16.15-alpine@sha256:…`): a tag can be re-pointed upstream, a
+  digest cannot, so the image that runs is byte-for-byte the one CI scanned.
+  Dependabot moves tag and digest together, and the pin check requires the
+  backup sidecar's `FROM` to carry the same digest (the CI service container,
+  the scratch restore container and the quickstarts carry the tag alone — they
+  run the image, they are not it). The Caddy and Node bases in the two
+  Dockerfiles are pinned the same way; refresh one with
+  `docker buildx imagetools inspect <image:tag> --format '{{.Manifest.Digest}}'`.
 
 ## Upgrading Postgres across a major version
 
@@ -357,9 +397,17 @@ written, so a message during a run means the budget was already partly spent.
 
 ## Notes
 
-- Caddy runs as root inside its container (the stock image's default; it
-  binds only `PUBLIC_PORT` and its loopback admin endpoint); the app and
-  Postgres do not.
+- Nothing runs as root. Caddy is uid 1000 (the stock image has no user, so
+  it is a number; `PUBLIC_PORT` is above 1024 and needs no capability — the
+  `cap_net_bind_service` file capability xcaddy stamps on the binary is
+  stripped in `Dockerfile.caddy`, because under `no-new-privileges` a file
+  capability the process cannot gain makes the exec fail outright), Postgres
+  is the image's uid 70 (started non-root, the entrypoint skips its chown +
+  gosu step), the app and the backup sidecar are 1000. Each container's
+  effective capability set is empty (`grep CapEff /proc/1/status`).
+- Logs are the json-file driver capped at 3 × 10 MB per container. If the
+  host daemon defaults to journald, this moves these containers' logs into
+  files under `/var/lib/docker/containers`; `docker compose logs` is unchanged.
 - `PUBLIC_ORIGIN` is derived by compose as `https://$PUBLIC_HOST:$PUBLIC_PORT`
   and is the single source of every generated URL — page links, image links,
   `/ext/updates.json`. The app refuses to boot if `PUBLIC_PORT` and the port
