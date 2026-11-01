@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 # Build context is the repo root: docker compose -f deploy/docker-compose.yml build
 #
 # Stage 1 builds shared + web + server; stage 2 is a slim runtime with only
@@ -10,9 +10,13 @@
 # shared/fonts/Inter-Regular.ttf — so librsvg draws the same glyphs the
 # editor does. Removing these silently breaks text in flat renders.
 
-ARG NODE_IMAGE=node:22-bookworm-slim
-
-FROM ${NODE_IMAGE} AS base
+# Base image pinned by exact tag *and* manifest digest (both FROM lines below
+# name the same one): a tag can be re-pointed upstream, a digest cannot, so
+# what Trivy scanned in CI is what runs. Literal rather than an ARG so
+# Dependabot's docker ecosystem sees it and moves tag and digest together;
+# the major must match .nvmrc and @types/node (.github/dependabot.yml). To
+# refresh by hand: docker buildx imagetools inspect node:<tag> --format '{{.Manifest.Digest}}'
+FROM node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 WORKDIR /app
@@ -44,7 +48,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
       --filter @snapping-turtle/shared... --filter @snapping-turtle/server...
 
 # ---- runtime ----------------------------------------------------------------
-FROM ${NODE_IMAGE} AS runtime
+FROM node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS runtime
 ENV NODE_ENV=production \
     # Deterministic font resolution for the flat renderer (§10); the cache
     # lands under XDG_CACHE_HOME because the container filesystem is

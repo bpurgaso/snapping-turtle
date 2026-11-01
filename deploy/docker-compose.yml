@@ -1,24 +1,57 @@
 # snapping-turtle — PLAN.md §14. Run from the repo root:
 #   docker compose -f deploy/docker-compose.yml up -d --build
 # Configuration comes from deploy/.env (copy deploy/.env.example).
+#
+# Containment (PLAN.md §14 "Container hardening"): a compromise of any one
+# container — most plausibly caddy or app, the two that touch request bytes —
+# must stay inside it. Every service runs as a fixed non-root uid with all
+# capabilities dropped, no-new-privileges, a read-only root filesystem (tmpfs
+# for scratch), a memory limit and bounded logs; images are pinned by tag and
+# digest; postgres sits on an internal-only network that caddy is not on.
+# The uids are part of the data layout: the named volumes must be owned by
+# them (deploy/README.md "Upgrading an existing deployment to the non-root
+# services" for a stack that predates this).
 
 name: snapping-turtle
 
+# The hardening block every service merges with `<<: *hardened` (compose
+# ignores top-level x-* keys). What differs per service — the uid, the tmpfs
+# paths it writes, the memory limit — stays on the service with its reason.
+x-hardened: &hardened
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  read_only: true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+
 services:
   caddy:
+    <<: *hardened
     build:
       context: .
       dockerfile: Dockerfile.caddy
     image: snapping-turtle/caddy:local
-    restart: unless-stopped
+    # The stock image has no unprivileged user; Caddy needs none. 1000:1000
+    # is an arbitrary fixed uid (the same number the app's `node` user has,
+    # for one chown recipe). PUBLIC_PORT is above 1024, so binding it needs
+    # no capability, and the admin endpoint stays on loopback inside the
+    # container. caddy_data and caddy_config must be owned by 1000:1000.
+    user: '1000:1000'
     # The one inbound port (PLAN.md §14): TCP for HTTP/1.1 and HTTP/2, UDP for
     # HTTP/3. Nothing is published on 80 or 443 and nothing may be — TLS is
     # issued via DNS-01, which needs no inbound connection, and the Caddyfile
     # disables the :80 redirect server. Not a defence (scanners sweep every
     # port); conflict avoidance and surface reduction only.
+    # PUBLIC_BIND_IP narrows the listener to the one host address the
+    # router forwards to (deploy/.env); unset, it binds every interface,
+    # which local runs and the rehearsal scripts rely on.
     ports:
-      - '${PUBLIC_PORT:-28443}:${PUBLIC_PORT:-28443}'
-      - '${PUBLIC_PORT:-28443}:${PUBLIC_PORT:-28443}/udp'
+      - '${PUBLIC_BIND_IP:-0.0.0.0}:${PUBLIC_PORT:-28443}:${PUBLIC_PORT:-28443}'
+      - '${PUBLIC_BIND_IP:-0.0.0.0}:${PUBLIC_PORT:-28443}:${PUBLIC_PORT:-28443}/udp'
     environment:
       PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in deploy/.env}
       PUBLIC_PORT: ${PUBLIC_PORT:-28443}
@@ -29,27 +62,38 @@ services:
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-30}
       CADDY_RATE_PER_IP_PER_MIN: ${CADDY_RATE_PER_IP_PER_MIN:-300}
     volumes:
+      # Read-only binds from this directory: the site config is operator
+      # state that changes without a rebuild (docker-compose.local.yml swaps
+      # the Caddyfile; a domain migration drops a block into caddy.d and
+      # runs `up -d`), so it is not baked into the image.
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Extra site blocks (old-domain redirect during a domain migration).
       - ./caddy.d:/etc/caddy/sites.d:ro
+      # Certificates and ACME account (XDG_DATA_HOME) / autosaved config
+      # (XDG_CONFIG_HOME): the only two places Caddy writes.
       - caddy_data:/data
       - caddy_config:/config
+    tmpfs:
+      - /tmp:size=16m,mode=1777
     networks: [web]
     depends_on:
       app:
         condition: service_healthy
-    security_opt: [no-new-privileges:true]
     deploy:
       resources:
         limits:
           memory: 256M
 
   app:
+    <<: *hardened
     build:
       context: ..
       dockerfile: deploy/Dockerfile
     image: snapping-turtle/app:local
-    restart: unless-stopped
+    # The image's `node` user (deploy/Dockerfile `USER node`), by number so
+    # the uid is fixed here and not looked up in the image's passwd. Owns
+    # the images volume; the backup sidecar reads it as the same uid.
+    user: '1000:1000'
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
@@ -102,17 +146,15 @@ services:
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
     volumes:
       - images:/data/images
+      # Read-only bind: sign:firefox publishes a new .xpi here and the app
+      # serves it on the next request, with no rebuild (deploy/ext/README.md).
       - ./ext:/data/ext:ro
     tmpfs:
       - /tmp:size=64m,mode=1777
-    read_only: true
-    user: node
     networks: [web, internal]
     depends_on:
       postgres:
         condition: service_healthy
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
     deploy:
       resources:
         limits:
@@ -123,11 +165,15 @@ services:
   # — a restic snapshot off-box. `backup run` for an ad-hoc backup,
   # deploy/backup/verify-restore.sh to prove the latest one restores.
   backup:
+    <<: *hardened
     build:
       context: .
       dockerfile: Dockerfile.backup
     image: snapping-turtle/backup:local
-    restart: unless-stopped
+    # The image's `backup` user (Dockerfile.backup), stated here as well so
+    # compose pins it. uid 1000 on purpose: the read-only images volume is
+    # the app's, 0750/0640, and the same uid reads it without loosening that.
+    user: '1000:1000'
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
@@ -151,38 +197,48 @@ services:
       - backups:/backups
     tmpfs:
       - /tmp:size=256m,mode=1777
-    read_only: true
     networks: [internal, egress]
     depends_on:
       postgres:
         condition: service_healthy
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
     deploy:
       resources:
         limits:
           memory: 256M
 
   postgres:
+    <<: *hardened
     # Authoritative pin (scripts/check-image-pins.sh syncs every other site).
     # Explicit patch tag on purpose: `up -d --build` never re-pulls a cached
     # floating tag, and Dependabot can only bump a literal — see
-    # deploy/README.md "The Postgres image pin".
-    image: postgres:16.15-alpine
-    restart: unless-stopped
+    # deploy/README.md "The Postgres image pin". The digest makes the pin
+    # exact: a tag can be re-pointed upstream, a manifest digest cannot.
+    # Dependabot moves tag and digest together; the pin check holds
+    # deploy/Dockerfile.backup to both.
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+    # The image's `postgres` user (uid 70 on alpine). Started as non-root the
+    # entrypoint skips its chown + gosu step and runs the server directly, so
+    # pgdata must already belong to 70:70 — which it does for every volume
+    # the root-started entrypoint initialised; the README's upgrade step
+    # verifies that before the first non-root start. 5432 needs no capability.
+    user: '70:70'
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
       POSTGRES_DB: ${POSTGRES_DB:-snapping_turtle}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    tmpfs:
+      # The unix socket (pg_isready in the healthcheck connects through it)
+      # and the server's scratch; everything else it writes is in pgdata.
+      - /run/postgresql:size=4m,mode=0770,uid=70,gid=70
+      - /tmp:size=64m,mode=1777
     networks: [internal]
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s
       timeout: 5s
       retries: 6
-    security_opt: [no-new-privileges:true]
     deploy:
       resources:
         limits:
@@ -195,6 +251,9 @@ networks:
     ipam:
       config:
         - subnet: 172.28.101.0/24
+  # Database network: app and backup reach postgres here and nowhere else.
+  # `internal` means no gateway — nothing on it can reach the outside, and
+  # caddy, which is not attached, cannot resolve or route to postgres.
   internal:
     internal: true
   # Outbound-only network for the backup sidecar's off-box restic target.
