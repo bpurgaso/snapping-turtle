@@ -34,7 +34,7 @@
     "@types/pngjs": "6.0.5",
     "drizzle-kit": "0.31.11",
     "pino-pretty": "13.2.0",
-    "pixelmatch": "7.2.0",
+    "pixelmatch": "8.0.0",
     "pngjs": "7.0.0",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
