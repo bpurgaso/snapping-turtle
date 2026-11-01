@@ -99,3 +99,14 @@ updates:
       cargo-minor-patch:
         patterns: ['*']
         update-types: [minor, patch]
+    ignore:
+      # zbus is the one DBus stack ashpd, ksni and oo7 are built on (Cargo.toml
+      # "one runtime, not two"); our direct dependency has to move with theirs.
+      # zbus 6 (2026-10-16) was proposed in #44 while ashpd 0.13.13, ksni 0.3.7
+      # and oo7 0.6.0 all still require ^5: taking it would have carried two
+      # zbus trees and a source migration (Proxy/interface moves, Fd/Variant
+      # renames, Builder/RequestNameFlags changes) in a dependency PR. Lift this
+      # ignore in the PR that moves all four together, once the three crates
+      # have releases on zbus 6.
+      - dependency-name: zbus
+        update-types: [version-update:semver-major]
