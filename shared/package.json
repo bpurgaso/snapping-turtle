@@ -41,7 +41,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "typebox": "1.4.3"
+    "typebox": "1.4.4"
   },
   "devDependencies": {
     "typescript": "5.9.3",
