@@ -27,7 +27,7 @@
 # (deploy/README.md "TLS").
 ARG CADDY_DNS_MODULE=github.com/caddy-dns/cloudflare@v0.2.4
 
-FROM caddy:2.11.7-builder@sha256:c4cd20eaa0b69112fd5d4f721ffc9671687e1d5d0b155c8620cf7546dbef94c0 AS builder
+FROM caddy:2.11.8-builder@sha256:d4eb070c36154bd2d4c94b40359a03c6168346d5af5404963c74691ab77fb63f AS builder
 ARG CADDY_DNS_MODULE
 # The --replace lines bump Go modules Caddy 2.11.7 still pins at versions
 # with a fixed HIGH CVE (Trivy gates the built binary in CI). Each is
@@ -50,7 +50,7 @@ RUN xcaddy build \
 # Named so CI can exclude it from the build cache (ci.yml no-cache-filters):
 # the apk upgrade below only picks up Alpine's fixes when it actually runs,
 # and a cached layer would serve last month's packages to today's Trivy scan.
-FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS runtime
+FROM caddy:2.11.8-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9 AS runtime
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 # Non-root runtime (compose runs the container as 1000:1000 with every
 # capability dropped and no-new-privileges; the stock image has no user, so
