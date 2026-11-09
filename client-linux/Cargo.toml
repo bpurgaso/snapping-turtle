@@ -21,7 +21,7 @@ path = "src/main.rs"
 [dependencies]
 # The maintained first-class XDG Desktop Portal binding: Screenshot, OpenURI,
 # Notification, GlobalShortcuts, Background and the host-app Registry.
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "screenshot", "open_uri", "notification", "global_shortcuts", "background"] }
+ashpd = { version = "0.14", default-features = false, features = ["tokio", "screenshot", "open_uri", "notification", "global_shortcuts", "background"] }
 # The DBus stack ashpd is built on; used directly for KWin's
 # org.kde.KWin.ScreenShot2 and for the single-instance control interface.
 zbus = { version = "5", default-features = false, features = ["tokio"] }
