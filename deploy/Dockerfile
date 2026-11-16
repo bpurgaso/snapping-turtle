@@ -16,7 +16,7 @@
 # Dependabot's docker ecosystem sees it and moves tag and digest together;
 # the major must match .nvmrc and @types/node (.github/dependabot.yml). To
 # refresh by hand: docker buildx imagetools inspect node:<tag> --format '{{.Manifest.Digest}}'
-FROM node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS base
+FROM node:22.23.5-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 WORKDIR /app
@@ -48,7 +48,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
       --filter @snapping-turtle/shared... --filter @snapping-turtle/server...
 
 # ---- runtime ----------------------------------------------------------------
-FROM node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS runtime
+FROM node:22.23.5-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS runtime
 ENV NODE_ENV=production \
     # Deterministic font resolution for the flat renderer (§10); the cache
     # lands under XDG_CACHE_HOME because the container filesystem is
