@@ -35,7 +35,7 @@ ksni = { version = "0.3", default-features = false, features = ["tokio"] }
 # real Let's Encrypt cert on the nonstandard port), multipart for the upload form.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "multipart"] }
 # Secret Service / portal keyring client for the API token; shares zbus and ashpd.
-oo7 = { version = "0.6", default-features = false, features = ["tokio", "native_crypto"] }
+oo7 = { version = "0.7", default-features = false, features = ["tokio", "native_crypto"] }
 # The config file and the upload response.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
